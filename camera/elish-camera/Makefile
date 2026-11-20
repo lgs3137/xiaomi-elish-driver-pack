@@ -39,6 +39,10 @@ $(BUILD):
 $(BUILD)/%.o: src/%.c include/elish_camera.h | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(EGL_CFLAGS) $(PW_CFLAGS) -c $< -o $@
 
+# Optional locally-extracted tuning data (see tools/android_tuning/README.md).
+# If present it must rebuild the GPU module; if absent the neutral fallback is used.
+$(BUILD)/gpu_debayer.o: $(wildcard src/tuning_data.h)
+
 $(BUILD)/elish-camera: $(MAINOBJ) $(MODULES)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(EGL_LIBS) $(PW_LIBS) $(LDLIBS)
 

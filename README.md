@@ -50,7 +50,8 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | **相机** | 前摄 OV8856 3280×2464 / 后摄 OV13B10 4208×3120 全分辨率拍照/录像 | ✅ | GPU debayer + Venus HEVC/H.264，~30fps；两个 V4L2 虚拟相机 |
 | 相机 | 后摄 AF/AE/AWB、CN3927V VCM、EEPROM 24c64 | ✅ | 软件 AF 扫焦写 focus sysfs |
 | 相机 | PipeWire / xdg-desktop-portal / Snapshot | ✅ | 两个 `media.role=Camera` 节点，portal 取流已实测 |
-| 相机 | Hi556 景深 | 🚫 | 卡在 PM8150A L1/L2 供电方案（进行中） |
+| 相机 | LSC / CCM 画质调校 | ✅ | **不随包提供调校数据**，仅提供本机只读提取脚本；提取后默认启用（后摄暗角 4.4×→~1×），未提取时中性/关闭；`ELISH_LSC=0`/`ELISH_CCM=0` 可关 |
+| 相机 | Hi556 景深 | ⚠️ | **RAW 出流已验证**（stage2：2592×1944 SGRBG10@~30fps，checker test pattern 校验）；无深度/彩色用户态；原“PM8150A L1/L2 被占”已纠正为 DTS 缺 ldoc2 节点 |
 | 相机 | 前后摄同时出流 | 🚫 | CAMSS/DTB 资源限制，一次只能一路 |
 | **相机闪光灯/手电筒** | 后摄闪光灯 LED（PM8150L `white:flash`）：开机误闪修复 + 手电筒 | ✅ | **开机 logo 阶段误闪已修复**（默认组件 `flash-led/`）；手电筒可选 GNOME 46 控制中心开关 + `torch` CLI（`--with-torch`，默认不装） |
 | **内核/系统** | 联合 DTB（传感器 vmids + 指纹节点 + GNSS QUP5 UART + 相机节点） | ✅ | 模型级、无本机私有信息；构建/校验见 `kernel/dtb/README.md` |
@@ -349,7 +350,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - 传感器 PD 偶发静默卡死（约 **1/14** 次干净启动）：固件侧问题，干净重启恢复，非本包可修；
 - 休眠唤醒后 PDM crash 1 次属已知现象（传感器数据仍可用；干净重启后自检为 0）；
 - 原始陀螺/磁力计三轴/接近未暴露（libssc/udev 层待补）；
-- 相机：景深 Hi556 未通；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
+- 相机：景深 Hi556 为实验性（DTS 补丁与工具已提供，待上机验证）；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
 - pogo 键盘唤醒后可能失效（内核 USB PHY resume；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器）；
 - 指纹 TA 需自提；`libfprint-2-2` 升级会覆盖自编译库（建议 hold）；内核/固件升级后需按 `docs/UPGRADE-IMPACT-ALL.md` 重做；
 - sudo 指纹 PAM 属安全敏感配置，安装前确保能用密码回退；

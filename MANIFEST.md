@@ -1,7 +1,8 @@
 # 合并包清单（MANIFEST）
 
 合并包 = 传感器安装包（已清理）+ 指纹安装包（已清理）+ GNSS 子包 + 共享内核/DTB 资产
-+ 相机/闪光灯修复（默认）与可选 GNOME 手电筒 + 合并文档。
++ 相机/闪光灯修复（默认）、相机画质调校提取脚本、Hi556 构建/应用脚本
++ 与可选 GNOME 手电筒 + 合并文档。**不包含任何设备调校数据/DTB/DTS 提取物**。
 **不含**固件、编译产物、日志、指纹模板、密钥/序列号、PAM/sudoers 备份。
 
 ## 顶层
@@ -22,7 +23,7 @@ docs/          合并升级影响评估（UPGRADE-IMPACT-ALL.md）+ 硬件状态
                + 整机 TODO（TODO.md）+ 历史记录（HISTORY.md）+ 设备数据/固件提取指南（DEVICE-DATA-EXTRACTION.md）
                + 安全加固说明（HARDENING.md）+ 内核升级风险评估（KERNEL-UPGRADE-RISK.md）
                + Android/Linux 充电驱动对比（CHARGING-DRIVER-COMPARISON.md）
-camera/        相机子包：elish-camera/（前后摄全分辨率 3280×2464/4208×3120，GPU debayer + Venus 硬编，~30fps 拍照/录像，/dev/video2+/dev/video20 双虚拟相机，autoserve 自动路由，PipeWire/portal，后摄自动对焦）+ 旧 OV8856 helper + install.sh（一键安装）+ elish-camera/verify.sh（自检）
+camera/        相机子包：elish-camera/（前后摄全分辨率 3280×2464/4208×3120，GPU debayer + Venus 硬编，~30fps 拍照/录像，/dev/video2+/dev/video20 双虚拟相机，autoserve 自动路由，PipeWire/portal，后摄自动对焦；LSC/CCM 仅提供本机提取脚本，不随包带调校数据）+ 旧 OV8856 helper + install.sh（一键安装）+ elish-camera/verify.sh（自检）
 flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫
                （wrapper + systemd drop-in；不修改 Armbian 包文件）
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
@@ -54,6 +55,7 @@ torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
 | `INTEGRATION.md` | 头文件 + drivers/tee Kconfig/Makefile 集成步骤 |
 | `initramfs/` | 修复版 initramfs hook + 安装脚本（防止 SLPI 固件进 initramfs） |
 | `dtb/` | 已验证联合 DTB（二进制，模型级）+ 说明/参考/校验脚本 |
+| `dtb/hi556/` | Hi556 景深 **构建/应用脚本 + 方法文档**（不随包带 DTS/DTB/patch）；已实测 stage1/stage2，RAW 出流正常；不自动应用 |
 
 ## sensors/
 
@@ -138,4 +140,4 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通）：
 
 ## 统计
 
-**313 个文件；体积约 2.3MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是模型级联合 DTB；`SHA256SUMS` 已按最终树生成。
+**322 个文件；体积约 2.4MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是模型级联合 DTB；`SHA256SUMS` 已按最终树生成。

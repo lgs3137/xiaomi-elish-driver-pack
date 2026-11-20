@@ -39,12 +39,20 @@
  *
  * Colour
  * ------
- * black level subtract (64 of 1024, OV8856/OV13B10) -> white balance ->
+ * black level subtract (64 of 1024, OV8856/OV13B10) -> lens shading
+ * correction (LSC) -> white balance -> colour correction matrix (CCM) ->
  * normalise -> gamma (caller supplied, typically 1/2.2) -> BT.601 limited
- * range YCbCr for NV12.  The statistics interface reports pre-gamma linear
- * means in 0..255 scale: mean of max(RAW-64,0) / 4 per Bayer colour, with the
- * white balance gains applied to the means, and mean_y is Rec.601 luma of
- * those.
+ * range YCbCr for NV12.  LSC and CCM come from the vendor Chromatix tuning
+ * calibration data extracted from the owner's Android vendor partition.
+ * tools/android_tuning/ generates src/tuning_data.h locally; the data file
+ * is intentionally not shipped.  With it, LSC/CCM default to ON
+ * (ELISH_LSC=0 / ELISH_CCM=0 disable; front LSC opt-in via
+ * ELISH_LSC_FRONT=1).  Without it the mesh/CCM are identity and both are OFF
+ * unless explicitly forced, so the build works on a fresh checkout.
+ * The statistics interface reports pre-gamma linear means in 0..255 scale:
+ * mean of max(RAW-64,0) / 4 per Bayer colour, with the white balance gains
+ * applied to the means, and mean_y is Rec.601 luma of those (LSC/CCM are not
+ * applied to the 3A statistics, so metering stays predictable).
  *
  * Rotation 0/90/180/270 (clockwise) is applied by mapping output pixel
  * coordinates back to RAW coordinates in the shader, so the Bayer pattern is
@@ -83,6 +91,32 @@
 #endif
 
 #include "elish_camera.h"
+
+/*
+ * Tuning data is NOT shipped: it is calibration data extracted from the
+ * owner's Android vendor partition.  The extraction scripts live in
+ * tools/android_tuning/ and generate src/tuning_data.h locally.  Without
+ * that header the pipeline builds with neutral (identity) LSC/CCM and
+ * keeps them disabled unless explicitly requested.
+ */
+#if defined(__has_include)
+# if __has_include("tuning_data.h")
+#  include "tuning_data.h"
+#  define ELISH_HAVE_TUNING_DATA 1
+# endif
+#endif
+#ifndef ELISH_HAVE_TUNING_DATA
+#define ELISH_LSC_GRID_W 17
+#define ELISH_LSC_GRID_H 13
+/* identity CCM: row sums = 1, no colour rotation */
+static const float elish_ccm_rear_wide[9] = { 1.0f, 0.0f, 0.0f,
+                                              0.0f, 1.0f, 0.0f,
+                                              0.0f, 0.0f, 1.0f };
+static const float elish_ccm_front[9] = { 1.0f, 0.0f, 0.0f,
+                                          0.0f, 1.0f, 0.0f,
+                                          0.0f, 0.0f, 1.0f };
+#endif
+
 
 /* ------------------------------------------------------------------ */
 /* configuration                                                      */
@@ -154,6 +188,11 @@ typedef struct {
     GLint u_cnt;      /* vec3       1/count per colour */
     GLint u_off;      /* ivec2      stats block origin */
     GLint u_grid;     /* int        stats grid         */
+    GLint u_lsc;      /* sampler2D  LSC gain mesh (unit 1) */
+    GLint u_lsc_on;   /* int        apply LSC          */
+    GLint u_green_ch; /* ivec2      green channel per row parity (1=Gr 2=Gb) */
+    GLint u_ccm;      /* mat3       colour correction matrix */
+    GLint u_ccm_on;   /* int        apply CCM          */
 } gpu_program;
 
 /* a single plane dma-buf imported as an EGLImage renderbuffer */
@@ -223,6 +262,12 @@ struct elish_gpu {
     GLuint stats_fbo2;
     GLuint stats_rb; /* STATS_OUT x STATS_OUT RGBA16F readback target */
     GLuint stats_fbo_out;
+
+    /* Android Chromatix tuning data (extracted 2026-11-20): LSC mesh + CCM */
+    GLuint tex_lsc[2]; /* [0] rear OV13B10 (GRBG), [1] front OV8856 (BGGR) */
+    int lsc_enabled;
+    int lsc_front_enabled;
+    int ccm_enabled;
 };
 
 /* ------------------------------------------------------------------ */
@@ -268,6 +313,11 @@ static const char *FS_UNPACK =
     "uniform highp ivec4 u_c;\n" /* colour at (0,0),(1,0),(0,1),(1,1) */    \
     "uniform highp vec3 u_wb;\n"                                             \
     "uniform highp float u_gamma;\n"                                         \
+    "uniform highp sampler2D u_lsc;\n" /* LSC gain mesh, GL_LINEAR */        \
+    "uniform highp int u_lsc_on;\n"                                          \
+    "uniform highp ivec2 u_green_ch;\n" /* even-row / odd-row green channel  */ \
+    "uniform highp mat3 u_ccm;\n"                                            \
+    "uniform highp int u_ccm_on;\n"                                          \
     "float rawFetch(ivec2 p)\n"                                              \
     "{\n"                                                                    \
     "    p = clamp(p, ivec2(0), u_raw_size - 1);\n"                          \
@@ -322,10 +372,46 @@ static const char *FS_UNPACK =
 #define COLORIZE                                                           \
     "const float u_black = 64.0;\n" /* sensor black level, 10-bit RAW units */ \
     "const float u_white = 959.0;\n" /* 1023 - 64 */                       \
-    "vec3 colorize(vec3 rgb)\n"                                            \
+    "vec4 lscFetch(ivec2 p)\n"                                             \
+    "{\n"                                                                  \
+    "    vec2 denom = max(vec2(u_raw_size - 1), vec2(1.0));\n"             \
+    "    vec2 rel = vec2(p) / denom;\n"                                    \
+    "    vec2 uv = rel * vec2(16.0, 12.0) / vec2(17.0, 13.0) +\n"          \
+    "              vec2(0.5 / 17.0, 0.5 / 13.0);\n"                        \
+    "    return texture(u_lsc, uv);\n"                                     \
+    "}\n"                                                                  \
+    "/* per-pixel LSC gain: R/Gr/Gb/B mesh channels, green picked by row */\n" \
+    "vec3 lscGainPixel(ivec2 p, int c)\n"                                  \
+    "{\n"                                                                  \
+    "    vec4 g = lscFetch(p);\n"                                          \
+    "    float gr = g.g;\n"                                                \
+    "    float gb = g.b;\n"                                                \
+    "    float gg;\n"                                                      \
+    "    if (c == 1) {\n"                                                  \
+    "        int ch = ((p.y & 1) == 0) ? u_green_ch.x : u_green_ch.y;\n"   \
+    "        gg = (ch == 1) ? gr : gb;\n"                                  \
+    "    } else {\n"                                                       \
+    "        gg = 0.5 * (gr + gb);\n"                                      \
+    "    }\n"                                                              \
+    "    return vec3(g.r, gg, g.a);\n"                                     \
+    "}\n"                                                                  \
+    "vec3 colorize(vec3 rgb, ivec2 p, int c)\n"                            \
     "{\n"                                                                  \
     "    rgb = max(rgb - u_black, 0.0) / u_white;\n"                       \
+    "    if (u_lsc_on != 0) rgb *= lscGainPixel(p, c);\n"                  \
     "    rgb = rgb * u_wb;\n"                                              \
+    "    if (u_ccm_on != 0) rgb = u_ccm * rgb;\n"                          \
+    "    rgb = clamp(rgb, 0.0, 1.0);\n"                                    \
+    "    return pow(rgb, vec3(u_gamma));\n"                                \
+    "}\n"                                                                  \
+    "/* chroma pass: raw R/G/B sums over a 4x4 block; LSC at block centre */\n" \
+    "vec3 colorize_mixed(vec3 rgb, ivec2 p)\n"                             \
+    "{\n"                                                                  \
+    "    vec4 g = lscFetch(p);\n"                                          \
+    "    if (u_lsc_on != 0) rgb *= vec3(g.r, 0.5 * (g.g + g.b), g.a);\n"   \
+    "    rgb = max(rgb - u_black, 0.0) / u_white;\n"                       \
+    "    rgb = rgb * u_wb;\n"                                              \
+    "    if (u_ccm_on != 0) rgb = u_ccm * rgb;\n"                          \
     "    rgb = clamp(rgb, 0.0, 1.0);\n"                                    \
     "    return pow(rgb, vec3(u_gamma));\n"                                \
     "}\n"
@@ -336,7 +422,8 @@ static const char *FS_Y = DEMOSAIC_PRELUDE DEMOSAIC_BILINEAR COLORIZE
     "void main()\n"
     "{\n"
     "    ivec2 o = ivec2(gl_FragCoord.xy);\n"
-    "    vec3 rgb = colorize(demosaic(mapSrc(o)));\n"
+    "    ivec2 p = mapSrc(o);\n"
+    "    vec3 rgb = colorize(demosaic(p), p, colorAt(p));\n"
     "    float y = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;\n"
     "    fragColor = vec4((16.0 + 219.0 * y) / 255.0);\n"
     "}\n";
@@ -366,7 +453,8 @@ static const char *FS_UV = DEMOSAIC_PRELUDE COLORIZE
     "            else             sumB += v;\n"
     "        }\n"
     "    }\n"
-    "    vec3 rgb = colorize(vec3(sumR * u_cnt.x, sumG * u_cnt.y, sumB * u_cnt.z));\n"
+    "    vec3 rgb = colorize_mixed(vec3(sumR * u_cnt.x, sumG * u_cnt.y, sumB * u_cnt.z),\n"
+    "                               base + ivec2(1, 1));\n"
     "    float cb = -0.168736 * rgb.r - 0.331264 * rgb.g + 0.5 * rgb.b;\n"
     "    float cr = 0.5 * rgb.r - 0.418688 * rgb.g - 0.081312 * rgb.b;\n"
     "    fragColor = vec4((128.0 + 224.0 * cb) / 255.0,\n"
@@ -379,7 +467,8 @@ static const char *FS_RGB = DEMOSAIC_PRELUDE DEMOSAIC_BILINEAR COLORIZE
     "void main()\n"
     "{\n"
     "    ivec2 o = ivec2(gl_FragCoord.xy);\n"
-    "    fragColor = vec4(colorize(demosaic(mapSrc(o))), 1.0);\n"
+    "    ivec2 p = mapSrc(o);\n"
+    "    fragColor = vec4(colorize(demosaic(p), p, colorAt(p)), 1.0);\n"
     "}\n";
 
 /*
@@ -518,6 +607,11 @@ static int program_init(gpu_program *p, const char *fs_src, const char *name)
     p->u_cnt = glGetUniformLocation(id, "u_cnt");
     p->u_off = glGetUniformLocation(id, "u_raw_off");
     p->u_grid = glGetUniformLocation(id, "u_grid");
+    p->u_lsc = glGetUniformLocation(id, "u_lsc");
+    p->u_lsc_on = glGetUniformLocation(id, "u_lsc_on");
+    p->u_green_ch = glGetUniformLocation(id, "u_green_ch");
+    p->u_ccm = glGetUniformLocation(id, "u_ccm");
+    p->u_ccm_on = glGetUniformLocation(id, "u_ccm_on");
     return 0;
 }
 
@@ -1038,6 +1132,10 @@ static void bayer_colors(elish_bayer bayer, int c[4])
     }
 }
 
+/* defined after sanitize_gamma(); declared here because set_demosaic_uniforms()
+ * (and therefore every render pass) needs the green-channel mapping. */
+static void green_channel_map(elish_bayer bayer, int *even_row, int *odd_row);
+
 static void bind_nv12_y(elish_gpu *g)
 {
     glBindFramebuffer(GL_FRAMEBUFFER, g->fbo);
@@ -1068,6 +1166,28 @@ static void set_demosaic_uniforms(elish_gpu *g, gpu_program *p, const elish_raw_
     glUniform4i(p->u_c, c[0], c[1], c[2], c[3]);
     glUniform3f(p->u_wb, wb.r, wb.g, wb.b);
     glUniform1f(p->u_gamma, gamma);
+
+    /*
+     * LSC + CCM from the Android Chromatix tuning data.  The rear sensor is
+     * OV13B10 (GRBG) and gets the real per-module LSC mesh; the front OV8856
+     * only has the vendor's template mesh, so front LSC is opt-in
+     * (ELISH_LSC_FRONT=1) while its CCM is harmless and always available.
+     */
+    int tsel = (bayer == ELISH_BAYER_BGGR) ? 1 : 0;
+    int lsc_on = g->lsc_enabled && g->tex_lsc[tsel] != 0;
+    if (tsel == 1 && !g->lsc_front_enabled)
+        lsc_on = 0;
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, g->tex_lsc[tsel]);
+    glUniform1i(p->u_lsc, 1);
+    glUniform1i(p->u_lsc_on, lsc_on ? 1 : 0);
+    int green_even = 1, green_odd = 2;
+    green_channel_map(bayer, &green_even, &green_odd);
+    glUniform2i(p->u_green_ch, green_even, green_odd);
+    const float *ccm = (bayer == ELISH_BAYER_BGGR) ? elish_ccm_front : elish_ccm_rear_wide;
+    glUniformMatrix3fv(p->u_ccm, 1, GL_TRUE, ccm);
+    glUniform1i(p->u_ccm_on, g->ccm_enabled ? 1 : 0);
+
     if (p->u_cnt >= 0) {
         int npos[3] = {0, 0, 0};
         for (int i = 0; i < 4; ++i)
@@ -1192,6 +1312,58 @@ static float sanitize_gamma(float gamma)
     return gamma;
 }
 
+/* Green channel index in the LSC mesh for each row parity (1=Gr, 2=Gb). */
+static void green_channel_map(elish_bayer bayer, int *even_row, int *odd_row)
+{
+    switch (bayer) {
+    case ELISH_BAYER_GRBG: /* G R / B G: even row green is Gr, odd is Gb */
+    case ELISH_BAYER_RGGB: /* R G / G B: same */
+        *even_row = 1;
+        *odd_row = 2;
+        break;
+    case ELISH_BAYER_BGGR: /* B G / G R: even row green is Gb, odd is Gr */
+    case ELISH_BAYER_GBRG: /* G B / R G: same */
+    default:
+        *even_row = 2;
+        *odd_row = 1;
+        break;
+    }
+}
+
+/*
+ * Upload the 4x13x17 LSC gain mesh (QTI channel order R/Gr/Gb/B) as an
+ * RGBA16F texture.  Data comes from the Android Chromatix tuning bins
+ * (see tuning_data.h); one texel per grid node, bilinear filtered.
+ */
+static int lsc_texture_create(GLuint *tex,
+                              const float data[4][ELISH_LSC_GRID_W * ELISH_LSC_GRID_H])
+{
+    const int nodes = ELISH_LSC_GRID_W * ELISH_LSC_GRID_H;
+    float pix[ELISH_LSC_GRID_W * ELISH_LSC_GRID_H * 4];
+    for (int i = 0; i < nodes; ++i) {
+        pix[4 * i + 0] = data[0][i];
+        pix[4 * i + 1] = data[1][i];
+        pix[4 * i + 2] = data[2][i];
+        pix[4 * i + 3] = data[3][i];
+    }
+    glGenTextures(1, tex);
+    if (!*tex)
+        return -1;
+    glBindTexture(GL_TEXTURE_2D, *tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, ELISH_LSC_GRID_W, ELISH_LSC_GRID_H, 0, GL_RGBA,
+                 GL_FLOAT, pix);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, tex);
+        *tex = 0;
+        return -1;
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* public API                                                         */
 /* ------------------------------------------------------------------ */
@@ -1210,6 +1382,37 @@ elish_gpu *elish_gpu_create(void)
     if (gpu_egl_init(g) < 0 || gpu_programs_init(g) < 0)
         goto fail;
     gpu_gl_state_init(g);
+
+    /*
+     * Tuning data is extracted locally from the owner's Android vendor
+     * partition; without src/tuning_data.h the mesh/CCM are identity and
+     * both stages default to OFF.  With data generated by
+     * tools/android_tuning/, they default to ON (ELISH_LSC=0/ELISH_CCM=0
+     * disable).
+     */
+    const char *e;
+#ifdef ELISH_HAVE_TUNING_DATA
+    g->lsc_enabled = !((e = getenv("ELISH_LSC")) && e[0] == '0');
+    g->lsc_front_enabled = ((e = getenv("ELISH_LSC_FRONT")) && e[0] != '0');
+    g->ccm_enabled = !((e = getenv("ELISH_CCM")) && e[0] == '0');
+    const float (*lsc_rear)[ELISH_LSC_GRID_W * ELISH_LSC_GRID_H] = elish_lsc_rear_wide;
+    const float (*lsc_front)[ELISH_LSC_GRID_W * ELISH_LSC_GRID_H] = elish_lsc_front;
+#else
+    g->lsc_enabled = ((e = getenv("ELISH_LSC")) && e[0] == '1');
+    g->lsc_front_enabled = ((e = getenv("ELISH_LSC_FRONT")) && e[0] == '1');
+    g->ccm_enabled = ((e = getenv("ELISH_CCM")) && e[0] == '1');
+    float fallback_lsc[4][ELISH_LSC_GRID_W * ELISH_LSC_GRID_H];
+    for (int c = 0; c < 4; ++c)
+        for (int i = 0; i < ELISH_LSC_GRID_W * ELISH_LSC_GRID_H; ++i)
+            fallback_lsc[c][i] = 1.0f;
+    const float (*lsc_rear)[ELISH_LSC_GRID_W * ELISH_LSC_GRID_H] = fallback_lsc;
+    const float (*lsc_front)[ELISH_LSC_GRID_W * ELISH_LSC_GRID_H] = fallback_lsc;
+#endif
+    if (lsc_texture_create(&g->tex_lsc[0], lsc_rear) < 0 ||
+        lsc_texture_create(&g->tex_lsc[1], lsc_front) < 0) {
+        ELISH_ERR("gpu: LSC texture allocation failed");
+        goto fail;
+    }
 
     /* statistics reduction chain: 1024x1024 -> 256x256 -> 64x64 RGBA16F */
     GLenum st_a = 0, st_b = 0, st_c = 0;
@@ -1299,6 +1502,12 @@ void elish_gpu_destroy(elish_gpu *g)
             glDeleteTextures(1, &g->stats_tex);
             g->stats_tex = 0;
         }
+        for (int i = 0; i < 2; ++i) {
+            if (g->tex_lsc[i]) {
+                glDeleteTextures(1, &g->tex_lsc[i]);
+                g->tex_lsc[i] = 0;
+            }
+        }
         if (g->fbo) {
             glDeleteFramebuffers(1, &g->fbo);
             g->fbo = 0;
@@ -1328,6 +1537,22 @@ void elish_gpu_destroy(elish_gpu *g)
 const char *elish_gpu_renderer(elish_gpu *g)
 {
     return g ? g->renderer : NULL;
+}
+
+/*
+ * Enable/disable the Android Chromatix colour blocks at runtime.
+ * lsc/ccm: 1 = enable, 0 = disable, <0 = leave unchanged.
+ * Front-camera LSC stays opt-in (ELISH_LSC_FRONT=1) because only the vendor
+ * template mesh exists for OV8856.
+ */
+void elish_gpu_set_quality(elish_gpu *g, int lsc, int ccm)
+{
+    if (!g)
+        return;
+    if (lsc >= 0)
+        g->lsc_enabled = lsc ? 1 : 0;
+    if (ccm >= 0)
+        g->ccm_enabled = ccm ? 1 : 0;
 }
 
 int elish_gpu_debayer_nv12(elish_gpu *g, const elish_raw_image *raw, elish_bayer bayer,

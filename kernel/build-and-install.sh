@@ -110,6 +110,7 @@ apply_kpatch "$P/0005-ov8856-bggr-vflip.patch"
 apply_kpatch "$P/0006-ov13b10-of-supplies-reset.patch"
 apply_kpatch "$P/0007-cn3927v.patch"
 apply_kpatch "$P/0008-hi556-of.patch"
+apply_kpatch "$P/0009-fastrpc-listener-unfreezable.patch"
 
 step "3) 确保 q6v5_pas auto_boot=true（SLPI 开机不抢先启动）"
 Q6="$KSRC/drivers/remoteproc/qcom_q6v5_pas.c"

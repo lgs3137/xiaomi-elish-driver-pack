@@ -12,7 +12,7 @@
 
 | 类别 | 硬件 | 状态 |
 |---|---|---|
-| **部分驱动** | 前摄 OV8856 8MP（raw/彩色 vcam/扫码）；后摄 OV13B10 13MP（raw/彩色 + CN3927V AF + AE/AWB + EEPROM 24c64 + 4208 全彩）；景深 Hi556 未通 | ⚠️ 后摄 AF/AE/AWB/EEPROM/4208 全彩打通；Hi556 卡在 PM8150A L1/L2 供电 |
+| **部分驱动** | 前摄 OV8856 8MP（raw/彩色 vcam/扫码）；后摄 OV13B10 13MP（raw/彩色 + CN3927V AF + AE/AWB + EEPROM 24c64 + 4208 全彩）；景深 Hi556 RAW 已通 | ⚠️ 后摄 AF/AE/AWB/EEPROM/4208 全彩打通；Hi556 stage2 实测 RAW10 2592×1944@~30fps、checker test pattern 通过；无深度/彩色用户态；原“PM8150A L1/L2 被占”已纠正为 DTS 缺 `ldoc2` 节点 |
 | 已驱动 | **GNSS（Airoha AG3335，QUP5 UART + PAIR 协议）** | ✅ 2026-11-12 打通（见 §3、`gnss/README.md`） |
 | 已驱动 | 指南针 heading（旋转矢量 rotv 融合 → `CompassHeading`） | ✅（原始磁力计三轴仍未暴露） |
 | 部分驱动 | 原始陀螺、原始磁力计三轴、接近/SAR | ⚠️ 用户态未暴露 |
@@ -20,6 +20,7 @@
 | 已驱动（可配置） | 屏幕方向/平板模式：相机方向跟随 Mutter transform；`tablet_mode=on/off/auto`；`rebuild_mode=idle/live/off`；`elish-camera-ctl orientation` 配置工具 | ✅ |
 | 已驱动 | 休眠唤醒传感器恢复：sleep hook + `elish-sensors-resume` 服务（等加速计就绪后再重启 iio 让 mutter re-claim） | ✅ M2 后实测唤醒 **~10s、自动旋转可用**（2026-11-13；此前 ~35–40s） |
 | 已驱动 | 相机后端登录自启：`elish-camera-autostart` + `/etc/xdg/autostart/elish-camera-autoserve.desktop` | ✅ |
+| 已驱动 | **相机画质调校（LSC/CCM）**：提供本机只读提取脚本（不随包提供调校数据）；提取后默认启用，后摄暗角 4.4×→~1×；未提取时中性/关闭（`ELISH_LSC`/`ELISH_CCM` 可关） | ✅ 2026-11-20 |
 | 功能缺陷 | 睡眠唤醒后 pogo 键盘可能失效/反复重枚举（host USB PHY resume 问题；重启/重插恢复） | ⚠️ 内核问题，用户态不改（历史危险复位已禁用） |
 | 已驱动 | 传感器（加速度/环境光/旋转矢量方向/指南针）、指纹、触摸/笔/霍尔、显示/背光、电池/充电、音频、WiFi/BT、键盘/鼠标、Venus 编解码、GPU/UFS/PCIe、相机闪光灯（开机误闪已修复） | ✅ |
 | 本机不存在 | 5G 版本（本机 WiFi 版；5G 变体不在本包测试范围） | — |
@@ -32,11 +33,11 @@
 
 | 项 | 内容 |
 |---|---|
-| 硬件 | 前摄 **OV8856 8MP**（2-lane，固定焦点）+ 后摄 **OV13B10 13MP**（4-lane，CN3927V VCM）+ 景深 **Hi556 5MP**（未通） |
+| 硬件 | 前摄 **OV8856 8MP**（2-lane，固定焦点）+ 后摄 **OV13B10 13MP**（4-lane，CN3927V VCM）+ 景深 **Hi556 5MP**（RAW 出流已验证） |
 | Linux 现状 | **前后摄全分辨率彩色拍照/录像已可用**：前 3280×2464、后 4208×3120；GPU debayer（FD650 EGL/GLES）+ Venus 硬件 HEVC/H.264，实测约 30fps；虚拟相机 `/dev/video2`（前）/`/dev/video20`（后），WirePlumber/PipeWire + portal 已验证；后摄软件自动对焦可用 |
 | 关键事实 | Bayer：**前摄 BGGR、后摄 GRBG**；前摄必须 `vertical_flip=0`（vflip=1 时 3280×2464 无帧）；Venus encoder/decoder 的 video 节点号不跨启动稳定，需按 sysfs 名发现 |
 | 实现/文档 | `camera/elish-camera/`（源码 + install.sh + verify.sh），文档见 `camera/elish-camera/docs/`：architecture、interface、measurements/（历史测量） |
-| 未完成 | Hi556 景深（新证据：上电顺序 **3 路供电 → MCLK → 最后释放 reset**，与 OV 相反；仍需 PM8150A L1/L2 供电方案）；前后摄不能同时出流（camss/DTB 限制，需内核工作） |
+| 已通 RAW（实验性） | Hi556 景深：DTS stage2 已实测，media graph `hi556 21-0020` → CSIPHY0 → CSID0 → VFE0 RDI2，RAW10 2592×1944@~30fps；checker test pattern 校验通过；上电顺序 3 路供电 → MCLK → 最后释放 reset（与 OV 相反）；尚无 3A/彩色/深度用户态；前后摄不能同时出流（camss/DTB 限制） |
 | 备注 | 相机闪光灯 `/sys/class/leds/white:flash` 已驱动；VCM sysfs 需 video 组可写（`camera/99-elish-vcm.rules`）。**2026-11-20**：修复开机 Plymouth 阶段闪光灯误闪（默认组件 `flash-led/`），并新增可选 GNOME 46 控制中心手电筒开关 + `torch` CLI（`torch/`，默认不装） |
 
 ### 1.2 GNSS（Airoha AG3335）—— 已打通（历史条目）

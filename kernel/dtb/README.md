@@ -48,6 +48,15 @@ uart16、haptics、regulator@88e7000 等），且树内只有 vmids、没有指�
 **L10A 是 `regulators-0/ldo10`（3.008V），不受该问题影响**；当前验证 DTB 只新增了 18 个属性，
 没有改动任何已有属性。改属性请用等长二进制替换或完整源码重编。
 
+## Hi556 景深相机（实验性，已实测 RAW 出流）
+
+本目录 `hi556/` 提供 Hi556 的 **纯新增** DTS 补丁、3 种构建方式和分阶段应用/回滚脚本：
+
+- 已实测 stage1（probe）/ stage2（接 camss）均正常；`hi556 21-0020` → CSIPHY0 → CSID0 →
+  VFE0 RDI2，RAW10 2592×1944@~30fps，checker test pattern 通过；
+- 应用前先 dry-run，`sudo … --write-boot` 才会写 boot（自动备份 + 重建 boot_b + 回读校验）；
+- 详见 `hi556/README.md`。
+
 ## 校验
 
 ```bash

@@ -24,7 +24,7 @@
 | 已驱动 | 指纹（Goodix GF3626）：fprintd 录入/验证、GDM 解锁、sudo（NOPASSWD 未停用则被绕过） | ✅ |
 | 已驱动 | GNSS（Airoha AG3335，QUP5 UART）：gpsd + GeoClue2 地图位置/朝向 | ✅ |
 | 已驱动 | 相机闪光灯、Venus 视频编解码、GPU/UFS/PCIe、PMIC/ADC/thermal/RTC | ✅ |
-| 已驱动（全分辨率 GPU 管线） | **摄像头**：前 OV8856 3280×2464、后 OV13B10 4208×3120 全分辨率彩色拍照 + HEVC/H.264 硬编录像（~30fps）；`/dev/video2`/`/dev/video20` 虚拟相机；两个原生 PipeWire `media.role=Camera` 节点；portal/Snapshot 实测可用；后摄 AF/AE/AWB；后端登录自启 | ✅ 详见 `xiaomi-elish-linux-v1-final/camera/elish-camera/docs/`；Hi556 景深仍未通 |
+| 已驱动（全分辨率 GPU 管线） | **摄像头**：前 OV8856 3280×2464、后 OV13B10 4208×3120 全分辨率彩色拍照 + HEVC/H.264 硬编录像（~30fps）；`/dev/video2`/`/dev/video20` 虚拟相机；两个原生 PipeWire `media.role=Camera` 节点；portal/Snapshot 实测可用；后摄 AF/AE/AWB；后端登录自启 | ✅ 详见 `xiaomi-elish-linux-v1-final/camera/elish-camera/docs/`；Hi556 实验性 DTS 补丁已就绪（未上机验证） |
 | 已驱动（可配置） | **屏幕方向/平板模式**：相机方向按 Mutter transform 自适应；`tablet_mode=on/off/auto`（auto=跟随保护套折叠霍尔）；旋转时相机流按 `rebuild_mode=idle/live/off` 重建 | ✅ `elish-camera-ctl orientation`（配置工具） |
 | 已驱动 | **休眠唤醒传感器恢复**：sleep hook + `elish-sensors-resume` 服务，唤醒后等加速计就绪再重启 iio，让 mutter 重新 claim；**M2 后实测唤醒 ~10s 恢复、自动旋转可用**（2026-11-13 实测；此前 ~35–40s） | ✅ 见 `camera/system/` |
 | 已驱动 | **相机后端登录自启**：`elish-camera-autostart` + `/etc/xdg/autostart/elish-camera-autoserve.desktop` | ✅ |
@@ -70,13 +70,19 @@
   并验证 TCPM 请求 9V/3A；SMB5 驱动已有 DCP 3.3A 限流路径，再看 AICL 实际值。
 
 
-### 3. Hi556 景深摄像头（难）
+### 3. Hi556 景深摄像头（RAW 出流已验证；待用户态深度/彩色）
 
-- 现状：`hi556 5MP` 已确认供电/上电顺序与 OV 相反（3 路供电 → MCLK → 最后释放 reset），
-  仍卡在 PM8150A L1/L2 供电方案；
+- 现状（2026-11-20 更新）：**原“PM8150A L1/L2 被 USB 占用”结论已纠正**——Android 相机 `pm8150a_l2`
+  是 RPMH **`ldoc2`(1.2–1.304V)**，mainline RPMH 驱动本就支持，只是 elish DTS 缺节点；
+  已提供纯新增 DTS 补丁（`ldoc2` + `cci0`/`camera@0x20(hynix,hi556)` + `camss port@0` + MCLK1/GPIO26 pinctrl）
+  和 DTB 构建/应用脚本 `kernel/dtb/hi556/`（stage1 先验 probe，stage2 再接 camss）；I2C 7bit 0x20、
+  上电顺序 3 路供电 → MCLK → 最后释放 reset；**尚未上机验证**；
 - 证据/接线：`HARDWARE-STATUS.md` §1.1（Android 取证资料已移出包，归档于工作区）；
-- 下一步：解决 PM8150A L2（当前 `vreg_l2a_3p1` 被 USB HS PHY 3.3V 占用）的运行时互斥/迁移，
-  再验证 CSIPHY/CCI 与 `hi556` 驱动；
+- 实测（2026-11-20）：stage1 probe 成功（`21-0020` 绑定 hi556，ldoc2 注册）；stage2 接 camss 后
+  media graph 出现 `hi556 21-0020`，按 CSIPHY0→CSID0→VFE0 RDI2 抓 2592×1944 RAW10 ~30fps，
+  checker test pattern 通过；前后摄无回归。
+- 下一步（用户态）：Hi556 3A/曝光、彩色 debayer、深度算法（Android 侧为闭源 CAMX/CHI）与
+  `elish-camera` 接入；当前手动抓 RAW 需先 `elish-camera-ctl stop`。
 - 验收：`/dev/media*` 出现 Hi556 链路、可抓 raw/彩色帧。
 
 ### 4. 原始陀螺 / 磁力计三轴 / 接近/SAR 用户态暴露（中）

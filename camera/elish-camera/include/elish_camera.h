@@ -118,6 +118,17 @@ void elish_gpu_destroy(elish_gpu *gpu);
 const char *elish_gpu_renderer(elish_gpu *gpu);
 
 /*
+ * Android Chromatix tuning blocks (extracted from the vendor camera HAL):
+ * per-unit lens shading correction (LSC) and colour correction matrix (CCM).
+ * Both are enabled by default; ELISH_LSC=0 / ELISH_CCM=0 disable them at
+ * create time and this call can override at runtime.
+ * lsc/ccm: 1 = on, 0 = off, <0 = leave unchanged.
+ * Rear camera (OV13B10/GRBG) uses the real tuned mesh; front (OV8856/BGGR)
+ * LSC is opt-in via ELISH_LSC_FRONT=1 (vendor template only).
+ */
+void elish_gpu_set_quality(elish_gpu *gpu, int lsc, int ccm);
+
+/*
  * Demosaic raw -> NV12 (BT.601, limited range by default) with white balance
  * and gamma applied.  rotation: 0, 90, 180 or 270 degrees clockwise.
  * out_w/out_h describe the *final* orientation (for 90/270 they swap w/h).

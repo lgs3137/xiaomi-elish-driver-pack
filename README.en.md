@@ -57,7 +57,8 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | **Camera** | Front OV8856 3280×2464 / rear OV13B10 4208×3120 full-res photo/record | ✅ | GPU debayer + Venus HEVC/H.264 at ~30 fps; two V4L2 virtual cameras |
 | Camera | Rear AF/AE/AWB, CN3927V VCM, EEPROM 24c64 | ✅ | Software AF sweep writes the focus sysfs |
 | Camera | PipeWire / xdg-desktop-portal / Snapshot | ✅ | Two `media.role=Camera` nodes; portal frame capture validated |
-| Camera | Hi556 depth sensor | 🚫 | Blocked on PM8150A L1/L2 power sequencing (work in progress) |
+| Camera | LSC / CCM image tuning | ✅ | **No tuning data is shipped**; only on-device read-only extraction scripts. After local extraction: enabled by default (rear vignetting 4.4x -> ~1x); neutral/off without data; disable with `ELISH_LSC=0`/`ELISH_CCM=0` |
+| Camera | Hi556 depth sensor | ⚠️ | **RAW streaming verified** (stage2: 2592x1944 SGRBG10 @ ~30 fps, checker test pattern validated); no depth/colour userland yet. The old "PM8150A L1/L2 occupied" claim was corrected: the real gap was a missing `ldoc2` DT node |
 | Camera | Front and rear streaming simultaneously | 🚫 | CAMSS/DTB resource limit; one camera at a time |
 | **Camera flash / torch** | Rear flash LED (PM8150L `white:flash`): boot-flash fix + torch | ✅ | **Boot-logo flash fixed** (default `flash-led/` component); optional GNOME 46 Quick Settings torch toggle + `torch` CLI (`--with-torch`, not installed by default) |
 | **Kernel/System** | Combined DTB (sensor vmids + fingerprint node + GNSS QUP5 UART + camera nodes) | ✅ | Model-level, no per-unit private data; see `kernel/dtb/README.md` |
@@ -350,7 +351,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - Sensor PD occasionally hangs silently (~**1/14** clean boots): firmware-side; a clean reboot recovers.
 - One PDM crash after suspend/resume is a known artifact (sensor data still works; 0 after a clean reboot).
 - Raw gyroscope / magnetometer axes / proximity are not exposed (userspace libssc/udev work).
-- Camera: Hi556 depth sensor not working; front and rear cannot stream simultaneously; front focus is fixed;
+- Camera: Hi556 depth sensor is experimental (DTS patch + tooling provided, hardware validation pending); front and rear cannot stream simultaneously; front focus is fixed;
   Flatpak/COSMIC portal-backend limitations.
 - Pogo keyboard may stop working after resume (kernel USB PHY resume); **do not** use
   `authorized`/`USBDEVFS_RESET`/controller rebind.

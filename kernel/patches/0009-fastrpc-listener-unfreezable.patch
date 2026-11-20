@@ -1,0 +1,34 @@
+--- a/drivers/misc/fastrpc.c
++++ b/drivers/misc/fastrpc.c
+@@ -37,6 +37,8 @@
+ #define FASTRPC_CTX_MAX (256)
+ #define FASTRPC_INIT_HANDLE	1
+ #define FASTRPC_DSP_UTILITIES_HANDLE	2
++/* FastRPC reverse-tunnel listener handle (linux-msm/hexagonrpc adsp_listener.def) */
++#define ADSP_LISTENER_HANDLE	3
+ #define FASTRPC_CTXID_MASK (0xFF0)
+ #define INIT_FILELEN_MAX (2 * 1024 * 1024)
+ #define INIT_FILE_NAMELEN_MAX (128)
+@@ -1248,6 +1250,22 @@
+ 		if (!wait_for_completion_timeout(&ctx->work, 10 * HZ))
+ 			err = -ETIMEDOUT;
+ 	} else {
++		/*
++		 * The FastRPC reverse-tunnel listener (hexrpc/hexagonrpcd) parks
++		 * in this invoke waiting for DSP requests. Exempt it from the
++		 * system-suspend freezer so it can still answer the SLPI sensor
++		 * PD during s2idle; otherwise the frozen userspace file server
++		 * makes the DSP-side frpc request time out and crash the sensor
++		 * protection domain on every resume.
++		 */
++		if (handle == ADSP_LISTENER_HANDLE) {
++			if (!(current->flags & PF_NOFREEZE)) {
++				current->flags |= PF_NOFREEZE;
++				dev_info(fl->sctx->dev,
++					 "fastrpc listener task pid %d marked unfreezable\n",
++					 current->pid);
++			}
++		}
+ 		err = wait_for_completion_interruptible(&ctx->work);
+ 	}
+ 

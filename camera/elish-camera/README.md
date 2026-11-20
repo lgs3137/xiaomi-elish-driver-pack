@@ -15,9 +15,32 @@ Xiaomi Pad 5 Pro（SM8250 / elish）在 mainline Armbian 上，把前后摄以**
 | Venus 硬件编码 | ✅ 两分辨率 HEVC/H.264 均 >90 fps 吞吐 |
 | V4L2 虚拟相机 `/dev/video2`（前）/ `/dev/video20`（后） | ✅ NV12 全分辨率 30 fps |
 | PipeWire `media.role=Camera` 节点 / portal Camera | ✅ 节点自动出现、portal `IsCameraPresent=true` |
+| 画质调校（LSC + CCM，需本机提取） | ✅ 提供提取脚本；本机提取后默认启用（后摄暗角 4.4×→~1×）；无数据时中性/关闭 |
 | 前后摄同时出流 | ❌ 硬件/camss 限制，一次一路 |
 
 详见 `docs/architecture.md`、`docs/measurements/measurements-integrated.md`、`docs/interface.md`。
+
+## 画质调校（Android Chromatix LSC / CCM，2026-11-20）
+
+**本包不包含任何设备调校数据**（没有 `tuning_data.h`、没有 Chromatix bin/JSON/CSV）。
+只提供只读提取/生成脚本：`tools/android_tuning/`（详见其中 `README.md`）。
+
+在有数据时，GPU 颜色管线支持：
+
+- **LSC**：后摄 OV13B10 的 4 通道 × 13×17 实测增益网格（暗角 4.4× → ~1×）；
+- **CCM**：D65 段 3×3 矩阵（AWB 之后、gamma 之前）；
+- 前摄 OV8856 只有厂商模板 LSC，默认关闭（`ELISH_LSC_FRONT=1` 可开）。
+
+行为：
+
+- 仓库默认构建 **没有 `src/tuning_data.h`** → LSC/CCM 使用 identity（中性），
+  默认关闭，源码可正常编译/运行；
+- 你按 `tools/android_tuning/README.md` 从**你自己的设备**只读提取并生成
+  `src/tuning_data.h` 后重新 `make`，LSC/CCM 默认开启；
+- `ELISH_LSC=0` / `ELISH_CCM=0` 可关闭；生成物已被 `.gitignore` 忽略，不要提交/分发。
+
+验证（本机带数据构建）：合成 RAW 暗角 4.4× → 0% 波动；CCM 与矩阵数学逐通道一致；
+真机 `verify` PASS；开销后摄 +0.7~0.9 ms、前摄 +0.1 ms，不参与 3A 统计。
 
 ## 构建
 

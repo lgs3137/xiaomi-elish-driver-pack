@@ -16,9 +16,13 @@
 | 虚拟相机 `/dev/video2`（前）/ `/dev/video20`（后） | ✅ NV12 全分辨率、标准 V4L2、30 fps |
 | PipeWire 原生相机节点 / portal Camera | ✅ `Elish Front/Rear Camera`（`media.role=Camera`），`IsCameraPresent=true`，Snapshot 实测可用 |
 | 后摄 AF/AE/AWB（CN3927V VCM） | ✅ 软件扫焦 + AE/AWB；前摄固定焦点（硬件无 AF） |
+| LSC/CCM 画质调校（Android Chromatix 逆向数据） | ✅ 默认启用；后摄暗角 4.4×→~1×，ELISH_LSC/ELISH_CCM=0 可关 |
 
 - 前后摄**不能同时出流**（CAMSS/DTB 共享资源，一次一路，切换约 1–2 s）；
-- Hi556 景深摄像头**未通**（卡在 PM8150A L1/L2 供电方案），不影响前后摄主线。
+- Hi556 景深摄像头：**RAW 出流已验证**（2026-11-20；`kernel/dtb/hi556/` 提供 DTS 补丁和分阶段脚本，
+  stage1 probe + stage2 接 camss，实际抓到 2592×1944 RAW10 ~30fps，checker test pattern 校验通过）。
+  原“卡在 PM8150A L1/L2 供电”结论已纠正：Android 的 `pm8150a_l2` = RPMH `ldoc2`(1.2V)，
+  mainline 驱动已支持，只是 DTS 缺节点。当前只到 **RAW**，尚无深度/彩色用户态。
 
 ## 安装
 
@@ -62,7 +66,7 @@ elish-camera-ctl rotate front|rear <0|90|180|270|auto>
 
 ## 已知限制
 
-- Hi556 景深未通；前后摄不能同时出流；前摄固定焦点无 AF。
+- Hi556 景深：RAW 出流已验证（实验性），无深度/彩色用户态；前后摄不能同时出流；前摄固定焦点无 AF。
 - 高负载下后摄 25–29 fps；分辨率/帧率需在生产者侧配置。
 - v4l2loopback 经 WirePlumber 发布的节点不暴露 EnumFormat，旧 portal/GStreamer App 可能不识别；
   本包用自研原生 PipeWire 节点解决（Snapshot 已验证）。
