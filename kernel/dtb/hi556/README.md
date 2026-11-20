@@ -18,22 +18,24 @@
 | 项目 | 结论 |
 |---|---|
 | 联合 DTB 真实构建源 | **已丢失**（任何源码树都不含 rear OV13B10/CN3927V 等相机节点；包内脚本明确“不从 DTS 重建”）。已用 `dtc` 反编译部署 DTB **完整恢复出可编译源码**，并量化了 dtc 文本往返的唯一损坏点（2 个属性，可自动还原）。见 §2。 |
-| DTS 补丁 | **不随包提供任何设备 DTB/DTS 提取物**；仅提供构建脚本，可对你自己的部署 DTB 本地生成 3 种等价形态（`--method dtc --emit-dts` / `--method dtbo --emit-dtso`）。见 §3。 |
+| DTB / DTS | 包内**单一联合 DTB** `../sm8250-xiaomi-elish-csot.dtb` 已合并 Hi556（sha256 `0d639355…`，模型级、非单机数据）；**DTS/patch/dtso 不随包**，需要时由脚本本地生成（`--emit-dts`/`--emit-dtso`）。见 §3。 |
 | 新增内容 | `pm8150l rpmh ldoc2`（1.2–1.304 V，HPM）+ `&cci0`/`cci0_i2c1 camera@0x20(hynix,hi556)` + `&camss port@0`（CSIPHY0，2-lane D-PHY）+ pinctrl（MCLK1=gpio95 / reset=gpio26）。 |
 | 构建验证 | 3 种方式（libfdt 直接增补 / dtc 源码编译 / fdtoverlay 离线合并）构建出的 DTB **语义完全一致**；与基线 diff = **+7 节点 / +1 属性 / 0 删除 / 0 改动**；`fdt_check_full` 通过；包内 `verify-combined-dtb.sh` 全部 OK。见 §4。 |
 | 应用方式 | DTB → `/usr/lib/linux-image-$(uname -r)/qcom/` + `/boot/dtb-$(uname -r)/qcom/` → 包内 `update-boot-image.sh`（备份 boot 分区 + 重建 boot_b + 回读校验）→ 用户 `reboot`。见 §4.5。 |
 | Armbian fdtoverlays/DTBO | **运行时不可用**：内核 `CONFIG_OF_OVERLAY` 未启用，启动链是 ABL + boot 镜像内追加 DTB（无 U-Boot/armbianEnv overlays）。离线 `fdtoverlay` 可行（已实测），但存在 **phandle 重映射陷阱**、风险不更低 → 不作为主路径。见 §5。 |
 | 主要风险 | Hi556 I2C 0x20 应答（中高置信）、CSIPHY0 物理 lane 未知、以及 **camss async notifier 依赖**：stage2 若 Hi556 probe 失败会让前/后摄一起失效。→ 提供 **stage1/stage2 分阶段应用**。见 §6。 |
 
-主要交付物（本目录，仅脚本/文档，**不含任何设备文件**）：
+主要交付物（本目录，仅脚本/文档；DTB 已合并进包内单一联合 DTB）：
 
 ```
-README.md                        本报告 + 提取/构建/应用方法
-hi556-build-dtb.py               构建+校验工具（3 种 method，含 --check-only/--fix-roundtrip/--emit-dts/--emit-dtso）
-hi556-apply-dtb.sh               用户应用/回滚脚本（默认 dry-run，--write-boot 才写盘）
+README.md             本报告 + 构建/应用方法
+hi556-build-dtb.py    从旧基线本地生成/校验 DTB（--emit-dts/--emit-dtso 输出 /tmp）
+hi556-apply-dtb.sh    从旧基线应用/回滚（包内联合 DTB 已含 Hi556，默认检测到后会直接退出）
 ```
 
-> 生成的 DTB / DTS / patch / dtbo 一律只写到 `/tmp` 或你自己的临时目录，**不要提交到仓库**。
+> 包内 DTB：`../sm8250-xiaomi-elish-csot.dtb`，sha256 `0d639355…`，**单一联合 DTB 已合并
+> Hi556 的 stage2 节点**（与基线同一模型级文件，不含单机校准/序列号）。
+> DTS/patch/dtso 等从部署 DTB 导出的中间文本不随包，需要时用脚本生成到 `/tmp`。
 
 ---
 
@@ -109,8 +111,10 @@ DT 节点出现后会自动 modprobe。
 
 ## 3. 补丁 / 片段（不随包；仅脚本本地生成）
 
-本目录**不附带**任何由设备 DTB/Android DTS 导出的 `.patch`、`.dtso`、`.dtsi` 或 `.dtb` 文件。
-需要查看/审计补丁内容时，用构建脚本在你自己的基线 DTB 上本地生成：
+包内只有**一个**模型级联合 DTB（`../sm8250-xiaomi-elish-csot.dtb`，已合并 Hi556）；
+不再提供 stage1/stage2 两个单独 DTB 文件。
+本目录**不附带**从部署 DTB 导出的 `.patch`、`.dtso`、`.dtsi` 文本；
+需要查看/审计补丁内容或从旧基线重建时，用构建脚本本地生成：
 
 ```bash
 BASE=/path/to/kernel/dtb/sm8250-xiaomi-elish-csot.dtb   # 你自己的部署 DTB
@@ -132,17 +136,17 @@ cd .work/android-cam-20261120
 ./hi556-build-dtb.py --method fdt  --out /tmp/hi556/final-fdt.dtb   --verify-combined
 ./hi556-build-dtb.py --method dtc  --out /tmp/hi556/final-dtc.dtb   --verify-combined
 ./hi556-build-dtb.py --method dtbo --out /tmp/hi556/final-dtbo.dtb  --verify-combined
-./hi556-build-dtb.py --stage 1 --out /tmp/hi556/final-stage1.dtb    # 分阶段（不接 camss）
+(旧基线可选用) ./hi556-build-dtb.py --stage 1 --out /tmp/hi556/final-stage1.dtb
 ```
 
 产物 sha256（均通过全部校验）：
 
 | 产物 | sha256 |
 |---|---|
-| stage2 `--method fdt`（推荐，已放本目录 `sm8250-xiaomi-elish-csot-hi556.dtb`） | `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8` |
+| 合并 stage2（包内 `../sm8250-xiaomi-elish-csot.dtb`） | `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8` |
 | stage2 `--method dtc` | `be55bb5e76830d9784fcd53937eab9382b73a8595ead41c6c90200fc08aea592` |
 | stage2 `--method dtbo` | `2e118e28de965e39681c533d11f567fea077f9f44212cf67be931f75ed9f1c18` |
-| stage1 `--method fdt`（本目录 `...-stage1.dtb`） | `d48d49de548190c29d298632980d044740b5d06aedf6dea32f894df710160ec4` |
+| stage1 参考（仅旧基线生成到 /tmp，不随包） | `d48d49de548190c29d298632980d044740b5d06aedf6dea32f894df710160ec4` |
 
 ### 4.2 “只增不丢”校验（对基线 DTB）
 
@@ -178,7 +182,7 @@ GNSS QUP5+bcm4775 全部 `OK`，结论“DTB 同时满足传感器、指纹与 G
 ① Hi556 I2C 0x20 是否应答；② CSIPHY0 物理 lane 是否与 `<0 1>`/`<1 2>` 匹配；
 ③ camss async notifier（见 §6）。这些需要重启实测，本任务不做（不刷机、不重启）。
 
-### 4.5 用户手动应用 / 回滚（脚本只准备，不自动写 boot）
+### 4.5 从旧基线手动应用 / 回滚（历史方法；包内 DTB 已合并，无需此步）
 
 ```bash
 cd .work/android-cam-20261120
@@ -314,12 +318,13 @@ sudo ./hi556-apply-dtb.sh --rollback --write-boot
 | `hi556-dts.md` | 本报告 |
 | `hi556-build-dtb.py` | 构建+校验工具：`--method fdt/dtc/dtbo`、`--stage 1/2`、`--check-only`、`--fix-roundtrip`、`--emit-dts/--emit-dtso`、`--verify-combined` |
 | `hi556-apply-dtb.sh` | 用户应用/回滚脚本（默认 dry-run；`--write-boot` 才写；自动备份 + 调 `update-boot-image.sh` + 回读） |
-| `README.md` | 本报告 + 提取/构建/应用方法 |
-| `hi556-build-dtb.py` | 构建+校验工具（本地生成 DTB/DTS/dtso；不含预生成设备文件） |
-| `hi556-apply-dtb.sh` | 应用/回滚脚本（默认 dry-run；`--write-boot` 才写盘） |
+| `README.md` | 本报告 + 构建/应用方法 |
+| `hi556-build-dtb.py` | 从旧基线本地生成/校验 DTB/DTS/dtso（不含预生成的 DTS 文本） |
+| `hi556-apply-dtb.sh` | 从旧基线应用/回滚脚本（默认 dry-run；包内联合 DTB 检测到已合并后直接退出） |
 
-> 本目录**不包含** `.patch`、`.dtso`、`.dtsi`、`.dtb` 等由设备导出的文件；
+> 本目录**不包含** `.patch`、`.dtso`、`.dtsi` 等从部署 DTB 导出的中间文本；
 > 需要时用 `--emit-dts`/`--emit-dtso` 在本地生成到 `/tmp`。
+> **包内只有一个模型级联合 DTB：`../sm8250-xiaomi-elish-csot.dtb`（已合并 Hi556）。**
 
 **约束声明**：本任务全程只读；未写 `/boot`、未写任何块设备、未 mount、未 sudo、未改 `/usr` 与驱动包；
 所有中间文件在 `/tmp/hi556`，交付件只写入 `.work/android-cam-20261120/`。

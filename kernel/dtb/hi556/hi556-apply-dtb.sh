@@ -115,6 +115,12 @@ fi
 # ---------------------------------------------------------------- 构建 + 校验
 [ -n "$BASE" ] || BASE="$PKG_DIR/kernel/dtb/sm8250-xiaomi-elish-csot.dtb"
 [ -f "$BASE" ] || die "找不到基线 DTB: $BASE"
+# 包内联合 DTB 自 2026-11-20 起已合并 Hi556；无需再应用（避免重复/覆盖）。
+if [ "$(sha256sum "$BASE" | awk '{print $1}')" = "0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8" ]; then
+    echo "基线已是含 Hi556 的合并 DTB（$BASE），无需 stage1/stage2 应用。"
+    echo "如需从旧基线重建，请显式传 --base /path/to/old-sm8250-xiaomi-elish-csot.dtb。"
+    exit 0
+fi
 [ -f "$DTB_SYS" ] || echo "  WARN: 当前系统没有 $DTB_SYS（尚未安装联合 DTB？）"
 
 WORK=$(mktemp -d /tmp/hi556-apply-XXXXXX)

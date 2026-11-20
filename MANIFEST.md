@@ -1,7 +1,7 @@
 # 合并包清单（MANIFEST）
 
 合并包 = 传感器安装包（已清理）+ 指纹安装包（已清理）+ GNSS 子包 + 共享内核/DTB 资产
-+ 相机/闪光灯修复（默认）、相机画质调校提取脚本、Hi556 构建/应用脚本
++ 相机/闪光灯修复（默认）、相机画质调校提取脚本、Hi556 已合并进联合 DTB + 构建脚本
 + 与可选 GNOME 手电筒 + 合并文档。**不包含任何设备调校数据/DTB/DTS 提取物**。
 **不含**固件、编译产物、日志、指纹模板、密钥/序列号、PAM/sudoers 备份。
 
@@ -54,8 +54,8 @@ torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
 | `include/` | 指纹驱动必需的 3 个内核头文件 |
 | `INTEGRATION.md` | 头文件 + drivers/tee Kconfig/Makefile 集成步骤 |
 | `initramfs/` | 修复版 initramfs hook + 安装脚本（防止 SLPI 固件进 initramfs） |
-| `dtb/` | 已验证联合 DTB（二进制，模型级）+ 说明/参考/校验脚本 |
-| `dtb/hi556/` | Hi556 景深 **构建/应用脚本 + 方法文档**（不随包带 DTS/DTB/patch）；已实测 stage1/stage2，RAW 出流正常；不自动应用 |
+| `dtb/` | **单一**已验证联合 DTB（模型级，已合并 Hi556）+ 说明/参考/校验脚本 |
+| `dtb/hi556/` | Hi556 **构建/应用方法脚本**（不再分发单独 stage1/stage2 DTB）；联合 DTB 已含 Hi556；DTS/patch 不随包 |
 
 ## sensors/
 
@@ -140,4 +140,4 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通）：
 
 ## 统计
 
-**322 个文件；体积约 2.4MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是模型级联合 DTB；`SHA256SUMS` 已按最终树生成。
+**322 个文件；体积约 2.4MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成。

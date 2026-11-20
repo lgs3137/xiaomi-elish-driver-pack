@@ -58,7 +58,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | Camera | Rear AF/AE/AWB, CN3927V VCM, EEPROM 24c64 | ✅ | Software AF sweep writes the focus sysfs |
 | Camera | PipeWire / xdg-desktop-portal / Snapshot | ✅ | Two `media.role=Camera` nodes; portal frame capture validated |
 | Camera | LSC / CCM image tuning | ✅ | **No tuning data is shipped**; only on-device read-only extraction scripts. After local extraction: enabled by default (rear vignetting 4.4x -> ~1x); neutral/off without data; disable with `ELISH_LSC=0`/`ELISH_CCM=0` |
-| Camera | Hi556 depth sensor | ⚠️ | **RAW streaming verified** (stage2: 2592x1944 SGRBG10 @ ~30 fps, checker test pattern validated); no depth/colour userland yet. The old "PM8150A L1/L2 occupied" claim was corrected: the real gap was a missing `ldoc2` DT node |
+| Camera | Hi556 depth sensor | ⚠️ | **RAW streaming verified** (2592x1944 SGRBG10 @ ~30 fps, checker test pattern validated); Hi556 nodes merged into the **single joint DTB**; no depth/colour userland yet. The old "PM8150A L1/L2 occupied" claim was corrected: the real gap was a missing `ldoc2` DT node |
 | Camera | Front and rear streaming simultaneously | 🚫 | CAMSS/DTB resource limit; one camera at a time |
 | **Camera flash / torch** | Rear flash LED (PM8150L `white:flash`): boot-flash fix + torch | ✅ | **Boot-logo flash fixed** (default `flash-led/` component); optional GNOME 46 Quick Settings torch toggle + `torch` CLI (`--with-torch`, not installed by default) |
 | **Kernel/System** | Combined DTB (sensor vmids + fingerprint node + GNSS QUP5 UART + camera nodes) | ✅ | Model-level, no per-unit private data; see `kernel/dtb/README.md` |

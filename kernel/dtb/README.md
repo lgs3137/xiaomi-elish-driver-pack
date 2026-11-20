@@ -13,8 +13,9 @@
      `pinctrl-0`=PMIC `gps-clk-default`（`/soc@0/spmi@c440000/pmic@0/gpio@c000/gps-clk-default`）、
      `pinctrl-1/2`=`gps-enable-active`/`gps-enable-suspend`（TLMM GPIO158）。
 
-本目录的 DTB 已包含以上全部改动；2026-11-12 又合并了前摄 OV8856/PM8008/CAMSS 节点（见 `camera/README.md`）。原 DTB 说明：（由 `sm8250-xiaomi-elish-csot.dtb` + GNSS 节点生成，
-2026-11-12，sha256 `14909d42d6a1935f6dd49ff8b4700e0adf4164024c6f0c25f6ba94b6ad3ee4a8`）。
+本目录的 DTB 已包含以上全部改动；2026-11-12 合并了前摄 OV8856/PM8008/CAMSS 节点（见 `camera/README.md`）；
+**2026-11-20 又把 Hi556 stage2（ldoc2/CCI0/CSIPHY0/MCLK1/GPIO26）合并进同一个联合 DTB**。
+当前 `sm8250-xiaomi-elish-csot.dtb` 为**唯一联合 DTB**，sha256 `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8`。
 
 ## 传感器真正依赖的是 fastrpc reserved-memory
 
@@ -50,8 +51,10 @@ uart16、haptics、regulator@88e7000 等），且树内只有 vmids、没有指�
 
 ## Hi556 景深相机（实验性，已实测 RAW 出流）
 
-本目录 `hi556/` 提供 Hi556 的 **纯新增** DTS 补丁、3 种构建方式和分阶段应用/回滚脚本：
+本目录 `hi556/` 只保留 Hi556 的**生成/应用方法脚本**；Hi556 节点已经合并进包内**单一联合 DTB**：
 
+- 不再提供 stage1/stage2 两个单独 DTB；`../sm8250-xiaomi-elish-csot.dtb` 即为含 Hi556 的模型级联合 DTB；
+- DTS/patch/dtso 等中间文本不随包，需要时由脚本生成到 `/tmp`；
 - 已实测 stage1（probe）/ stage2（接 camss）均正常；`hi556 21-0020` → CSIPHY0 → CSID0 →
   VFE0 RDI2，RAW10 2592×1944@~30fps，checker test pattern 通过；
 - 应用前先 dry-run，`sudo … --write-boot` 才会写 boot（自动备份 + 重建 boot_b + 回读校验）；

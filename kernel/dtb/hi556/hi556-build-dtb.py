@@ -45,6 +45,8 @@ import tempfile
 # ---------------------------------------------------------------- 常量/基线
 
 BASE_SHA256 = "14909d42d6a1935f6dd49ff8b4700e0adf4164024c6f0c25f6ba94b6ad3ee4a8"
+# 包内联合 DTB（2026-11-20 起）已把 Hi556 合并进去；用这个基线时无需再生成。
+MERGED_SHA256 = "0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_BASE = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "sm8250-xiaomi-elish-csot.dtb"))
 DEFAULT_OUT = "/tmp/sm8250-xiaomi-elish-csot-hi556.dtb"
@@ -864,6 +866,12 @@ def main():
         print("找不到基线 DTB: %s" % a.base, file=sys.stderr)
         return 2
     bs = sha256(a.base)
+    if bs == MERGED_SHA256:
+        print("基线已是含 Hi556 的合并 DTB，无需再生成补丁。")
+        if a.out and os.path.abspath(a.out) != os.path.abspath(a.base):
+            shutil.copyfile(a.base, a.out)
+            print("copied:", a.out)
+        return 0
     if bs != BASE_SHA256:
         msg = ("基线 DTB sha256 与已知值不同:\n  实际: %s\n  期望: %s\n"
                "（若确实要用其它基线，加 --allow-other-base；路径可能与预期不符时校验会报错）"
