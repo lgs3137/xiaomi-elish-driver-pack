@@ -7,7 +7,7 @@
 GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的驱动/系统集成包**：
 共享同一内核、DTB 与 boot 镜像，提供**一键安装器**、单组件安装脚本、设备数据提取指南与完整文档。
 
-- **版本**：2026.11.13
+- **版本**：2026.11.20
 - **适用设备**：Xiaomi Mi Pad 5 Pro（elish，CSOT 面板，WiFi 版）
 - **适用系统**：Armbian 26.8.14（Ubuntu 24.04 noble）+ kernel `6.18.44-current-sm8250`
 - **许可**：本包原创部分 **MIT**（见 `LICENSE`）；上游代码/补丁保留各自许可证（见文末）
@@ -52,6 +52,7 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | 相机 | PipeWire / xdg-desktop-portal / Snapshot | ✅ | 两个 `media.role=Camera` 节点，portal 取流已实测 |
 | 相机 | Hi556 景深 | 🚫 | 卡在 PM8150A L1/L2 供电方案（进行中） |
 | 相机 | 前后摄同时出流 | 🚫 | CAMSS/DTB 资源限制，一次只能一路 |
+| **相机闪光灯/手电筒** | 后摄闪光灯 LED（PM8150L `white:flash`）：开机误闪修复 + 手电筒 | ✅ | **开机 logo 阶段误闪已修复**（默认组件 `flash-led/`）；手电筒可选 GNOME 46 控制中心开关 + `torch` CLI（`--with-torch`，默认不装） |
 | **内核/系统** | 联合 DTB（传感器 vmids + 指纹节点 + GNSS QUP5 UART + 相机节点） | ✅ | 模型级、无本机私有信息；构建/校验见 `kernel/dtb/README.md` |
 | 内核 | fastrpc SDSP VMID/sensors-PD、QSEECOM/TEE、mdt_loader、qcom_scm、goodix_fp_spi | ✅ | 指纹/传感器内核层 |
 | 内核 | LPASS pinctrl clock-timeout defer（pogo 键盘/USB 随机失效） | ✅ | 独立补丁 `kernel/patches/0002-…` |
@@ -134,6 +135,14 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | 后摄软件 AF | 实测室内目标最佳 focus=640（0–1023） |
 | 相机自检 | **OK=23 / WARN=0 / FAIL=0** |
 
+### 闪光灯 / 手电筒（2026-11-20）
+
+| 指标 | 实测 |
+|---|---|
+| 开机 Plymouth 阶段后摄闪光灯误闪 | ✅ 已修复：LED 状态恢复不再写 `white:flash`（修复前后 LED 事件 **2 → 0**） |
+| 手电筒 | ✅ `torch` CLI（logind `SetBrightness`，普通用户可用）；可选 GNOME 46 控制中心开关（headless Shell 实测 ACTIVE，注销/登录后生效） |
+| 拍照闪光灯（`flash_strobe`） | 🚫 无软件支持（内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`；需内核/相机后端开发） |
+
 ### 合并自检（`install/check-all.sh`）
 
 | 项 | 结果 |
@@ -144,6 +153,8 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | GNSS 栈 | 正常（非 root 运行时 polkit 规则只能 WARN） |
 | initramfs 固件不变量 | ✅ 不含 SLPI 固件 |
 | 相机栈 | 23 OK / 0 FAIL |
+| 闪光灯开机误闪修复 | ✅ 通过（`flash-led/verify.sh`） |
+| GNOME 手电筒（可选） | 未装 → SKIP；已装 → ✅ |
 | apt 状态 | 建议 hold `libfprint-2-2`（否则升级覆盖自编译库） |
 
 > 完整自检建议 `sudo ./install/check-all.sh`（以 root 可读更多系统文件）。
@@ -167,6 +178,10 @@ gnss/          GNSS 子包：airoha_gps 驱动源码、airoha-gnssd/gps-nmea-sha
 camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、GPU debayer、Venus 硬编、
                虚拟相机、autoserve、自动对焦）、辅助脚本、udev/自启/休眠恢复、
                install.sh + verify.sh、docs/（架构/接口/measurements 历史测量）
+flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫
+               （wrapper + systemd drop-in），不修改 Armbian 包文件
+torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；
+               --with-torch 或 sudo ./torch/install.sh）
 install/       安装器：一键安装 turnkey.sh、数据提取 extract-all.sh、用户态构建
                build-userspace.sh、备份启动槽 backup-boot.sh、合并自检 check-all.sh、文件落位表
 docs/          硬件状态基线、整机 TODO、历史记录、升级影响、备份/救援、设备数据提取指南
@@ -255,7 +270,22 @@ sudo ./camera/install.sh           # 编译 elish-camera + 脚本/udev/自启/�
 bash ./camera/elish-camera/verify.sh
 ```
 
-#### 2.6 bioauth 生物认证 PAM（可选，默认不装）
+#### 2.6 后摄闪光灯开机误闪修复 / 手电筒（手电筒可选）
+
+```bash
+sudo ./flash-led/install.sh     # 默认组件：修复开机 logo 阶段后摄闪光灯闪一下（turnkey 自动装）
+sudo ./flash-led/verify.sh
+sudo ./flash-led/uninstall.sh   # 回滚（回滚后开机又会闪，属 Armbian 原版行为）
+
+# 可选：GNOME 46 控制中心「手电筒」开关 + torch 命令行（默认不装；装完注销/重新登录）
+sudo ./torch/install.sh
+torch / torch off / torch set 64
+bash ./torch/verify.sh
+```
+根因/证据/升级注意见 `flash-led/README.md`；手电筒走向 logind，无需 root，拍照用的
+`flash_strobe` 仍不支持（内核未开 V4L2 flash）。
+
+#### 2.7 bioauth 生物认证 PAM（可选，默认不装）
 
 在指纹栈之上提供通用生物认证：sudo/pkexec 可选接入、单窗口全屏“安全屏幕”、密码/指纹
 切换、锁定与超时。默认**不安装**，不改任何 PAM 配置。
@@ -270,7 +300,7 @@ sudo ./install.sh --no-deps --skip-extract --skip-build --bioauth-pkexec --yes
 ```
 详见 `bioauth/INSTALL.md`（不要与旧 `--pam` 指纹栈同时启用）。
 
-#### 2.7 安全加固（可选，推荐）
+#### 2.8 安全加固（可选，推荐）
 
 关闭 GDM 自动登录、删除 sudo 免密，保留指纹授权（sudo/登录均可用指纹）：
 见 `docs/HARDENING.md`（本机实测：`sudo -n` 需密码、指纹 sudo 可用、唤醒/自动旋转正常）。
@@ -307,6 +337,8 @@ bash camera/elish-camera/verify.sh  # 相机栈
 ./kernel/compat-check.sh --src <新内核源码树>   # 升级前：补丁/整文件兼容性 dry-run（只读）
 sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
 sudo ./gnss/install/verify.sh
+sudo ./flash-led/verify.sh          # 闪光灯开机误闪修复
+sudo ./torch/verify.sh              # 可选手电筒（未安装则 SKIP）
 sudo ./kernel/dtb/verify-combined-dtb.sh
 ```
 
@@ -320,7 +352,9 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - 相机：景深 Hi556 未通；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
 - pogo 键盘唤醒后可能失效（内核 USB PHY resume；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器）；
 - 指纹 TA 需自提；`libfprint-2-2` 升级会覆盖自编译库（建议 hold）；内核/固件升级后需按 `docs/UPGRADE-IMPACT-ALL.md` 重做；
-- sudo 指纹 PAM 属安全敏感配置，安装前确保能用密码回退。
+- sudo 指纹 PAM 属安全敏感配置，安装前确保能用密码回退；
+- 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
+- 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件。
 
 ---
 

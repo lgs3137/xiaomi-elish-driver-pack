@@ -32,6 +32,10 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 sudo ./install.sh --with-kernel --kernel-src /var/tmp/kbuild-src --write-boot --yes
 ```
 
+> 默认组件还包含**后摄闪光灯“开机闪一下”修复**（`flash-led/`，自动安装）；**GNOME 手电筒**
+> （`torch/`）是可选组件、默认不装：完整安装加 `--with-torch`，或单独 `sudo ./torch/install.sh`
+> （装好后注销/重新登录，控制中心出现「手电筒」开关）。
+
 ## 3. 重启并验证
 
 ```bash
@@ -57,6 +61,10 @@ sensor-status
    - 接 sudo/pkexec：加 `--bioauth-sudo` / `--bioauth-pkexec`
    - 先读 `bioauth/INSTALL.md`；不要和上面第 5 条的 `--pam` 同时启用；
      回滚：`sudo ./bioauth/scripts/install-bioauth.sh --rollback`。
+7. GNOME 手电筒（可选，默认不装）：
+   - `sudo ./install.sh --no-deps --skip-extract --skip-build --with-torch --yes`（或 `sudo ./torch/install.sh`）
+   - 装好后注销/重新登录，控制中心（右上角或 Super+S）出现「手电筒」开关；`torch on/off` 命令行同样可用。
+   （开机闪光灯误闪修复已由默认组件 `flash-led/` 自动安装，无需手动操作。）
 
 ## 常用分阶段命令
 
@@ -73,5 +81,7 @@ sensor-status
 | 传感器 | `sudo ./sensors/install/install-system-files.sh`（+ `install-data.sh`） |
 | 指纹 | `sudo ./fingerprint/install/install-fingerprint-files.sh [--pam --user]` |
 | GNSS | `sudo ./gnss/install/install.sh` |
+| 后摄闪光灯开机误闪修复 | `sudo ./flash-led/install.sh`（默认组件，turnkey 已自动装） |
+| GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
 
 所有脚本支持 `--help` 与 `--dry-run`；已安装的组件会自动跳过（`--force` 可强制重编）。

@@ -1,0 +1,7 @@
+{
+  "name": "手电筒",
+  "description": "在右上角控制中心添加手电筒开关：控制后摄闪光灯 LED（white:flash），通过 systemd-logind 设置亮度，普通用户即可使用，无需 root。手电筒开启 5 分钟后自动关闭（防止忘记关）。",
+  "uuid": "torch@elish",
+  "shell-version": ["46"],
+  "version": 1
+}

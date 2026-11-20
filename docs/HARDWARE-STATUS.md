@@ -21,7 +21,7 @@
 | 已驱动 | 休眠唤醒传感器恢复：sleep hook + `elish-sensors-resume` 服务（等加速计就绪后再重启 iio 让 mutter re-claim） | ✅ M2 后实测唤醒 **~10s、自动旋转可用**（2026-11-13；此前 ~35–40s） |
 | 已驱动 | 相机后端登录自启：`elish-camera-autostart` + `/etc/xdg/autostart/elish-camera-autoserve.desktop` | ✅ |
 | 功能缺陷 | 睡眠唤醒后 pogo 键盘可能失效/反复重枚举（host USB PHY resume 问题；重启/重插恢复） | ⚠️ 内核问题，用户态不改（历史危险复位已禁用） |
-| 已驱动 | 传感器（加速度/环境光/旋转矢量方向/指南针）、指纹、触摸/笔/霍尔、显示/背光、电池/充电、音频、WiFi/BT、键盘/鼠标、Venus 编解码、GPU/UFS/PCIe、相机闪光灯 | ✅ |
+| 已驱动 | 传感器（加速度/环境光/旋转矢量方向/指南针）、指纹、触摸/笔/霍尔、显示/背光、电池/充电、音频、WiFi/BT、键盘/鼠标、Venus 编解码、GPU/UFS/PCIe、相机闪光灯（开机误闪已修复） | ✅ |
 | 本机不存在 | 5G 版本（本机 WiFi 版；5G 变体不在本包测试范围） | — |
 
 ---
@@ -37,7 +37,7 @@
 | 关键事实 | Bayer：**前摄 BGGR、后摄 GRBG**；前摄必须 `vertical_flip=0`（vflip=1 时 3280×2464 无帧）；Venus encoder/decoder 的 video 节点号不跨启动稳定，需按 sysfs 名发现 |
 | 实现/文档 | `camera/elish-camera/`（源码 + install.sh + verify.sh），文档见 `camera/elish-camera/docs/`：architecture、interface、measurements/（历史测量） |
 | 未完成 | Hi556 景深（新证据：上电顺序 **3 路供电 → MCLK → 最后释放 reset**，与 OV 相反；仍需 PM8150A L1/L2 供电方案）；前后摄不能同时出流（camss/DTB 限制，需内核工作） |
-| 备注 | 相机闪光灯 `/sys/class/leds/white:flash` 已驱动；VCM sysfs 需 video 组可写（`camera/99-elish-vcm.rules`） |
+| 备注 | 相机闪光灯 `/sys/class/leds/white:flash` 已驱动；VCM sysfs 需 video 组可写（`camera/99-elish-vcm.rules`）。**2026-11-20**：修复开机 Plymouth 阶段闪光灯误闪（默认组件 `flash-led/`），并新增可选 GNOME 46 控制中心手电筒开关 + `torch` CLI（`torch/`，默认不装） |
 
 ### 1.2 GNSS（Airoha AG3335）—— 已打通（历史条目）
 
@@ -111,7 +111,7 @@
 | 传感器 | 加速度/环境光/方向/指南针 heading（见 §2.1） |
 | **GNSS** | **Airoha AG3335**：`/dev/ttyHS1`（QUP5 UART，921600）+ `airoha_gps.ko`（供电/时钟/pinctrl）+ `airoha-gnssd`（PAIR002 + NMEA→pty）+ `gpsd`（`/dev/ttyGNSS0`，NMEA0183）+ `gps-nmea-share` → GeoClue2（`/run/gps-share.sock`，GNOME Maps 等取位置）；实机 NMEA 1 Hz，与传感器/罗盘可同时工作；**2026-11-13 室外真实 fix 验证：mode=3、12 星、GGA quality=1（此前仅验证 NMEA/合成 fix）**。地图应用：GNOME Maps 仅位置（不读传感器）；**Pure Maps 3.5.1（Flathub）已安装并验证**（地图渲染 + 合成定位下点击定位跳到目标蓝点；QtSensors iio 插件随 KDE 运行时提供）。朝向：本包 polkit 规则放行 geoclue 的 `ClaimCompass`，实测 GeoClue Location 同时返回位置与 heading≈177°；Pure Maps 的罗盘在跟随/导航且速度<10km/h 时激活（普通浏览模式点定位仅居中）。 |
 | 指纹 | Goodix GF3626：fprintd 录入/验证、GDM 解锁、sudo（NOPASSWD 未停用则被绕过） |
-| 相机闪光灯 | `/sys/class/leds/white:flash`（v4l2 flash LED） |
+| 相机闪光灯 | `/sys/class/leds/white:flash`（v4l2 flash LED）；**开机误闪修复**（`flash-led/`，默认）；**可选手电筒**（`torch/`：GNOME 46 控制中心开关 + `torch` CLI，默认不装） |
 | 视频编解码 | Venus V4L2 stateful：`vainfo` → H.264/HEVC 解码/编码；Firefox VA-API |
 | GPU/存储/总线 | Adreno/freedreno、UFS、PCIe、USB 主机 |
 | PMIC/杂项 | regulator、ADC、thermal、RTC、flash LED、UCSI 等 |

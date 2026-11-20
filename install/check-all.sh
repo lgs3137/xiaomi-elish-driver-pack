@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-all.sh — 合并包总自检（内核联合 DTB + 传感器 + GNSS + 指纹 + 关键的 apt 状态）
+# check-all.sh — 合并包总自检（内核联合 DTB + 传感器 + GNSS + 指纹 + 相机 + 闪光灯/手电筒 + apt 状态）
 # 用法： ./install/check-all.sh    （root 更完整；建议 sudo）
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -36,7 +36,21 @@ else
   echo "  WARN  缺少 camera/elish-camera/verify.sh"
 fi
 
-step "4b. bioauth（可选组件；未安装则跳过）"
+step "4b. 后摄闪光灯开机误闪修复（默认组件）"
+if [ -x "$HERE/flash-led/verify.sh" ]; then
+  "$HERE/flash-led/verify.sh" || FAIL=1
+else
+  echo "  WARN  缺少 flash-led/verify.sh"
+fi
+
+step "4b2. GNOME 手电筒（可选组件；未安装则跳过）"
+if [ -x "$HERE/torch/verify.sh" ]; then
+  "$HERE/torch/verify.sh" || FAIL=1
+else
+  echo "  WARN  缺少 torch/verify.sh"
+fi
+
+step "4c. bioauth（可选组件；未安装则跳过）"
 if [ -x /usr/local/libexec/bioauthd ]; then
   if command -v bioauth-doctor >/dev/null 2>&1; then
     bioauth-doctor --no-live 2>&1 | tail -3

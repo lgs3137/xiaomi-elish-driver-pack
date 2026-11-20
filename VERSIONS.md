@@ -1,6 +1,7 @@
 # 版本与校验值（合并包 BOM）
 
-> 本包不含编译产物/固件；下列 sha256/md5 用于安装后交叉核对。验证基线：2026-11-11。
+> 本包不含编译产物/固件；下列 sha256/md5 用于安装后交叉核对。验证基线：2026-11-11；
+> 2026-11-20 增补闪光灯修复（`flash-led/`，默认）与可选 GNOME 手电筒（`torch/`）。
 
 ## 内核
 
@@ -31,6 +32,29 @@
 | 依赖 | fprintd/libfprint（本包指纹栈）；构建需 libpam0g-dev、python3-gi、gir1.2-gtk-4.0 |
 | 验证 | `bioauth-doctor` 31 项；`make check` / `check-tty` / `check-gui` |
 | 回滚 | `sudo bioauth/scripts/install-bioauth.sh --rollback`（PAM 备份在 `/root/bioauth-sudo-backup-*`） |
+
+## flash-led（默认组件，2026-11-20）
+
+| 项 | 值 |
+|---|---|
+| 组件 | 后摄闪光灯开机误闪修复（Armbian LED 状态恢复守卫） |
+| 文件 | `flash-led/`（wrapper + systemd drop-in 的安装/卸载/验证脚本） |
+| 安装 | 默认安装（`install.sh` / turnkey 系统集成阶段）；单独：`sudo ./flash-led/install.sh` |
+| 安装路径 | `/usr/local/lib/elish/elish-led-state-restore-flash-safe.sh`；`/etc/systemd/system/armbian-led-state.service.d/50-elish-skip-flash.conf` |
+| 验证 | `./flash-led/verify.sh`；`--live`（root）重启恢复服务并抓 udev，应为 0 条 `white:flash` 事件 |
+| 回滚 | `sudo ./flash-led/uninstall.sh` |
+
+## torch（可选组件，默认不装，2026-11-20）
+
+| 项 | 值 |
+|---|---|
+| 组件 | GNOME 46 手电筒 Quick Settings 扩展 + `torch` CLI |
+| 文件 | `torch/`（`torch@elish/` 扩展、`torch` CLI、install/uninstall/verify） |
+| 安装 | 默认不装；turnkey 加 `--with-torch`，或单独 `sudo ./torch/install.sh` |
+| 安装路径 | `~<user>/.local/share/gnome-shell/extensions/torch@elish/`；`/usr/local/bin/torch`；用户 dconf `enabled-extensions` |
+| 依赖 | GNOME Shell 46（`shell-version: ["46"]`）、systemd-logind `Session.SetBrightness("leds", ...)` |
+| 验证 | `sudo ./torch/verify.sh`；`gnome-extensions info torch@elish`（ACTIVE；新装需注销/重新登录） |
+| 回滚 | `sudo ./torch/uninstall.sh` |
 
 ## 传感器用户态
 

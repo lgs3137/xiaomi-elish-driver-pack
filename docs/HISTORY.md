@@ -1,10 +1,21 @@
 # 历史记录（开发/部署/验证流水）
 
-> 本文件是 2026-11-12/13 的开发与部署历史，仅供追溯；当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md)、
+> 本文件是 2026-11-12 起的开发与部署历史，仅供追溯；当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md)、
 > 根 `README.md` 与各子包 `README/INSTALL` 为准。文中路径为当时路径；部分历史文档/证据已移出包
 > （归档于工作区 `archive/elish-history-20261113/`）。
 
 ## 已完成的系统改动
+
+**闪光灯 / 手电筒（2026-11-20）**
+- 修复每次开机 Plymouth 启动画面阶段后摄闪光灯闪一下：根因是 Armbian
+  `armbian-led-state-restore.sh` 对 `trigger=none` 的 default-on workaround 会短暂点亮
+  flash 类 LED（`white:flash`，最大手电电流 200mA）。默认组件 `flash-led/` 用 wrapper
+  （过滤 flash 类 stanza 后调用原脚本）+ systemd drop-in，不改 Armbian 包文件；实测
+  `white:flash` LED 事件 2→0、开机不再闪。详见 `flash-led/README.md`。
+- 可选组件 `torch/`：GNOME 46 控制中心「手电筒」开关 + `torch` CLI，走 systemd-logind
+  `Session.SetBrightness("leds","white:flash",N)`，普通用户可用、无需 root；默认不装
+  （`--with-torch`），装后需注销/重新登录才会加载。拍照闪光（`flash_strobe`）仍不支持
+  （内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`）。
 
 **启动**
 - 曾用 `lpi-pinctrl-rebind` 用户态自愈服务兜底开机 pinctrl/键盘问题；**当前系统已无该服务**

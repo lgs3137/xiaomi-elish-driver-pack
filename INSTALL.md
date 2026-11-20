@@ -1,4 +1,4 @@
-# 合并安装文档（传感器 + 指纹 + GNSS，一次内核）
+# 合并安装文档（传感器 + 指纹 + GNSS + 相机/闪光灯，一次内核）
 
 > 先读根 `README.md` 的红线与 `NOTES.md`。所有命令在设备本机 aarch64 执行，除注明外需要 root。
 > 各子包完整细节：`sensors/INSTALL.md`、`fingerprint/INSTALL.md`、`gnss/INSTALL.md`、`kernel/README.md`。
@@ -7,6 +7,10 @@
 
 完整一键流程见 [`QUICKSTART.md`](QUICKSTART.md)（唯一权威）；下文是等价的手动分步安装，
 便于排障、审计或自定义（如只装某一个子系统）。
+
+> 默认组件还包括**后摄闪光灯开机误闪修复**（`flash-led/`，系统集成阶段自动安装）；
+> **GNOME 手电筒**（`torch/`）是**可选**组件，默认不装：一键安装加 `--with-torch`，
+> 或单独 `sudo ./torch/install.sh`（装好后注销/重新登录，控制中心出现「手电筒」开关）。
 
 ## 0. 安全前置与备份
 
@@ -224,13 +228,42 @@ sudo ./bioauth/scripts/install-bioauth.sh --uninstall
 ```
 不要与旧指纹栈的 `--pam` 同时启用；完整安全说明见 `bioauth/INSTALL.md`。
 
+## 6d. 后摄闪光灯开机误闪修复（默认组件）
+
+每次开机 Plymouth 启动画面阶段后摄闪光灯会闪一下：Armbian 的
+`armbian-led-state-restore.sh` 对 `trigger=none` 的 workaround 会经 `default-on`
+把 flash 类 LED（`white:flash`）以最大手电电流点亮一瞬。本组件用 wrapper 过滤
+`/etc/armbian-leds.conf` 中 flash 类 LED 的 stanza 后调用原脚本，并用 systemd drop-in
+指向 wrapper；**不修改 Armbian 包文件**，BSP/apt 升级不会还原。
+
+```bash
+sudo ./flash-led/install.sh     # 默认组件（turnkey 已自动装）
+./flash-led/verify.sh           # 静态 + 离线过滤自检（--live 额外重启服务抓 udev 事件）
+sudo ./flash-led/uninstall.sh   # 回滚（回滚后开机又会闪，属 Armbian 原版行为）
+```
+根因/证据/升级注意见 `flash-led/README.md`。
+
+## 6e. GNOME 手电筒（可选，默认不装）
+
+在 GNOME 46 控制中心（右上角 / `Super+S`）增加「手电筒」开关，并提供 `torch` CLI；
+走 logind `Session.SetBrightness("leds","white:flash",N)`，普通用户可用、无需 root/udev。
+
+```bash
+sudo ./torch/install.sh         # 装扩展 + CLI，并在用户 dconf 启用（旧会话不热加载）
+torch / torch off / torch set 64
+sudo ./torch/verify.sh          # 未安装则 SKIP
+sudo ./torch/uninstall.sh
+```
+装好后需**注销/重新登录**才会出现在控制中心；拍照闪光（`flash_strobe`）仍不支持。
+
 ## 7. 合并自检
 
 ```bash
 ./install/check-all.sh
 ```
 
-包含：联合 DTB、传感器 `sensors/install/verify.sh`、GNSS `gnss/install/verify.sh`、指纹 `fingerprint/install/verify-fingerprint.sh`。
+包含：联合 DTB、传感器 `sensors/install/verify.sh`、GNSS `gnss/install/verify.sh`、指纹 `fingerprint/install/verify-fingerprint.sh`、
+相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、可选手电筒 `torch/verify.sh`（未装则 SKIP）。
 
 ## 8. 日常 / 禁用 / 回滚
 
@@ -240,6 +273,8 @@ sudo ./bioauth/scripts/install-bioauth.sh --uninstall
 - 指纹禁用：`sudo ./fingerprint/install/uninstall-fingerprint.sh`（保留模块/TA/libfprint）。
 - 传感器卸载：`cd sensors && sudo ./install/uninstall.sh [--purge-data]`。
 - GNSS 卸载：`cd gnss && sudo ./install/uninstall.sh`（保留内核模块；GNSS flash 不动）。
+- 闪光灯修复回滚：`sudo ./flash-led/uninstall.sh`（回滚后下次开机又会闪，属 Armbian 原版行为）。
+- 手电筒（可选）卸载：`sudo ./torch/uninstall.sh`（移除扩展/CLI/启用项；下次登录后图标消失）。
 - 内核回退：`LABEL=$(sed -n "s/^abl_boot_partition_label=//p" /boot/armbianEnv.txt); sudo dd if=/root/${LABEL}-backup-*.img of=/dev/disk/by-partlabel/$LABEL`（旧备份名可能是 `boot_b-backup-*`）。
 - 升级影响：**先读 `docs/UPGRADE-IMPACT-ALL.md`**（内核/固件升级会同时破坏传感器/指纹/GNSS）。
 
@@ -251,4 +286,8 @@ sudo ./bioauth/scripts/install-bioauth.sh --uninstall
 - `libfprint-2-2` 升级会覆盖自编译库 → 指纹消失；重编安装即可。
 - GNSS：内核/DTB 升级会覆盖 QUP5 UART/`bcm4775` 节点，需用本包 DTB 重建；`airoha_gps.ko` 需重编；
   `airoha-gnssd`/gpsd 为用户态，不受内核升级影响。
+- 闪光灯修复：wrapper 在 `/usr/local`、drop-in 在 `/etc/systemd`，不属于 Armbian 包，
+  `armbian-bsp-cli-*`/内核升级不会覆盖；若上游 restore 脚本接口变化，重跑 `sudo ./flash-led/install.sh`。
+- GNOME 手电筒扩展：`metadata.json` 只声明 `shell-version: ["46"]`；GNOME Shell 大版本升级后需
+  修改并重装（`sudo ./torch/install.sh`）。
 - 细节见 `docs/UPGRADE-IMPACT-ALL.md` 与 `sensors/docs/UPGRADE-IMPACT.md`。

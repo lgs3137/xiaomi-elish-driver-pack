@@ -12,7 +12,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 - **Camera (OV8856 / OV13B10)** — full-resolution photo/record, GPU debayer, Venus H.264/HEVC encode,
   two V4L2 virtual cameras, PipeWire/portal, rear autofocus.
 
-- **Version**: 2026.11.13
+- **Version**: 2026.11.20
 - **Device**: Xiaomi Mi Pad 5 Pro (elish, CSOT panel, Wi-Fi)
 - **System**: Armbian 26.8.14 (Ubuntu 24.04 noble) + kernel `6.18.44-current-sm8250`
 - **License**: original parts of this package are **MIT** (see `LICENSE`); upstream components keep their own licenses.
@@ -59,6 +59,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | Camera | PipeWire / xdg-desktop-portal / Snapshot | ✅ | Two `media.role=Camera` nodes; portal frame capture validated |
 | Camera | Hi556 depth sensor | 🚫 | Blocked on PM8150A L1/L2 power sequencing (work in progress) |
 | Camera | Front and rear streaming simultaneously | 🚫 | CAMSS/DTB resource limit; one camera at a time |
+| **Camera flash / torch** | Rear flash LED (PM8150L `white:flash`): boot-flash fix + torch | ✅ | **Boot-logo flash fixed** (default `flash-led/` component); optional GNOME 46 Quick Settings torch toggle + `torch` CLI (`--with-torch`, not installed by default) |
 | **Kernel/System** | Combined DTB (sensor vmids + fingerprint node + GNSS QUP5 UART + camera nodes) | ✅ | Model-level, no per-unit private data; see `kernel/dtb/README.md` |
 | Kernel | fastrpc SDSP VMID / sensors-PD, QSEECOM/TEE, mdt_loader, qcom_scm, goodix_fp_spi | ✅ | Fingerprint/sensor kernel layer |
 | Kernel | LPASS pinctrl clock-timeout defer (pogo keyboard/USB random failures) | ✅ | Stand-alone patch `kernel/patches/0002-…` |
@@ -142,6 +143,14 @@ One elish unit (CSOT), Armbian noble + `6.18.44-current-sm8250`, one clean boot 
 | Rear software AF | best indoor focus = 640 (range 0–1023) |
 | Camera self-check | **OK=23 / WARN=0 / FAIL=0** |
 
+### Camera flash / torch (2026-11-20)
+
+| Metric | Measured |
+|---|---|
+| Rear flash blink during Plymouth boot screen | ✅ fixed: the LED-state restore no longer writes `white:flash` (LED events **2 → 0**) |
+| Torch | ✅ `torch` CLI (logind `SetBrightness`, normal user); optional GNOME 46 Quick Settings toggle (ACTIVE in a headless Shell test; appears after re-login) |
+| Camera flash (`flash_strobe`) | 🚫 no software support (kernel has no `CONFIG_V4L2_FLASH_LED_CLASS`; needs kernel/camera work) |
+
 ### Combined self-check (`install/check-all.sh`)
 
 | Item | Result |
@@ -152,6 +161,8 @@ One elish unit (CSOT), Armbian noble + `6.18.44-current-sm8250`, one clean boot 
 | GNSS stack | normal (polkit rule only WARNs when run as non-root) |
 | initramfs firmware invariant | ✅ no SLPI firmware inside |
 | Camera stack | 23 OK / 0 FAIL |
+| Boot-flash fix | ✅ pass (`flash-led/verify.sh`) |
+| GNOME torch (optional) | SKIP when not installed; ✅ otherwise |
 | apt state | recommended: hold `libfprint-2-2` (upgrades overwrite the self-built library) |
 
 > For complete results run `sudo ./install/check-all.sh`.
@@ -178,6 +189,11 @@ gnss/          GNSS subpackage: airoha_gps driver source, airoha-gnssd/gps-nmea-
 camera/        camera subpackage: elish-camera GPU pipeline (full-res front/rear,
                GPU debayer, Venus encode, virtual cameras, autoserve, autofocus),
                helper scripts, udev/autostart/resume hooks, install.sh + verify.sh, docs/
+flash-led/     boot-flash fix (default component): guards the Armbian LED-state
+               restore against flash-class LEDs (wrapper + systemd drop-in);
+               does not modify Armbian package files
+torch/         OPTIONAL: GNOME 46 Quick Settings torch toggle + torch CLI (not
+               installed by default; --with-torch or sudo ./torch/install.sh)
 install/       installer: turnkey.sh, extract-all.sh, build-userspace.sh,
                check-all.sh, file map
 docs/          hardware baseline, TODO, history, upgrade impact, hardening, data extraction guide
@@ -269,7 +285,22 @@ sudo ./camera/install.sh           # builds elish-camera + scripts/udev/autostar
 bash ./camera/elish-camera/verify.sh
 ```
 
-#### 2.6 Security hardening (optional, recommended)
+#### 2.6 Boot-flash fix / torch (torch is optional)
+
+```bash
+sudo ./flash-led/install.sh     # default component: fixes the rear flash blink during boot (turnkey installs it)
+sudo ./flash-led/verify.sh
+sudo ./flash-led/uninstall.sh   # rollback (the Armbian stock behavior is the blink)
+
+# OPTIONAL: GNOME 46 Quick Settings torch toggle + torch CLI (not installed by default; re-login to load)
+sudo ./torch/install.sh
+torch / torch off / torch set 64
+bash ./torch/verify.sh
+```
+Root cause/evidence/upgrade notes: `flash-led/README.md`. The torch uses logind (no root needed);
+camera flash (`flash_strobe`) is still unsupported (kernel has no V4L2 flash class).
+
+#### 2.7 Security hardening (optional, recommended)
 
 Disable GDM auto-login and passwordless sudo, keep fingerprint authorization
 (both sudo and login): see `docs/HARDENING.md`.
@@ -307,6 +338,8 @@ bash camera/elish-camera/verify.sh  # camera stack
 ./kernel/compat-check.sh --src <new kernel source tree>   # read-only patch/copy compatibility dry-run
 sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
 sudo ./gnss/install/verify.sh
+sudo ./flash-led/verify.sh          # boot-flash fix
+sudo ./torch/verify.sh              # optional torch (SKIP when not installed)
 sudo ./kernel/dtb/verify-combined-dtb.sh
 ```
 
@@ -323,7 +356,9 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
   `authorized`/`USBDEVFS_RESET`/controller rebind.
 - Fingerprint TA must be extracted yourself; upgrading `libfprint-2-2` overwrites the self-built library
   (hold recommended); kernel/firmware upgrades require redoing the package per `docs/UPGRADE-IMPACT-ALL.md`.
-- sudo-fingerprint PAM is security-sensitive; ensure password fallback works before enabling.
+- sudo-fingerprint PAM is security-sensitive; ensure password fallback works before enabling;
+- the GNOME torch extension appears only after logout/login (GNOME 46 cannot hot-load new extensions);
+- camera flash (`flash_strobe`) is unsupported: the kernel has no `CONFIG_V4L2_FLASH_LED_CLASS`, so camera apps get no flash controls.
 
 ---
 

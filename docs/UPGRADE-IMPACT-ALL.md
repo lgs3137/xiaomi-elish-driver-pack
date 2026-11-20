@@ -1,4 +1,4 @@
-# 合并升级影响评估（传感器 + 指纹 + GNSS）
+# 合并升级影响评估（传感器 + 指纹 + GNSS + 相机/闪光灯）
 
 > 针对"多套功能共用一次内核/DTB/boot 镜像"的合并包。传感器侧详细频率分析见
 > `../sensors/docs/UPGRADE-IMPACT.md`；本文件补充指纹与合并影响。
@@ -93,6 +93,10 @@ lsinitramfs /boot/initrd.img-$(uname -r) | grep 'elish/slpi' && echo 'ERROR: 需
 - `zz-update-abl-kernel` 会自动重建并写 Linux 启动槽（危险；槽位由 armbianEnv 决定）；升级内核前先备份，升级后立即检查。
 - 内核升级后 Armbian 补丁集可能随版本变化，`kernel/ARMBIAN-BASELINE.md` 说明如何获取 6.18.44 基线；
   新内核需要对应版本补丁（可能需 re-port）。
+- 闪光灯/手电筒：`flash-led/` 修复在 `/usr/local` + systemd drop-in，与 Armbian 包解耦，
+  `armbian-bsp-cli-*`/内核升级不会覆盖；若上游 `armbian-led-state-restore.sh` 接口变化，
+  重跑 `sudo ./flash-led/install.sh`（`flash-led/verify.sh` 会提示）。`torch/` 是可选组件，
+  GNOME Shell 大版本升级后需更新扩展 `metadata.json` 的 `shell-version` 并重装。
 
 ## 7. GNSS（Airoha AG3335，2026-11-12 新增）
 

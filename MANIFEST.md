@@ -1,6 +1,7 @@
 # 合并包清单（MANIFEST）
 
-合并包 = 传感器安装包（已清理）+ 指纹安装包（已清理）+ GNSS 子包 + 共享内核/DTB 资产 + 合并文档。
+合并包 = 传感器安装包（已清理）+ 指纹安装包（已清理）+ GNSS 子包 + 共享内核/DTB 资产
++ 相机/闪光灯修复（默认）与可选 GNOME 手电筒 + 合并文档。
 **不含**固件、编译产物、日志、指纹模板、密钥/序列号、PAM/sudoers 备份。
 
 ## 顶层
@@ -22,6 +23,10 @@ docs/          合并升级影响评估（UPGRADE-IMPACT-ALL.md）+ 硬件状态
                + 安全加固说明（HARDENING.md）+ 内核升级风险评估（KERNEL-UPGRADE-RISK.md）
                + Android/Linux 充电驱动对比（CHARGING-DRIVER-COMPARISON.md）
 camera/        相机子包：elish-camera/（前后摄全分辨率 3280×2464/4208×3120，GPU debayer + Venus 硬编，~30fps 拍照/录像，/dev/video2+/dev/video20 双虚拟相机，autoserve 自动路由，PipeWire/portal，后摄自动对焦）+ 旧 OV8856 helper + install.sh（一键安装）+ elish-camera/verify.sh（自检）
+flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫
+               （wrapper + systemd drop-in；不修改 Armbian 包文件）
+torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
+               （默认不装；--with-torch 或单独 install.sh）
 ```
 
 ## kernel/
@@ -89,6 +94,24 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通）：
 | `tests/` | daemon 单测 + TTY/GUI 端到端（无需 root，不碰系统 PAM） |
 | `audit-pam-*.md` / `uac-secure-screen-*.md` / `verification-*.md` | 独立审计、UAC/pkexec 对比与安全边界、独立验证报告 |
 
+## flash-led/（默认组件，2026-11-20 新增）
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` | 根因/证据、修复方式、升级注意、实测结果 |
+| `elish-led-state-restore-flash-safe.sh` | wrapper：过滤 `/etc/armbian-leds.conf` 中 flash 类 LED 的 stanza 后调用 Armbian 原 restore 脚本（原脚本支持 `$1` 状态文件） |
+| `install.sh` / `uninstall.sh` | 安装/回滚（wrapper + systemd drop-in；自带离线过滤自检与 `ExecStart` 检查） |
+| `verify.sh` | 静态检查 + 离线过滤自检；`--live` 重启恢复服务并抓 udev 事件（应为 0 条 `white:flash`） |
+
+## torch/（可选组件，默认不装，2026-11-20 新增）
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` | 功能、安装/卸载/验证、logind 原理、限制、可选 raw-sysfs udev 规则 |
+| `torch@elish/` | GNOME 46 Quick Settings 扩展（metadata/extension.js/torch.js/图标；开启 5 分钟自动关） |
+| `torch` | CLI：`torch on|off|toggle|set N|status`（安装到 `/usr/local/bin/torch`） |
+| `install.sh` / `uninstall.sh` / `verify.sh` | 安装（用户级扩展 + 用户 dconf 启用）/卸载/验证 |
+
 ## fingerprint/
 
 | 内容 | 说明 |
@@ -115,4 +138,4 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通）：
 
 ## 统计
 
-**273 个文件；体积约 3.0MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是模型级联合 DTB；`SHA256SUMS` 已按最终树生成。
+**313 个文件；体积约 2.3MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是模型级联合 DTB；`SHA256SUMS` 已按最终树生成。

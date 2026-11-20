@@ -5,7 +5,10 @@
 完整流程见 [`../QUICKSTART.md`](../QUICKSTART.md)（唯一权威）。`install.sh` = `install/turnkey.sh` 的包装，
 自动完成：apt 依赖（`--no-deps` 跳过）→ 设备数据/固件提取 → 数据母本（含固件路径不变量）
 → 用户态补丁+编译 → 系统集成 →（可选内核）→ 自检。
-其他参数：`--dry-run`、`--yes`、`--skip-*`、`--no-fingerprint|--no-gnss|--no-camera`、`--pam`。
+其他参数：`--dry-run`、`--yes`、`--skip-*`、`--no-fingerprint|--no-gnss|--no-camera`、`--pam`、
+`--with-bioauth`、`--with-torch`（可选 GNOME 手电筒，默认不装）。
+
+默认组件还包括后摄闪光灯“开机闪一下”修复（`flash-led/`，系统集成阶段自动安装）。
 
 ## 分阶段脚本
 
@@ -21,6 +24,8 @@
 | `fingerprint/install/install-fingerprint-files.sh` | 指纹 udev/systemd/脚本（`--pam --user` 可选） |
 | `gnss/install/install.sh` | GNSS 守护进程 + gpsd/GeoClue 集成 |
 | `camera/install.sh` | 相机后端/脚本/udev/虚拟相机/自启/休眠唤醒恢复 |
+| `flash-led/install.sh` | 后摄闪光灯开机误闪修复（默认组件；Armbian LED 状态恢复守卫） |
+| `torch/install.sh` | 可选 GNOME 46 手电筒（控制中心开关 + `torch` CLI；默认不装） |
 | `kernel/build-and-install.sh` | 内核补丁/配置/编译/模块/DTB/initramfs/Linux 启动槽（自动检测；自动备份） |
 
 各脚本都支持 `--help` 与 `--dry-run`；除特别说明外需 `sudo`。

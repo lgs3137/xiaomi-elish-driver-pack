@@ -12,6 +12,7 @@
 #   --fingerprint <dir|img> 指纹 TA 来源；--fingerprint-adb 从 adb 提取；都不给则自动找/跳过
 #   --with-gnss / --no-gnss        GNSS 子系统（默认装）
 #   --with-camera / --no-camera    相机子系统（默认装）
+#   --with-torch                   可选：GNOME 46 手电筒（控制中心开关 + torch CLI）；默认不装
 #   --no-fingerprint               跳过指纹
 #   --with-kernel --kernel-src DIR [--write-boot]   内核构建+安装（写 Linux boot 槽，自动检测，显式 opt-in）
 #   --with-regver          额外构建 regver-v1 回退版 hexagonrpcd
@@ -34,6 +35,7 @@ TAG=turnkey
 ANDROID=""; PMOS=""; FP=""; FP_ADB=0
 WITH_GNSS=1; WITH_CAMERA=1; WITH_FP=1; WITH_KERNEL=0; WITH_REGVER=0
 WITH_BIOAUTH=0; BIOAUTH_SUDO=0; BIOAUTH_PKEXEC=0
+WITH_TORCH=0
 DO_DEPS=1; SKIP_EXTRACT=0; SKIP_BUILD=0; SKIP_INSTALL=0; SKIP_CHECK=0
 PAM=0; FORCE=0; KSRC=""; WRITE_BOOT=0
 
@@ -48,6 +50,8 @@ while [ $# -gt 0 ]; do
         --with-camera) WITH_CAMERA=1; shift ;;
         --no-camera) WITH_CAMERA=0; shift ;;
         --with-fingerprint) WITH_FP=1; shift ;;
+        --with-torch) WITH_TORCH=1; shift ;;
+        --no-torch) WITH_TORCH=0; shift ;;
         --no-fingerprint) WITH_FP=0; shift ;;
         --with-kernel) WITH_KERNEL=1; shift ;;
         --kernel-src) KSRC=${2:-}; shift 2 ;;
@@ -192,8 +196,22 @@ if [ "$SKIP_INSTALL" = 0 ]; then
         log "跳过相机（--no-camera）"
     fi
 
+    # 默认组件：后摄闪光灯“开机闪一下”修复（不依赖相机/指纹是否安装）
+    step "5d) 后摄闪光灯开机误闪修复（默认组件）"
+    run bash "$PKG_ROOT/flash-led/install.sh"
+
+    if [ "$WITH_TORCH" = 1 ]; then
+        step "5e) GNOME 手电筒（可选）：控制中心开关 + torch CLI"
+        TARGS=()
+        [ "$DRY_RUN" = 1 ] && TARGS+=(--dry-run)
+        [ "$ASSUME_YES" = 1 ] && TARGS+=(--yes)
+        run bash "$PKG_ROOT/torch/install.sh" "${TARGS[@]}"
+    else
+        log "跳过 GNOME 手电筒（可选组件；加 --with-torch 安装）"
+    fi
+
     if [ "$WITH_BIOAUTH" = 1 ]; then
-        step "5d) bioauth（可选）通用生物认证 PAM 栈"
+        step "5f) bioauth（可选）通用生物认证 PAM 栈"
         BARGS=()
         [ "$BIOAUTH_SUDO" = 1 ] && BARGS+=(--enable-sudo)
         [ "$BIOAUTH_PKEXEC" = 1 ] && BARGS+=(--enable-pkexec)
@@ -243,6 +261,9 @@ cat <<EOF
    可选 bioauth 生物认证栈（默认不装）：sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes
    接入 sudo/pkexec：加 --bioauth-sudo / --bioauth-pkexec（先读 $PKG_ROOT/bioauth/INSTALL.md）
 5) 内核若未自动装：sudo $PKG_ROOT/kernel/build-and-install.sh --kernel-src <源码> --write-boot
-6) 解压/移植时若换了目录：所有路径均由脚本自身定位，无需改文件。
+6) 可选 GNOME 手电筒（默认不装）：sudo ./install.sh --no-deps --skip-extract --skip-build --with-torch --yes
+   装好后注销/重新登录；控制中心（右上角或 Super+S）出现「手电筒」开关（5 分钟自动关）。
+   拍照闪光灯（flash_strobe）仍未支持：内核未开 CONFIG_V4L2_FLASH_LED_CLASS。
+7) 解压/移植时若换了目录：所有路径均由脚本自身定位，无需改文件。
 EOF
 log "日志/提取目录保留在 $BUILD_DIR（可删）"

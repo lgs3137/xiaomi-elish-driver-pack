@@ -1,0 +1,54 @@
+#!/bin/sh
+# elish 手电筒控制：后摄闪光灯白 LED（white:flash）
+# 通过 logind 的 Session.SetBrightness(leds, white:flash, N) 控制，
+# 普通用户（当前活动会话的所有者）即可使用，不需要 root。
+#
+#   torch            切换 开/关
+#   torch on|off     开/关
+#   torch set N      设置亮度 1..255（默认 128）
+#   torch status     查看当前亮度（0 = 关）
+#   torch flash      相机闪光灯模式闪一下（需要 sysfs 写权限，见报告）
+#
+# 环境变量：TORCH_LED（默认 white:flash）、TORCH_BRIGHTNESS（默认 128）
+set -eu
+
+LED="${TORCH_LED:-white:flash}"
+LEVEL="${TORCH_BRIGHTNESS:-128}"
+SYS="/sys/class/leds/$LED"
+
+set_b() {
+    gdbus call --system \
+        --dest org.freedesktop.login1 \
+        --object-path /org/freedesktop/login1/session/auto \
+        --method org.freedesktop.login1.Session.SetBrightness \
+        leds "$LED" "$1" >/dev/null
+}
+
+cur=0
+[ -r "$SYS/brightness" ] && cur=$(cat "$SYS/brightness")
+
+case "${1:-toggle}" in
+    on)      set_b "$LEVEL" ;;
+    off)     set_b 0 ;;
+    set)     set_b "${2:?用法: torch set <1-255>}" ;;
+    status|get) echo "$cur" ;;
+    toggle)
+        if [ "$cur" -gt 0 ]; then set_b 0; else set_b "$LEVEL"; fi
+        ;;
+    flash)
+        # 相机闪光灯模式（1 A 级闪光；需要 video 组可写 flash_strobe 等，见报告）
+        if [ ! -w "$SYS/flash_strobe" ]; then
+            echo "flash 需要 sysfs 写权限：按报告安装 99-elish-flash.rules（或用 sudo）" >&2
+            exit 1
+        fi
+        printf 1000000 >"$SYS/flash_brightness"
+        printf 200000 >"$SYS/flash_timeout"
+        printf 1 >"$SYS/flash_strobe"
+        sleep 0.2
+        printf 0 >"$SYS/flash_strobe"
+        ;;
+    *)
+        echo "用法: torch [on|off|toggle|status|set N|flash]" >&2
+        exit 1
+        ;;
+esac
