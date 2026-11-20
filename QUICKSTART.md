@@ -28,9 +28,22 @@ cd ~/xiaomi-elish-linux-v1-final
 # 正式安装（自动：依赖→提取→数据母本→补丁+编译用户态→系统集成→自检）：
 sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elish-slpi-*.apk --yes
 
-# 内核（可选；写 Linux boot 槽，自动检测，必须显式 opt-in）：
+# 相机调校（LSC/CCM）会自动从 --android 的 vendor 调校 bin 里提取，
+# 生成 src/tuning_data.h 后再编译相机；不想用本机数据可加 --no-camera-tuning。
+# 也可单独给调校 bin 目录：
+#   sudo ./camera/install.sh --tuning-bins /path/to/com.qti.tuned.*.bin/dir
+
+# 只安装包内单一联合 DTB（已合并 Hi556；不重编内核，--write-boot 才重建 Linux 槽）：
+sudo ./install.sh --with-dtb --write-boot --yes
+
+# 或全量内核（也会安装同一份联合 DTB）：
 sudo ./install.sh --with-kernel --kernel-src /var/tmp/kbuild-src --write-boot --yes
 ```
+
+> **内核/DTB 是硬依赖**：sensor/fastrpc/fingerprint/GNSS/相机等驱动都依赖已打补丁的内核 + 联合 DTB。
+> `--with-kernel` 是显式 opt-in（避免自动写 boot + 需自备同版本源码），**不是可跳过项**；
+> 只有已运行本包完整内核+DTB 时才可跳过，一键器会预检 DTB/模块并警告。
+> `--with-dtb` 只更新 DTB，不编译内核模块；全新系统请用 `--with-kernel`。
 
 > 默认组件还包含**后摄闪光灯“开机闪一下”修复**（`flash-led/`，自动安装）；**GNOME 手电筒**
 > （`torch/`）是可选组件、默认不装：完整安装加 `--with-torch`，或单独 `sudo ./torch/install.sh`

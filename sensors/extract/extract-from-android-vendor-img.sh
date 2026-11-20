@@ -59,12 +59,33 @@ extract_dir() { # <img 内路径> <目标目录（直接放内容，不再套一
 extract_dir /etc/sensors  "$DEST/sensors"
 extract_dir /etc/acdbdata "$DEST/acdb"
 
+# Camera Chromatix tuning bins (com.qti.tuned.*.bin): only read from the
+# user's own vendor image, kept under the local extraction dir, never shipped.
+extract_tuned_bins() {
+  local dest="$DEST/camera-tuning/bins" prefix line name n=0
+  mkdir -p "$dest"
+  for prefix in /lib64/camera /vendor/lib64/camera; do
+    while IFS= read -r line; do
+      name=${line##* }
+      case "$name" in com.qti.tuned.*.bin) ;; *) continue ;; esac
+      [ -e "$dest/$name" ] && continue
+      if debugfs -R "dump $prefix/$name $dest/$name" "$REAL" >/dev/null 2>&1; then
+        n=$((n + 1))
+      fi
+    done < <(debugfs -R "ls -l $prefix" "$REAL" 2>/dev/null || true)
+  done
+  echo "camera tuned bins: $n"
+}
+extract_tuned_bins
+
 echo
 echo "== 检查结果 =="
 n_sensors=$(find "$DEST/sensors" -type f 2>/dev/null | wc -l)
 n_acdb=$(find "$DEST/acdb" -type f 2>/dev/null | wc -l)
+n_tuned=$(find "$DEST/camera-tuning/bins" -type f -name 'com.qti.tuned.*.bin' 2>/dev/null | wc -l)
 echo "sensors 文件数: $n_sensors （Android /etc/sensors 约 124 个）"
 echo "acdb 文件数:    $n_acdb （应含 Forte/Forte_*.acdb 与 adsp_avs_config.acdb）"
+echo "相机调校 bin:   $n_tuned （com.qti.tuned.*.bin；仅本地使用，不随包）"
 
 if [ "$n_sensors" -gt 0 ]; then
   for f in sns_reg_config hals.conf calibratedCheck.json; do

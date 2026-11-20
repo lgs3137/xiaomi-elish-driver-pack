@@ -1,12 +1,12 @@
 a1c4ab4e2ce78de05f4dca5b588ddc50361fb3b3bba5f3f8bcced5c881cc1854  ./.gitignore
-ba84216314de48076ff9722a8999d4312904156041ee569c2e6e7e06e129fcb0  ./INSTALL.md
+c67bbaba8008199ae30aac2416a2899169dc813b9dcff87ddea06c9cf4ccf386  ./INSTALL.md
 2ea9952d8d246161b44ec1251ccf1d2008c6ca4d3f67f2763573eb0e842c84ce  ./LICENSE
-8db32e959c2e102a1e19db543ea98d8133d8f1b2afe7756a5f8d3363b9e63433  ./MANIFEST.md
+dd44fb6d18957ec24d69f0fe2010e50a9548e9c8ea915f7e0db133e23d97d316  ./MANIFEST.md
 1ea37fd8178163cb9f88e2e5620190c6c1940b342387d002d721f9c55b6d39c2  ./NOTES.md
 0ceeeb985f798b92ae081240a295f9e103347baab40d1e84ef5c047c21c1aaf0  ./PATCHES.md
-d039571f773961dbb564f07c07714c5be1f0b47b9982d76cf12cb3c93205c266  ./QUICKSTART.md
+ff43fc0f2c52306a42aca621c5e26f34092c8987b43ddb803237f9deadc2fd28  ./QUICKSTART.md
 e7ef3fa51f8084479e12530480ecc97b48adba862b0675d459b4fee5a1519f3d  ./README.en.md
-e238f30d6c0f91e80975dc3410dd1e37003913943b21c25a30d2b75cb6a2d9c6  ./README.md
+c5ac8a2309bda8c478674197544122246ffc74353f87cf549de01fc628116cb3  ./README.md
 2bc3bcc1add047d8653188dc6f71516c40a5ed61c79046bd61e1c532c043fb9b  ./VERSIONS.md
 87a91063463513656356e4f1beb9671e8aafd4abd0e11f958808f56b85dec1c6  ./bioauth/INSTALL.md
 5afa5a73c9f186b4afaa82afcb5c1d7d7916674e1f86c68310a8cedfb32143da  ./bioauth/Makefile
@@ -50,7 +50,7 @@ ad0b504320ac9b5ed62371d62bcb0df02ab1a3ac0ac62960442d8b56ddc42472  ./camera/elish
 921e319b20e4d05923a283660926d9f40864e3e15515d8d44c68e8d6c64cfdd1  ./camera/elish-camera.service.template
 73ac24b561ff20a9e683aac6ee270150004f4ec6b30e98de135ab278a177eddf  ./camera/elish-camera/.gitignore
 daef3e5d448d32298fb487d874b2665397d5d239ff61d7d5b3b78bf3f1396788  ./camera/elish-camera/Makefile
-b9d2ac836b86573b6755c9b3a3e9ebdb2429d4de78bf6452a087a84356539f5b  ./camera/elish-camera/README.md
+7e5e9e6cfc23e8ee69469c37feed4513bd21bf6ef3a35774f01df47d9646a878  ./camera/elish-camera/README.md
 54f292bf17ff4153c529d7120299fcd2e537cb380196975d90d43a9c725ab57c  ./camera/elish-camera/docs/architecture.md
 0be4f0477d47891f85d92f5a3152f05c3f5133f2857b2bc9868a4950f82ab7b9  ./camera/elish-camera/docs/evidence/camx-hal-evidence.txt
 c89f82d3ed353ea2498ec6131affdee516dfff25c00d4ca29ce9b2d41575e688  ./camera/elish-camera/docs/evidence/chromatix-hi556.txt
@@ -73,7 +73,7 @@ d3b3cfab12fc2162f2783cc1a80ecf0b3116c82e276c4fa52defcd952149a04a  ./camera/elish
 dfef25bbb6a2f88c172fe7379985921344e4eac8f080c42317327800282016ec  ./camera/elish-camera/src/pwcam.c
 719689c5beeb0e8bcf82ed2c934e6352372d16d965a12fc3bd67a6756ee81987  ./camera/elish-camera/src/venus_enc.c
 0fe290892bcf9e67218fc8d255f7afe554295ef502fa8786c80ec909cde613ed  ./camera/elish-camera/src/venus_enc_internal.h
-12ee1393c0ed214d3d777e35ea9013a6dd3a8c52c416f57047811071b75af40e  ./camera/elish-camera/tools/android_tuning/README.md
+8b7d7cef40cc50d3cde86b4cafccf9fa40d521fb818595bb8572721fd8e28856  ./camera/elish-camera/tools/android_tuning/README.md
 c898855ee757882d982c9c2ab51815d47e1cf3d48e7e80413c713bdc55f6108d  ./camera/elish-camera/tools/android_tuning/build_linux_params.py
 9f5946c396126ae45e790b4984a362cd8a1e432f68061030e096ec6e9710b5cb  ./camera/elish-camera/tools/android_tuning/chromatix_extract.py
 53cdfe3022a92cd9b1dadc910d2ecaa438a7637e9fe8452a4d20a16b1368d202  ./camera/elish-camera/tools/android_tuning/gen_tuning_data.py
@@ -89,7 +89,7 @@ d4b374d118dce03d9cc769d34835cf11244ee225bb14f3aef414dfded5097901  ./camera/elish
 6e4afd558bbe99b37ec7c6537f36ed1a86c3813dfd1e4cbba265cc1b998aa8b2  ./camera/elish-check-usb
 f6822cc186ecd1e8490f18e6312addcd05e68408e8fb38b5f7901c56f4cefcf1  ./camera/elish-vcam.modprobe.conf
 bb87430ef8c13d597c0ffb202d001b59bb865a2637fbf2c612e977a379b06270  ./camera/elish-vcam.modules-load.conf
-4bb4d223d0ad47973dd0753f96b2f0b859159c795ca03a8d01faa9b3ca5f3bf0  ./camera/install.sh
+d6afd034847b67216581a8a3da571aa73b1264d9219c52c02ff933856fc29528  ./camera/install.sh
 caf884d8e0aac3ec2ee8da8f3ee2f0be198335d3161bfb30361d6232777ee4f0  ./camera/system/elish-sensors-resume
 69ecda121e59b3d6a91b21ca633bb1e5a85d94c730bb1d4c0a1079f7da839d31  ./camera/system/elish-sensors-resume-worker
 6b5f4d80fa4402216c1df8430449ab7e5f32fa6342a9f3d8b1456f885957776f  ./camera/system/elish-sensors-resume.service
@@ -204,9 +204,9 @@ e7b9a67037d1ebb5b9670cc8648dd5cbb302f952ec522ed8f56b032244927107  ./gnss/userspa
 a879fa6291f4117ef4e0787149b0dca05ee60e1b4db4e0509d3537b5cdda2d2f  ./install/backup-boot.sh
 2f72756d5a26edead62235c109f8ccf592b24b237adabfe4ef16259dfb86378f  ./install/build-userspace.sh
 300abccf833b63535cb79df7386bf4ee36624b04fca5e1e93f58f1c3283f535a  ./install/check-all.sh
-19dbd1d3d15ee5b88b70be7f2279d63110d2db8d29d893a454f2ca1442b35122  ./install/extract-all.sh
+a18e414845bc7f9ec658fa0a27f5ff23be0540aabeca785789433a987a52e9ad  ./install/extract-all.sh
 3ed483c6ddf4698f3842ba4c5ca5695c208d0a5cf6170f24388d98240d10b048  ./install/lib/common.sh
-5005b52ee6420a15c50b04635f771401e7bafc984b35d1d4c2ebef215f8d6c4a  ./install/turnkey.sh
+4d8b26ba6497db6036a73fba82d1e7cec71b31e1e2247ebc62ff526ed3eb6027  ./install/turnkey.sh
 7666f3c18609c4ab922cee3240910bee35b24cc413933bf733dc24e2a7c76c46  ./kernel/ARMBIAN-BASELINE.md
 d07366f953aa809302727dd1aae983656ec64aa6853182324a8950d81742a25d  ./kernel/CHARGER-RESUME.md
 a0efbe5346654dfd46abd0170d5f3e6885811651dad03fca1182c6721138cf4c  ./kernel/INTEGRATION.md
@@ -217,7 +217,7 @@ a113dd8f8e0f8e115580f9cb0b4babef8cc48f5fe8a889774d4cf55673d756ca  ./kernel/READM
 54c2d2c5c0c890a87fbf59fe77efdadc00470b95ce17ed9ed55aab0be9934c28  ./kernel/build-and-install.sh
 97c929217727084642b79a0e55b5d41a08463971ece4732ad5f4684fdd0c9323  ./kernel/compat-check.sh
 2a335b490b6b243239d63c5edeb4e54d6a6726867e5cd32f78fc6c009eed6135  ./kernel/config-used-6.18.44
-34c399b67ed4eaa0cffff22d346d89e00bc306e5537680a5660d8a60d7983e41  ./kernel/dtb/README.md
+0583d75d4c5851e686ba6e730c7be77c3112a7f9e2833990574685f7e4eb72b6  ./kernel/dtb/README.md
 34e502ae40a4d6387f0d7611f42f4ef6d6b432a54605490386f8a03404dd23af  ./kernel/dtb/fingerprint-node-reference.txt
 422dd9e20b1d72bc868539e2c42f22bec23e71bbca5f4fbf0690d2f81d062c27  ./kernel/dtb/hi556/README.md
 54b9f987cc36c02966c11c484c0101a15bbc1cb600f464d80bfda918986e6fd6  ./kernel/dtb/hi556/hi556-apply-dtb.sh
@@ -232,6 +232,7 @@ b6c3501c08a808e19e255a8a66cd6a429f59dba47fc63d9dc78ebe3473163a03  ./kernel/goodi
 b3f82ee6a47829f687d51338547f838f909949c75c644c81b69a42961623a834  ./kernel/include/uapi/linux/tee.h
 c8e5eba74a37b8840029cff85035a784874b6550d1a3b94c6e4c269a41438d1f  ./kernel/initramfs/hooks/xiaomi-elish-firmware
 dd4bb65f661cd7791b7505088ba2d2e732fcb33848ebc7769cab7988375419b0  ./kernel/initramfs/install-hook.sh
+4b116df18542ba027c04efb71694cced8664dcafc5d78c6ee109b41fd2fd6431  ./kernel/install-dtb.sh
 edaf9bbbce1169f35bba6fa779bb64cabe3257c9f65646ea5473096a4b026384  ./kernel/install-new-kernel.sh
 1ea9ac9133d6bd26b27cd0a7d5578c8850c02faf6f1e882aa78ec5a8301fe7e6  ./kernel/integration/sm8250-slpi-vmids.dtsi.fragment
 e283711be81ad703be9d17e3b3ef96306de60d7fe0f63486e1f2fdc1ca5ce2a0  ./kernel/kernel.release
@@ -268,7 +269,7 @@ b49596337a29eb62a665c995db9fbaf344d4ce7e93029405f8dbb7b5126ffec0  ./sensors/docs
 b58b6dc8385396810618e4811903b1ed32c8b8c3e005263d1e5e675888688997  ./sensors/docs/TROUBLESHOOTING.md
 b4b37663588f28d00a9f4fb5cd18e5cf06266386d88336af7ec64b19b4abe786  ./sensors/docs/UPGRADE-IMPACT.md
 a35cbfd85dc7b4becb6eefc427a51639f0904112eeed1500d17e1cc68ad3a867  ./sensors/extract/README.md
-757acf03ab248b94452464c51ab7e4a8bb3231d41b5329d3282ffefb46f55688  ./sensors/extract/extract-from-android-vendor-img.sh
+eaa941123d2c8b3475e08e1913b39aa060895496f82eb088845e5fe446023b16  ./sensors/extract/extract-from-android-vendor-img.sh
 0eef8e306f539a269ed65267006b5b224ab407a5418fb678baf9546fb6b6f6d8  ./sensors/extract/extract-from-armbian-firmware.sh
 d4eca98c2b6ddc685d07c78085c841b6aa4147629eca2996c1af851c40bb7e5d  ./sensors/extract/extract-pmos-slpi-mbn.sh
 bd7d924e706e895b310de776428a5c4c04b49f95a9efcb37b613d43c3ddb8492  ./sensors/install/FILES-MAP.md

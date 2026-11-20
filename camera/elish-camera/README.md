@@ -37,6 +37,9 @@ Xiaomi Pad 5 Pro（SM8250 / elish）在 mainline Armbian 上，把前后摄以**
   默认关闭，源码可正常编译/运行；
 - 你按 `tools/android_tuning/README.md` 从**你自己的设备**只读提取并生成
   `src/tuning_data.h` 后重新 `make`，LSC/CCM 默认开启；
+- 一键安装器会自动做这件事：`sudo ./install.sh --android <vendor.img> ...` 会提取
+  `com.qti.tuned.*.bin` 并在编译相机前生成头文件；也可
+  `sudo ./camera/install.sh --tuning-bins <dir>` 单独指定；
 - `ELISH_LSC=0` / `ELISH_CCM=0` 可关闭；生成物已被 `.gitignore` 忽略，不要提交/分发。
 
 验证（本机带数据构建）：合成 RAW 暗角 4.4× → 0% 波动；CCM 与矩阵数学逐通道一致；

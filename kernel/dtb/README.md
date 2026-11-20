@@ -60,6 +60,15 @@ uart16、haptics、regulator@88e7000 等），且树内只有 vmids、没有指�
 - 应用前先 dry-run，`sudo … --write-boot` 才会写 boot（自动备份 + 重建 boot_b + 回读校验）；
 - 详见 `hi556/README.md`。
 
+## 一键安装 DTB
+
+包内只有这一份已合并 Hi556 的联合 DTB。只装 DTB（不重编内核）：
+```bash
+sudo ./kernel/install-dtb.sh                # 更新 rootfs/boot 下 DTB
+sudo ./kernel/install-dtb.sh --write-boot   # 另重建 Linux 启动槽（自动检测，需确认）
+# 或一键器：sudo ./install.sh --with-dtb --write-boot --yes
+```
+
 ## 校验
 
 ```bash

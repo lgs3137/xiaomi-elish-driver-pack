@@ -102,6 +102,13 @@ if [ "$SKIP_SENSORS" = 0 ]; then
             run mkdir -p "$EXTRACT_DIR/android"
             run cp -a "$AV/sensors" "$EXTRACT_DIR/android/"
             [ -d "$AV/acdb" ] && run cp -a "$AV/acdb" "$EXTRACT_DIR/android/"
+            # Camera Chromatix tuning bins: copy any com.qti.tuned.*.bin found
+            # under the user's vendor directory; kept local and never shipped.
+            run mkdir -p "$EXTRACT_DIR/android/camera-tuning/bins"
+            if [ "$DRY_RUN" = 0 ]; then
+                find "$AV" -maxdepth 6 -type f -name 'com.qti.tuned.*.bin' \
+                    -exec cp -a {} "$EXTRACT_DIR/android/camera-tuning/bins/" \; 2>/dev/null || true
+            fi
         else
             log "Android vendor 镜像: $AV"
             run bash "$PKG_ROOT/sensors/extract/extract-from-android-vendor-img.sh" "$AV" "$EXTRACT_DIR/android"
@@ -157,6 +164,12 @@ if [ "$SKIP_SENSORS" = 0 ]; then
         [ "$ncfg" -eq 40 ]  || die "config 数量不是 40，数据不完整"
         [ "$nproto" -eq 79 ] || warn "proto 数量 $nproto ≠ 79（可接受？）"
         log "SLPI 固件: $(md5sum "$EXTRACT_DIR/pmos/firmware/slpi.mbn" | cut -d' ' -f1)（期望 51c3b3bef20a76d386a516dfbcc72b68）"
+        n_tuned=$(find "$EXTRACT_DIR/android/camera-tuning/bins" -type f -name 'com.qti.tuned.*.bin' 2>/dev/null | wc -l)
+        if [ "$n_tuned" -gt 0 ]; then
+            log "相机调校 bin: $n_tuned 个（LSC/CCM 将按本机数据生成；仅本地）"
+        else
+            warn "未提取到 com.qti.tuned.*.bin；相机将用中性 LSC/CCM（不影响本次安装）"
+        fi
     fi
 fi
 

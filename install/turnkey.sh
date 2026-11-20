@@ -11,10 +11,16 @@
 #   --pmos <apk|dir>       pMOS SLPI 固件包（内含 slpi.mbn）
 #   --fingerprint <dir|img> 指纹 TA 来源；--fingerprint-adb 从 adb 提取；都不给则自动找/跳过
 #   --with-gnss / --no-gnss        GNSS 子系统（默认装）
-#   --with-camera / --no-camera    相机子系统（默认装）
+#   --with-camera / --no-camera    相机子系统（默认装；自动使用提取到的调校 bin）
+#   --with-camera-tuning / --no-camera-tuning
+#                                  使用/不使用本机提取的相机调校数据（默认：有则用）
 #   --with-torch                   可选：GNOME 46 手电筒（控制中心开关 + torch CLI）；默认不装
 #   --no-fingerprint               跳过指纹
-#   --with-kernel --kernel-src DIR [--write-boot]   内核构建+安装（写 Linux boot 槽，自动检测，显式 opt-in）
+#   --with-dtb [--write-boot]      只安装包内单一联合 DTB（含 Hi556），不重编内核；
+#                                  --write-boot 才重建 Linux 槽（自动检测，需确认）
+#   --skip-kernel-check            跳过“内核/DTB 是否为本包完整安装”的预检警告
+#   --with-kernel --kernel-src DIR [--write-boot]   内核构建+安装（写 Linux boot 槽，自动检测）
+#                                  **首次安装/换内核必须**；已有匹配内核+DTB 时才可跳过
 #   --with-regver          额外构建 regver-v1 回退版 hexagonrpcd
 #   --force                已安装的组件也重编
 #   --deps / --no-deps     自动安装 apt 依赖（默认装）
@@ -34,6 +40,7 @@ TAG=turnkey
 
 ANDROID=""; PMOS=""; FP=""; FP_ADB=0
 WITH_GNSS=1; WITH_CAMERA=1; WITH_FP=1; WITH_KERNEL=0; WITH_REGVER=0
+WITH_DTB=0; WITH_CAMERA_TUNING=1; SKIP_KERNEL_CHECK=0
 WITH_BIOAUTH=0; BIOAUTH_SUDO=0; BIOAUTH_PKEXEC=0
 WITH_TORCH=0
 DO_DEPS=1; SKIP_EXTRACT=0; SKIP_BUILD=0; SKIP_INSTALL=0; SKIP_CHECK=0
@@ -49,6 +56,11 @@ while [ $# -gt 0 ]; do
         --no-gnss) WITH_GNSS=0; shift ;;
         --with-camera) WITH_CAMERA=1; shift ;;
         --no-camera) WITH_CAMERA=0; shift ;;
+        --with-camera-tuning) WITH_CAMERA_TUNING=1; shift ;;
+        --no-camera-tuning) WITH_CAMERA_TUNING=0; shift ;;
+        --with-dtb) WITH_DTB=1; shift ;;
+        --no-dtb) WITH_DTB=0; shift ;;
+        --skip-kernel-check) SKIP_KERNEL_CHECK=1; shift ;;
         --with-fingerprint) WITH_FP=1; shift ;;
         --with-torch) WITH_TORCH=1; shift ;;
         --no-torch) WITH_TORCH=0; shift ;;
@@ -93,6 +105,36 @@ case "$MODEL" in
     *) warn "机型看起来不是 Xiaomi Pad 5 Pro (elish)：$MODEL —— 继续有风险，请确认后重试。" ;;
 esac
 [ "$(id -u)" -eq 0 ] || [ "$DRY_RUN" = 1 ] || die "请用 sudo 运行"
+
+# ---- 内核/DTB 前置检查 -------------------------------------------------
+# 说明：本包几乎所有子系统都依赖“已装内核补丁/模块 + 联合 DTB”。内核步骤是
+# 显式 opt-in 只是为了不在安装时自动写启动槽（风险高）且需要同版本内核源码；
+# 对全新系统它**不是可选项**。这里在跳过内核时给出明确警告。
+if [ "$WITH_KERNEL" = 0 ] && [ "$SKIP_KERNEL_CHECK" = 0 ]; then
+    PKG_DTB="$PKG_ROOT/kernel/dtb/sm8250-xiaomi-elish-csot.dtb"
+    RUN_DTB="/boot/dtb-$KREL/qcom/sm8250-xiaomi-elish-csot.dtb"
+    DTB_STATE=missing
+    if [ -f "$RUN_DTB" ] && [ -f "$PKG_DTB" ]; then
+        if cmp -s "$PKG_DTB" "$RUN_DTB"; then DTB_STATE=ok; else DTB_STATE=old; fi
+    fi
+    MISSING_MODS=()
+    [ -e "/lib/modules/$KREL/kernel/drivers/misc/fastrpc.ko" ] || MISSING_MODS+=(fastrpc)
+    [ -e "/lib/modules/$KREL/extra/goodix_fp_spi.ko" ] || MISSING_MODS+=(goodix_fp_spi)
+    [ -e "/lib/modules/$KREL/extra/airoha_gps.ko" ] || MISSING_MODS+=(airoha_gps)
+    if [ "$DTB_STATE" != ok ] || [ "${#MISSING_MODS[@]}" -gt 0 ]; then
+        warn "当前内核/DTB 看起来不是本包的完整安装状态：DTB=$DTB_STATE，缺少模块=${MISSING_MODS[*]:-无}"
+        warn "全新系统/首次安装必须加：--with-kernel --kernel-src <同版本内核源码> --write-boot"
+        warn "只更新 DTB 可用 --with-dtb，但它不会编译/安装内核模块；已有完整内核可加 --skip-kernel-check 跳过本检查。"
+        if [ "$WITH_DTB" = 1 ]; then
+            warn "注意：--with-dtb 只更新联合 DTB，不安装 fastrpc/goodix/airoha 等模块。"
+        fi
+        if [ "$DRY_RUN" != 1 ]; then
+            confirm "仍要继续只安装用户态/数据部分吗？" || die "用户取消：请加 --with-kernel ... 后重试"
+        fi
+    else
+        log "内核/DTB 检查：联合 DTB 与包内一致，fastrpc/goodix/airoha 模块已存在（可跳过内核步骤）"
+    fi
+fi
 
 # ---------------- 依赖 ----------------
 if [ "$DO_DEPS" = 1 ]; then
@@ -191,7 +233,18 @@ if [ "$SKIP_INSTALL" = 0 ]; then
 
     if [ "$WITH_CAMERA" = 1 ]; then
         step "5c) 相机（GPU 管线 + 虚拟摄像头 + 休眠唤醒恢复）"
-        run bash "$PKG_ROOT/camera/install.sh"
+        CARGS=()
+        CT_BINS="$EXTRACT_DIR/android/camera-tuning/bins"
+        if [ "$WITH_CAMERA_TUNING" = 1 ] && [ -d "$CT_BINS" ] && \
+           find "$CT_BINS" -maxdepth 1 -type f -name 'com.qti.tuned.*.bin' 2>/dev/null | grep -q .; then
+            CARGS+=(--tuning-bins "$CT_BINS")
+            log "使用本机提取的相机调校 bin: $CT_BINS（仅本地生成 tuning_data.h）"
+        else
+            log "无可用相机调校 bin；将编译中性 LSC/CCM（不影响安装）"
+        fi
+        [ "$DRY_RUN" = 1 ] && CARGS+=(--dry-run)
+        [ "$ASSUME_YES" = 1 ] && CARGS+=(--yes)
+        run bash "$PKG_ROOT/camera/install.sh" "${CARGS[@]}"
     else
         log "跳过相机（--no-camera）"
     fi
@@ -229,6 +282,20 @@ if [ "$SKIP_INSTALL" = 0 ]; then
 
 else
     log "跳过系统集成安装"
+fi
+
+# ---------------- 可选：只安装联合 DTB（含 Hi556） ----------------
+if [ "$WITH_DTB" = 1 ]; then
+    if [ "$WITH_KERNEL" = 1 ]; then
+        log "已启用 --with-kernel；合并 DTB 会由内核安装步骤一并安装，跳过 --with-dtb"
+    else
+        step "5g) 安装单一联合 DTB（含 Hi556）"
+        DARGS=()
+        [ "$DRY_RUN" = 1 ] && DARGS+=(--dry-run)
+        [ "$WRITE_BOOT" = 1 ] && DARGS+=(--write-boot)
+        [ "$ASSUME_YES" = 1 ] && DARGS+=(--yes)
+        run bash "$PKG_ROOT/kernel/install-dtb.sh" "${DARGS[@]}"
+    fi
 fi
 
 # ---------------- 内核（可选，显式 opt-in） ----------------

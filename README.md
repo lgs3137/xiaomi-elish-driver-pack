@@ -207,13 +207,30 @@ docs/          硬件状态基线、整机 TODO、历史记录、升级影响、
 
 ### 1. 全组件一键安装（推荐）
 
-一键流程（预览 → 正式安装 → 可选内核 → 重启验证）统一见 [`QUICKSTART.md`](QUICKSTART.md)；
+一键流程（预览 → 正式安装 → 可选 DTB/内核 → 重启验证）统一见 [`QUICKSTART.md`](QUICKSTART.md)；
 手动分步/排障见 [`INSTALL.md`](INSTALL.md)。
+
+- **相机 LSC/CCM**：`--android` 提取阶段会同时取 `com.qti.tuned.*.bin`，编译相机时在本机生成
+  `src/tuning_data.h`（数据不随包、不提交）；没有调校 bin 时自动用中性 LSC/CCM。
+- **联合 DTB（含 Hi556）**：默认安装流程不带 DTB 写盘；加 `--with-dtb --write-boot` 只装 DTB
+  并重建 Linux 槽；`--with-kernel` 则在内核步骤中一并安装。
 
 ### 2. 单组件安装
 
-#### 2.1 内核 / DTB / initramfs（可选，需要内核源码）
+#### 2.1 内核 / DTB / initramfs（首次安装必需；已有匹配内核+DTB 时可跳过）
 
+只安装包内单一联合 DTB（含 Hi556，不重编内核）：
+```bash
+sudo ./kernel/install-dtb.sh                # 只更新 rootfs/boot 下 DTB
+sudo ./kernel/install-dtb.sh --write-boot   # 另重建 Linux 槽（自动检测/需确认）
+# 或一键器：sudo ./install.sh --with-dtb --write-boot --yes
+```
+
+**注意**：本包绝大多数驱动（sensor/fastrpc/fingerprint/GNSS/相机）都依赖已打补丁的内核 + 联合 DTB。
+`--with-kernel` 之所以是显式选项，是因为它会**写 Linux 启动槽**且需要自备同版本内核源码；
+对全新系统它不是“可选依赖”，而是必须步骤。已有本包完整内核+DTB 时才可跳过（安装器会预检并警告）。
+
+完整内核（含 DTB）需要内核源码：
 ```bash
 sudo ./kernel/build-and-install.sh --kernel-src /var/tmp/kbuild-src --write-boot
 # 只预检/不写盘： --dry-run

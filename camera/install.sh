@@ -3,6 +3,11 @@
 #
 # 用法（root）：
 #   sudo ./camera/install.sh [--dry-run] [--skip-apt] [--skip-make]
+#                           [--tuning-bins <dir>]
+#
+#   --tuning-bins DIR  从本机 Android vendor 提取的 com.qti.tuned.*.bin 目录；
+#                      编译前自动生成 src/tuning_data.h（LSC/CCM）。没有该目录时
+#                      编译中性 LSC/CCM（不影响使用）。
 #
 # 安装内容：
 #   /usr/local/bin/elish-camera（GPU 全分辨率管线后端）
@@ -14,11 +19,12 @@ set -euo pipefail
 TAG=camera
 . "$(dirname "$0")/../install/lib/common.sh"
 
-SKIP_APT=0; SKIP_MAKE=0
+SKIP_APT=0; SKIP_MAKE=0; TUNING_BINS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-apt) SKIP_APT=1; shift ;;
         --skip-make) SKIP_MAKE=1; shift ;;
+        --tuning-bins) TUNING_BINS=${2:-}; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         --yes) ASSUME_YES=1; shift ;;
         -h|--help) awk 'NR>1 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"; exit 0 ;;
@@ -31,6 +37,29 @@ C="$PKG_ROOT/camera"
 step "1) 依赖（可选）"
 if [ "$SKIP_APT" = 0 ]; then
     run apt-get install -y python3-zxing-cpp zbar-tools || warn "相机可选依赖安装失败（扫码功能可能不可用）"
+fi
+
+if [ "$SKIP_MAKE" = 0 ] && [ -n "$TUNING_BINS" ]; then
+    step "2a) 本机 Android 相机调校提取（LSC/CCM，仅本地生成 src/tuning_data.h）"
+    if [ ! -d "$TUNING_BINS" ]; then
+        warn "调校 bin 目录不存在: $TUNING_BINS（将使用中性 LSC/CCM）"
+    else
+        WORK=$(mktemp -d)
+        run rm -f "$C/elish-camera/src/tuning_data.h"
+        if run python3 "$C/elish-camera/tools/android_tuning/chromatix_extract.py" \
+                --bins "$TUNING_BINS" --out "$WORK/extract" \
+           && run python3 "$C/elish-camera/tools/android_tuning/build_linux_params.py" \
+                --data "$WORK/extract" \
+                --out "$WORK/extract/linux-recommended-params.json" \
+           && run python3 "$C/elish-camera/tools/android_tuning/gen_tuning_data.py" \
+                --json "$WORK/extract/linux-recommended-params.json" \
+                --out "$C/elish-camera/src/tuning_data.h"; then
+            [ "$DRY_RUN" = 1 ] || log "已生成 src/tuning_data.h（本机数据，不提交）"
+        else
+            warn "调校解析失败；继续编译中性 LSC/CCM"
+        fi
+        run rm -rf "$WORK"
+    fi
 fi
 
 step "2) 编译 elish-camera（GPU debayer + Venus 编码）"

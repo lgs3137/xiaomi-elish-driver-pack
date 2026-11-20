@@ -7,7 +7,14 @@
 
 > 请仅处理你拥有的设备与你自己备份的数据；生成物不要提交、不要分发。
 
-## 步骤
+## 一键安装器的自动流程
+
+根目录 `sudo ./install.sh --android <vendor.img|dir> --pmos ...` 会：
+提取阶段自动取 vendor 里的 `com.qti.tuned.*.bin`（存到本机 `EXTRACT_DIR`），
+编译相机前自动执行本目录 3 个脚本生成 `src/tuning_data.h`，然后编译/安装相机。
+`--no-camera-tuning` 可关闭；也可单独 `sudo ./camera/install.sh --tuning-bins <dir>`。
+
+## 手动步骤
 
 1. **只读取得 vendor 调校 bin**（从你自己的设备，不刷写、不分发）：
    需要以下文件（通常位于 Android vendor 分区的 `lib64/camera/`，
