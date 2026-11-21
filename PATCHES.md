@@ -102,6 +102,15 @@ release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail
   受控服务 `pps-charger/` 已实现 keep-alive，可选安装（`--with-pps-charger`），50–56% 电量下
   11V 电池侧 ~20.5W（固定 9V 约 18.9W，+8%），短测 11V/4A 可到 23.5W+，41.5°C 回退固定档。
 
+### 9c. 满电拔线仍显示充电（0016，2026-11-21）
+
+- **现象**：充到 100% 后拔掉充电器，电池状态仍报 `Full`，桌面/UPower 显示“已充满/充电中”，
+  实际电流已经为负（在放电）。
+- **根因**：`bq27xxx_battery` 先判断 `FC`（满电）标志、后看电流方向；`FC` 在满电后会锁存一段时间，
+  不会立刻随拔线清除。
+- **修复**：`0016-bq27xxx-discharging-status.patch` 把电流方向放到最前——`curr < 0` 直接报
+  `DISCHARGING`，其余情况再按 `FC`/正电流/零电流判断；充电到 100% 时仍正常显示 `FULL`。
+
 ### 10. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
 
 - `kernel/include/` 3 个头文件 + `kernel/INTEGRATION.md`：qcom_scm.h / mdt_loader.h / tee.h，

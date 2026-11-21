@@ -1,0 +1,25 @@
+--- a/drivers/power/supply/bq27xxx_battery.c
++++ b/drivers/power/supply/bq27xxx_battery.c
+@@ -1899,12 +1899,19 @@
+ 		val_curr->intval = curr;
+ 
+ 	if (val_status) {
+-		if (bq27xxx_battery_is_full(di, flags))
++		/*
++		 * The FC ("fully charged") flag latches at 100% and is not cleared
++		 * immediately when the cable is unplugged, so a gauge that reports
++		 * a negative current is discharging even while FC is still set.
++		 * Trust the current direction first, otherwise the battery shows
++		 * "Full"/charging in UPower after unplugging at 100%.
++		 */
++		if (curr < 0)
++			val_status->intval = POWER_SUPPLY_STATUS_DISCHARGING;
++		else if (bq27xxx_battery_is_full(di, flags))
+ 			val_status->intval = POWER_SUPPLY_STATUS_FULL;
+ 		else if (curr > 0)
+ 			val_status->intval = POWER_SUPPLY_STATUS_CHARGING;
+-		else if (curr < 0)
+-			val_status->intval = POWER_SUPPLY_STATUS_DISCHARGING;
+ 		else
+ 			val_status->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 	}

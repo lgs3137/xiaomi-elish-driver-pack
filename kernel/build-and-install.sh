@@ -117,6 +117,7 @@ apply_kpatch "$P/0012-charger-soc-step-charging.patch"
 apply_kpatch "$P/0013-charger-ignore-fullon-flag.patch"
 apply_kpatch "$P/0014-bq2597x-probe-typec-notifier.patch"
 apply_kpatch "$P/0015-bq2597x-soc-gated-charging.patch"
+apply_kpatch "$P/0016-bq27xxx-discharging-status.patch"
 
 step "3) 确保 q6v5_pas auto_boot=true（SLPI 开机不抢先启动）"
 Q6="$KSRC/drivers/remoteproc/qcom_q6v5_pas.c"

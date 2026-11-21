@@ -11,7 +11,7 @@
 
 > 基线：Linux **6.18.44** + Armbian sm8250 补丁（获取方式见 `ARMBIAN-BASELINE.md`）+ 指纹内核文件 +
 > 传感器/相机/充电补丁。目标内核版本必须仍是 `6.18.44-current-sm8250`（ABI/模块依赖）。
-> 当前已部署 release 构建 **#20**（2026-11-21，release 配置，无 PM_DEBUG / DPM_WATCHDOG 等诊断项；含 0009 睡眠修复、0010–0013 PD 快充/分段充电、0014–0015 bq2597x 并联泵）。
+> 当前已部署 release 构建 **#21**（2026-11-21，release 配置，无 PM_DEBUG / DPM_WATCHDOG 等诊断项；含 0009 睡眠修复、0010–0013 PD 快充/分段充电、0014–0015 bq2597x 并联泵、0016 满电状态修复）。
 
 ## 文件
 
@@ -38,6 +38,7 @@
 | `patches/0013-charger-ignore-fullon-flag.patch` | 忽略 `BATT_GT_FULL_ON` 正常标志，只对真正的 inhibit/terminate 降档 |
 | `patches/0014-bq2597x-probe-typec-notifier.patch` | bq2597x（master/slave 并联充电器）probe 时 typec psy 可能尚未注册；改为后台每秒重试（≤120 次）、拿到后注册 notifier，并把 notifier 里 30s `msleep` 改成延迟工作队列（否则阻塞 power_supply 回调）；修复后 `present=1`、9V 下泵参与充电（2026-11-21） |
 | `patches/0015-bq2597x-soc-gated-charging.patch` | 并联泵按电量门控：SoC ≥96% 时禁用泵（防满电过充），每 30s 复查，降到 96% 以下自动恢复；读不到 SoC 时保守关闭 |
+| `patches/0016-bq27xxx-discharging-status.patch` | 电量计状态优先级：先看电流方向（放电→`DISCHARGING`），再看 `FC` 满电标志；修复 100% 拔线后仍显示 `Full`/充电图标的问题 |
 | `build-and-install.sh` | 一键：应用补丁/配置/编译/模块/DTB/initramfs hook/启动槽（调用 `update-boot-image.sh`） |
 | `update-boot-image.sh` | 推荐：预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（自动检测） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查 |
@@ -86,6 +87,7 @@ patch -p1 < <本包>/kernel/patches/0012-charger-soc-step-charging.patch
 patch -p1 < <本包>/kernel/patches/0013-charger-ignore-fullon-flag.patch
 patch -p1 < <本包>/kernel/patches/0014-bq2597x-probe-typec-notifier.patch
 patch -p1 < <本包>/kernel/patches/0015-bq2597x-soc-gated-charging.patch
+patch -p1 < <本包>/kernel/patches/0016-bq27xxx-discharging-status.patch
 # 3) 让 QCOM_MDT_LOADER 用户可选（若树内 Kconfig 仍是裸 tristate）
 grep -q 'tristate "Qualcomm MDT firmware loader"' drivers/soc/qcom/Kconfig || \
   patch -p1 < <本包>/kernel/patches/0003-qcom-mdt-loader-user-selectable.patch

@@ -1,14 +1,14 @@
 # 版本与校验值（合并包 BOM）
 
 > 本包不含编译产物/固件；下列 sha256/md5 用于安装后交叉核对。
-> **本版基线：2026-11-21**（release 内核构建 #20 + 0009 睡眠修复 + 0010–0015 PD 快充/分段充电/bq2597x 并联泵；联合 DTB 含 Hi556 与 PPS APDO）。
+> **本版基线：2026-11-21**（release 内核构建 #21 + 0009 睡眠修复 + 0010–0016 PD 快充/分段充电/bq2597x 并联泵/满电状态；联合 DTB 含 Hi556 与 PPS APDO）。
 > 历史版本记录见 `docs/HISTORY.md`。
 
 ## 内核
 
 | 项 | 值 |
 |---|---|
-| 运行内核 | `6.18.44-current-sm8250`（release 构建 `#20 SMP Sat Nov 21 16:20:15 CST 2026`，无诊断选项） |
+| 运行内核 | `6.18.44-current-sm8250`（release 构建 `#21 SMP Sat Nov 21 21:54:46 CST 2026`，无诊断选项） |
 | 基线源码 | Linux v6.18.44（tar.xz sha256 `0f72d938f06828e82c90405174fe572287db7bfe089e2fc46572a99a7f240d43`）+ Armbian sm8250 补丁（获取方式见 `kernel/ARMBIAN-BASELINE.md`） |
 | 配置 | `kernel/config-used-6.18.44`，sha256 `5d102e999c3a6c63bc17f659361963b8`（TEE/QSEECOM/MDT/BTF/FASTRPC；LOCALVERSION=-current-sm8250） |
 | 安装后 fastrpc.ko sha256 | `d8e3d3828dcfa94d514c45eca72c159205c1dc94dc98d72d2894aeff5080a94a`（含 0009） |
@@ -23,12 +23,13 @@
 | FULL_ON 误判修复（0013） | `kernel/patches/0013-charger-ignore-fullon-flag.patch`（`BATT_GT_FULL_ON` 是正常模式标志，不再触发降档） |
 | bq2597x 并联泵（0014） | `kernel/patches/0014-bq2597x-probe-typec-notifier.patch`（probe 后台重试 typec psy + notifier delayed-work；修复后 master/slave `present=1`，9V 下参与充电） |
 | 泵 SoC 门控（0015） | `kernel/patches/0015-bq2597x-soc-gated-charging.patch`（≥96% 关闭泵、<96% 恢复、每 30s 复查） |
+| 电池状态（0016） | `kernel/patches/0016-bq27xxx-discharging-status.patch`（放电优先于 FC 满电标志；修复 100% 拔线仍显示 Full/充电） |
 | 内核集成 | `kernel/include/`（3 头文件）+ `kernel/INTEGRATION.md`；权威系列补丁 `kernel/patches/fingerprint/qseecom-tee-series.patch`（14 文件） |
 | boot hook 参考 | `kernel/boot/zz-update-abl-kernel`（系统 hook 副本）；统一用 `kernel/update-boot-image.sh` |
 | QCOM_MDT_LOADER Kconfig | `kernel/patches/0003-qcom-mdt-loader-user-selectable.patch` |
 | boot 镜像更新 | `kernel/update-boot-image.sh`（预检+备份+回读校验） |
 | 联合 DTB（随包） | `kernel/dtb/sm8250-xiaomi-elish-csot.dtb`，sha256 `d7840b30c36290e6735d6bf96605929304e16c199a510b373782589b64234354`（模型级，无本机私有信息；含相机/OV8856/OV13B10/Hi556、GNSS QUP5 UART + bcm4775 + PMIC GPS clock、指纹节点、**PPS APDO 3.3–11V/5A**） |
-| 内核 Image / boot 镜像 | `/boot/vmlinuz-6.18.44-current-sm8250` sha256 `190863ccea0b370b8056e690923137271dcf69b738d3fb8a065c454179048e25`；`/boot/armbian-kernel-csot.img` sha256 `606c638d3518b0118aec089714e550c530f4196df109842c64aee5de2055735a` |
+| 内核 Image / boot 镜像 | `/boot/vmlinuz-6.18.44-current-sm8250` sha256 `ac884452c939364f5682c06c494dfc94266bc193f4701e5d2904df1d62ee0a20`；`/boot/armbian-kernel-csot.img` sha256 `35c9928ef2fd50bfdd612289f46def13dfc292f0f2e69207cbde5e03ac3d32b1` |
 | initramfs hook | `kernel/initramfs/hooks/xiaomi-elish-firmware`（修复版，跳过 slpi 符号链接/禁用文件） |
 | DTB 关键项 | `qcom,vmids=<3 15 5 6>`；`/fingerprint` `firmware-name="gfenu"`、`compatible="goodix,gf3626"` |
 
