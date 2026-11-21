@@ -33,26 +33,17 @@ class TorchToggle extends QuickSettings.QuickToggle {
         this._autoOffId = 0;
         this._inFlight = false;
 
-        // The Quick Settings popup follows the GTK theme variant; pick an icon
-        // color that stays visible in both light and dark style.
-        this._themeHandlerId = St.Settings.get().connect(
-            'notify::gtk-theme-variant', () => this._syncIcon());
-
+        // GNOME 46 的 Quick Settings 弹出层始终是深色背景，白色图标才可见。
+        // （之前按 gtk-theme-variant 判断，浅色 GTK 主题下会选黑图标，导致看不见。）
         this._syncIcon();
         this._syncFromSysfs();
 
         this.connect('clicked', () => this._onClicked());
     }
 
-    _isDarkStyle() {
-        const variant = (St.Settings.get().gtkThemeVariant ?? '').toLowerCase();
-        return variant.includes('dark');
-    }
-
     _syncIcon() {
-        const file = this._isDarkStyle() ? 'torch-white.svg' : 'torch-black.svg';
         this.gicon = Gio.icon_new_for_string(
-            this._iconsDir.get_child(file).get_path());
+            this._iconsDir.get_child('torch-white.svg').get_path());
     }
 
     _startAutoOff() {
@@ -115,10 +106,6 @@ class TorchToggle extends QuickSettings.QuickToggle {
 
     destroy() {
         this._clearAutoOff();
-        if (this._themeHandlerId) {
-            St.Settings.get().disconnect(this._themeHandlerId);
-            this._themeHandlerId = 0;
-        }
         super.destroy();
     }
 });
