@@ -29,6 +29,7 @@
 | `patches/0006-ov13b10-of-supplies-reset.patch` | OV13B10 OF match + avdd/dovdd/dvdd 供电 + reset 脉冲（后摄 DTS 适配中；见 `camera/README.md`） |
 | `patches/0007-cn3927v.patch` | OV13B10 后摄 CN3927V VCM 驱动（focus sysfs + DTS node；见 `camera/README.md`） |
 | `patches/0008-hi556-of.patch` | Hi556 景深 OF match + 非 ACPI power/identify（DTS 已接，I2C 仍待查） |
+| `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener 线程 `PF_NOFREEZE`：s2idle 期间继续应答 DSP，修复唤醒后 sensor PD `frpc_dsp` 崩溃（睡眠死机根因；2026-11-21 实测 7 次睡眠 0 崩溃） |
 | `update-boot-image.sh` | 推荐：预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（自动检测） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查 |
 | `PINCTRL-LPASS.md` | 该补丁的症状/部署/initramfs 注意事项 |
@@ -70,6 +71,7 @@ patch -p1 < <本包>/kernel/patches/0005-ov8856-bggr-vflip.patch
 patch -p1 < <本包>/kernel/patches/0006-ov13b10-of-supplies-reset.patch
 patch -p1 < <本包>/kernel/patches/0007-cn3927v.patch
 patch -p1 < <本包>/kernel/patches/0008-hi556-of.patch
+patch -p1 < <本包>/kernel/patches/0009-fastrpc-listener-unfreezable.patch
 # 3) 让 QCOM_MDT_LOADER 用户可选（若树内 Kconfig 仍是裸 tristate）
 grep -q 'tristate "Qualcomm MDT firmware loader"' drivers/soc/qcom/Kconfig || \
   patch -p1 < <本包>/kernel/patches/0003-qcom-mdt-loader-user-selectable.patch

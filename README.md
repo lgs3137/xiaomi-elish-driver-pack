@@ -58,6 +58,7 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | 内核 | fastrpc SDSP VMID/sensors-PD、QSEECOM/TEE、mdt_loader、qcom_scm、goodix_fp_spi | ✅ | 指纹/传感器内核层 |
 | 内核 | LPASS pinctrl clock-timeout defer（pogo 键盘/USB 随机失效） | ✅ | 独立补丁 `kernel/patches/0002-…` |
 | 内核 | SMB5 Type-C legacy/100mA resume 卡死 | ✅ | 带充电器 3 轮 suspend/resume 验证 |
+| 内核 | 睡眠死机（唤醒后全系统卡死，需长按电源） | ✅ | `kernel/patches/0009-fastrpc-listener-unfreezable.patch`；release 内核实测 7 次 s2idle（含 10.5h）0 崩溃 |
 | 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已于 2026-11-13 修复**（PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
 | 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；依赖保护套霍尔 |
 | 系统 | 睡眠唤醒后 pogo 键盘 | ⚠️ | 已知内核 USB PHY resume 问题；重启/重插恢复，用户态不改（防死锁） |
@@ -100,7 +101,7 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | iio 状态 | active、单实例、**NRestarts=0** |
 | 合盖 → 唤醒 → 传感器恢复/重新 claim | **≈10.2 s**（s2idle；此前 ~35–40s） |
 | 自动旋转 | 唤醒后可用（实测） |
-| 传感器自检 | `13 项 OK`；1 项 PDM crash 是**休眠唤醒后的已知现象**（干净重启后为 0） |
+| 传感器自检 | `13 项 OK`；PDM crash **已由 0009 修复**（未打补丁内核休眠唤醒后仍可能出现，干净重启后为 0） |
 
 ### 指纹
 
@@ -149,7 +150,7 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | 项 | 结果 |
 |---|---|
 | 联合 DTB（传感器 vmids + 指纹 + GNSS） | ✅ 通过 |
-| 传感器栈 | 13 OK / 1 FAIL（PDM crash 为休眠后已知现象） |
+| 传感器栈 | 13 OK / 1 FAIL（旧内核休眠后 PDM crash；0009 已修复） |
 | 指纹栈 | 20 OK / 0 FAIL |
 | GNSS 栈 | 正常（非 root 运行时 polkit 规则只能 WARN） |
 | initramfs 固件不变量 | ✅ 不含 SLPI 固件 |
@@ -365,7 +366,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 ## 已知限制
 
 - 传感器 PD 偶发静默卡死（约 **1/14** 次干净启动）：固件侧问题，干净重启恢复，非本包可修；
-- 休眠唤醒后 PDM crash 1 次属已知现象（传感器数据仍可用；干净重启后自检为 0）；
+- 休眠唤醒后 PDM crash：**已由 `kernel/patches/0009` 修复**（未打补丁内核仍可能看到 1 次；干净重启后自检为 0）；
 - 原始陀螺/磁力计三轴/接近未暴露（libssc/udev 层待补）；
 - 相机：景深 Hi556 为实验性（DTS 补丁与工具已提供，待上机验证）；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
 - pogo 键盘唤醒后可能失效（内核 USB PHY resume；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器）；

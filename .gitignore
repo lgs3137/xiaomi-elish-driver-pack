@@ -17,3 +17,11 @@ __pycache__/
 # local build artifacts (gnss)
 /gnss/userspace/airoha-gnssd
 /gnss/userspace/gps-nmea-share
+
+# out-of-tree kernel module build artifacts
+*.cmd
+*.mod
+*.mod.c
+modules.order
+Module.symvers
+kernel/config-used-6.18.44.bak-*

@@ -60,7 +60,7 @@ IIO_DELAY=8
 - 恢复：**干净重启**（`sudo reboot`）。同 boot 内重启服务无效（SCM assign 不可重复）。
 
 ### 4.2 suspend/resume
-- 合盖 suspend 会断开 fastrpc 会话，PD 可能报 `frpc_dsp` 崩溃。`60-sensors-suspend.sh`
+- 合盖 suspend 会断开 fastrpc 会话，PD 可能报 `frpc_dsp` 崩溃（**内核 0009 起不再发生**）。`60-sensors-suspend.sh`
   pre 停 iio、post 重启监听器/iio；多数情况传感器能恢复（实测 LightLevel 恢复），
   少数情况需要重启。
 - 不要在 suspend 前留下"定时关机/重启"（已有 `40-cancel-scheduled-shutdown.sh` 守卫会在

@@ -61,7 +61,7 @@
 | 硬件 | LSM6DSO（加速度+陀螺）、AK991x（磁力计）、TCS3701/BU27030（环境光）、SX932x（SAR/接近） |
 | 启动时间 | `PRE_DELAY=0`、`IIO_DELAY=8`：开机到传感器可用 **约 22 秒**（boot+12s 服务 → boot+13s SLPI → boot+22s OK；M2 可写 registry 后 PD 初始化 35s→8s） |
 | 可靠性 | 修复固件泄漏/auto_boot、iio 重启风暴与热插后，干净启动成功率从约一半提升到 **约 13/14**；残留为 PD 初始化偶发静默卡死（attach 只读 `hw_platform` 后停住、无崩溃/无 assign -22、registry timeout），与延迟无关，干净重启恢复 |
-| 已知兜底 | iio 每次 boot 可能走一次 warm restart（正常）；suspend/resume 后 PD `frpc_dsp` 可能崩，多数能自动恢复，少数需重启 |
+| 已知兜底 | iio 每次 boot 可能走一次 warm restart（正常）；**suspend/resume 后 PD `frpc_dsp` 崩溃已于 2026-11-21 修复**（`kernel/patches/0009-fastrpc-listener-unfreezable.patch`；release 内核实测 7 次 s2idle 含 10.5h，0 崩溃） |
 | 剩余工作量 | 原始陀螺/磁力计/接近仍需在 libssc/udev 层补类型（天级，不是硬件驱动问题） |
 
 ### 2.2 睡眠唤醒后 pogo 键盘失效

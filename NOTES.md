@@ -60,7 +60,7 @@
 - `PRE_DELAY=0`（经 8/8 验证）、`IIO_DELAY=8`；异常时可回退 10/45。
 - 每 boot 出现 `iio has no SSC sensors after device appeared ... warm restart` 是**已知兜底**，正常。
 - 偶发 PD 静默卡死（约 1/14 干净开机）：干净重启恢复；同 boot 内重启服务无效。
-- suspend/resume 后 PD 可能崩溃；已部署休眠钩子，少数情况需重启。
+- suspend/resume 后 PD 崩溃：**已由 `kernel/patches/0009` 修复**（fastrpc listener `PF_NOFREEZE`）；未打补丁内核仍可能崩溃，休眠钩子可恢复。
 
 ## 3. 指纹核心坑（沿用原指纹包）
 

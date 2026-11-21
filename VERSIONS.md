@@ -10,15 +10,16 @@
 | 运行内核 | `6.18.44-current-sm8250` |
 | 基线源码 | Linux v6.18.44（tar.xz sha256 `0f72d938f06828e82c90405174fe572287db7bfe089e2fc46572a99a7f240d43`）+ Armbian sm8250 补丁（获取方式见 `kernel/ARMBIAN-BASELINE.md`） |
 | 配置 | `kernel/config-used-6.18.44`（TEE/QSEECOM/MDT/BTF/FASTRPC；LOCALVERSION=-current-sm8250） |
-| 安装后 fastrpc.ko sha256 | `fe2cd7ba1899f516b7858e914af21132122505457da425557d8647c64b640134` |
+| 安装后 fastrpc.ko sha256 | `f5851cb19e78eea6ffad790605859f339f29d1de17b3f6aa12ae676181f05875`（2026-11-21 release 构建，含 0009） |
 | 安装后 goodix_fp_spi.ko sha256 | `e433ae598fd7a9ce0ca637d284497671d8f7c78663ad9a5da739e87049821c36` |
 | 传感器补丁 | `kernel/patches/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch`（2 hunk） |
 | LPASS pinctrl 补丁 | `kernel/patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch`（1 hunk，独立问题） |
 | 内核集成 | `kernel/include/`（3 头文件）+ `kernel/INTEGRATION.md`；权威系列补丁 `kernel/patches/fingerprint/qseecom-tee-series.patch`（14 文件） |
 | boot hook 参考 | `kernel/boot/zz-update-abl-kernel`（系统 hook 副本）；统一用 `kernel/update-boot-image.sh` |
 | QCOM_MDT_LOADER Kconfig | `kernel/patches/0003-qcom-mdt-loader-user-selectable.patch` |
+| 睡眠修复补丁 | `kernel/patches/0009-fastrpc-listener-unfreezable.patch`（fastrpc listener `PF_NOFREEZE`；s2idle 唤醒不再崩 sensor PD） |
 | boot 镜像更新 | `kernel/update-boot-image.sh`（预检+备份+回读校验） |
-| 联合 DTB（随包） | `kernel/dtb/sm8250-xiaomi-elish-csot.dtb`，sha256 `14909d42d6a1935f6dd49ff8b4700e0adf4164024c6f0c25f6ba94b6ad3ee4a8`（模型级，无本机私有信息；**2026-11-12 加入 GNSS：QUP5 UART + bcm4775 + PMIC GPS clock pinctrl**） |
+| 联合 DTB（随包） | `kernel/dtb/sm8250-xiaomi-elish-csot.dtb`，sha256 `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8`（模型级，无本机私有信息；**2026-11-20 合并 Hi556 相机节点**；含 GNSS QUP5 UART + bcm4775 + PMIC GPS clock pinctrl） |
 | initramfs hook | `kernel/initramfs/hooks/xiaomi-elish-firmware`（修复版，跳过 slpi 符号链接/禁用文件） |
 | DTB 关键项 | `qcom,vmids=<3 15 5 6>`；`/fingerprint` `firmware-name="gfenu"`、`compatible="goodix,gf3626"` |
 

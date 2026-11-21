@@ -40,7 +40,7 @@ sudo cat /var/log/sensor-boot-report.txt   # 若已生成
 
 ## 4. 休眠/唤醒后异常
 
-- 唤醒后 PD 可能报 `frpc_dsp` 崩溃；通常监听器重连 + iio 重启能恢复。
+- 唤醒后 PD 可能报 `frpc_dsp` 崩溃（**内核 0009 修复后不再发生**）；未打补丁时通常监听器重连 + iio 重启能恢复。
 - 若唤醒后锁屏无法解锁：先确认不是"定时关机与 suspend 撞车"（检查 `/var/lib/suspend-watch.log`
   是否 `pending scheduled shutdown canceled`）。已有 `40-cancel-scheduled-shutdown.sh` 防御；
   如已发生，长按电源强制重启（或 TTY 登录 `sudo systemctl restart gdm`）。

@@ -36,7 +36,7 @@ kernel（开机不 auto_boot SLPI）→ slpi-sensors.service（boot+~37s 启动�
 
 1. **偶发 PD 静默卡死**：约 1/14 次干净开机会出现"attach 只读 hw_platform 就停住、无崩溃、无 assign -22"，
    传感器起不来；干净重启即可恢复。与 PRE_DELAY 无关（0/10/45s 都出现过/都通过过）。
-2. **suspend/resume**：合盖唤醒时 PD 可能报 `frpc_dsp` 崩溃；现有 sleep hook + iio 补丁通常能自动恢复，
+2. **suspend/resume**：合盖唤醒时 PD 可能报 `frpc_dsp` 崩溃；内核未打 0009 补丁时，现有 sleep hook + iio 补丁通常能自动恢复；内核 0009 起不再崩溃，
    少数情况需要重启。
 3. **固件不变量**：`/lib/firmware/.../slpi.mbn` 必须始终保持"指向 /run 的悬空符号链接"；
    任何普通固件文件出现在该路径都会导致内核开机抢先 auto_boot → 本次开机传感器不可用。

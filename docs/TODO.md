@@ -104,7 +104,7 @@
 ### 6. 唤醒后自动旋转恢复加速（中，已部分实施；等待合盖实测）
 
 - 现状（2026-11-12 分析确认）：唤醒后 ~35–40s 恢复，主体是 SLPI `sensor_process` PD 在
-  resume 时 `frpc_dsp` 崩溃 → SSR → **完整重做 SNS registry 初始化 ~35s**，与冷启动是同一段成本；
+  ~~resume 时 `frpc_dsp` 崩溃 → SSR → 完整重做 SNS registry 初始化 ~35s~~ → **2026-11-21 已修复（0009）**：listener `PF_NOFREEZE` 后唤醒不再崩 PD/SSR，实测唤醒后传感器 0.1–3.3s 恢复；
   用户态（worker 轮询/iio 重启/libssc 超时）合计只占 ~4–5s；
 - 已实施：worker 轮询 0.5s、重启 iio 用 `TimeoutStopSec=3` 限时、删除无效的 slpi-sensors 兜底、
   休眠钩子 post 不再重复拉起 listener（防唤醒 attach 抖动）；hexrpc 补 sns_reg_version 映射；
@@ -115,7 +115,7 @@
 - 现实目标：短期 ≤36s（已实施优化）；**10–20s 必须先加速 PD registry 初始化**，两条路：
   (a) 中等风险：给 hexagonfs 增加可写持久 persist（让 PD 的 `temp.json` 写回成功而不重试），
       预期 PD 初始化 35s→5–10s，开机/唤醒同时受益（详见工作区 `sensor-speedup/IMPLEMENTATION-20261112.md`）；
-  (b) 高风险：内核修复 s2idle resume 的 frpc_dsp 崩溃（对照 pMOS 6.12/6.13）；
+  (b) ✅ 已实施：内核补丁 0009（fastrpc listener `PF_NOFREEZE`）修复 s2idle resume 的 frpc_dsp 崩溃；
 - 验收：唤醒 → 折叠背面，短期 ≤36s、长期 10–20s 内自动旋转可用。
 
 ### 7. GNSS 按需启动 / 懒连接（低收益，暂不做）
@@ -235,8 +235,7 @@
   - SLPI/PDM 每次 resume 的 `sensor_process` crash + `qcom_scm Assign memory protection -22`，
     SLPI 自动恢复、iio 重启（已知传感器残余）；
   - NetworkManager/iio/fprintd/GNOME 用户态恢复叠加。
-- **PDM 崩溃**：每次 suspend/resume 后都会出现；传感器数据通常仍可用，但 `check-all`
-  的“无 PDM 崩溃”会 FAIL，干净重启后消失。
+- **PDM 崩溃**：~~每次 suspend/resume 后都会出现~~ **已由内核补丁 0009 修复（2026-11-21）**；旧内核/未打补丁时仍会出现，传感器数据通常仍可用，但 `check-all` 的“无 PDM 崩溃”会 FAIL，干净重启后消失。
 - **后续可选优化**：触摸 resume 跳过无变化固件重下载；SLPI PDM crash 根因；Wi‑Fi WoWLAN
   或 NetworkManager sleep 行为（暂不优先）。
 
@@ -244,7 +243,7 @@
 
 - 开机到可用：改造前 ~79s；L2+M1 后 ~55–57s；**L2+M1+M2 后实测 ~22s**（M2 可写 registry，`PRE_DELAY=0`、`IIO_DELAY=8`，详见文末）；
 - 约 1/14 次干净启动遇 PD 静默卡死（无崩溃、attach 只读 `hw_platform` 后停住），干净重启恢复；
-- suspend/resume 后 PD `frpc_dsp` 可能崩，多数能自动恢复，少数需重启。
+- suspend/resume 后 PD `frpc_dsp` 崩溃：**已修复**（`kernel/patches/0009`）；未打补丁内核仍可能崩溃，多数能自动恢复，少数需重启。
 
 ---
 

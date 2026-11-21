@@ -365,3 +365,11 @@
 **磁盘清理（同日）**：删除 16 个重复 boot_b 全分区备份、相机调试一次性备份、重复内核镜像、
 GNSS candidate boot img、apt 缓存等，释放 ~4.1GB（46G→42G used）；保留
 `/root/boot_b-known-good-20261112-2305.img`（sha256 f204631e…）与文档引用的 rollback 点。
+
+**2026-11-21：修复 s2idle 睡眠死机（fastrpc listener PF_NOFREEZE，0009）**
+- 现象：设备偶发"睡死"——唤醒后全系统卡死，需长按电源；抓栈显示 SLPI `sensor_process` PD 在 resume 时 `frpc_dsp` 崩溃，随后 SLPI recovery 的 `qcom_scm_pas_shutdown` 卡死在 EL3。
+- 根因：hexagonrpcd 阻塞在 `adsp_listener_next2`（FastRPC handle=3）的 ioctl 等待中；suspend 时内核 freezer 打断并冻住该进程，DSP 侧文件服务请求无人应答 → frpc 超时 → sensor PD 崩溃。
+- 修复：新增 `kernel/patches/0009-fastrpc-listener-unfreezable.patch`（约 18 行，仅 `drivers/misc/fastrpc.c`）：对 handle=3 的调用线程设置 `PF_NOFREEZE`，freezer 跳过它；s2idle 期间它仍可被 DSP 请求唤醒并应答，唤醒后不再崩 PD。
+- 验证：release 配置内核（无 PM_DEBUG/DPM_WATCHDOG，#13）自 2026-11-21 起 7 次 s2idle（含 10.5 小时）0 次 PDM/fatal/crash detected；`suspend_stats success=7 fail=0`；唤醒后传感器 0.1–3.3s 恢复。
+- 附带：设备侧新增 `68-touch-fix.sh`（长睡唤醒后自动 `rtcwake -m freeze -s 1`），修复 Firefox Wayland 长睡后触屏失效的上游问题。
+- 同步更新：`VERSIONS.md` 的 fastrpc.ko / 联合 DTB sha256；`kernel/README.md`、`MANIFEST.md`、`SHA256SUMS`。

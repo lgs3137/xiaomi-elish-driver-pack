@@ -65,6 +65,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | Kernel | fastrpc SDSP VMID / sensors-PD, QSEECOM/TEE, mdt_loader, qcom_scm, goodix_fp_spi | ✅ | Fingerprint/sensor kernel layer |
 | Kernel | LPASS pinctrl clock-timeout defer (pogo keyboard/USB random failures) | ✅ | Stand-alone patch `kernel/patches/0002-…` |
 | Kernel | SMB5 Type-C legacy/100 mA resume hang | ✅ | Verified with 3 suspend/resume cycles with charger attached |
+| Kernel | Sleep death (whole system hangs after wake) | ✅ | `kernel/patches/0009-fastrpc-listener-unfreezable.patch`; release kernel: 7 s2idle cycles (incl. 10.5h) with zero crashes |
 | System | Display/touch/pen/hall/battery/audio/Wi-Fi/BT/USB HID/GPU/UFS/PCIe/Venus | ⚠️ | Platform baseline; **audio fixed on 2026-11-13** (PulseAudio/WirePlumber PCM contention; see `docs/HARDWARE-STATUS.md`) |
 | System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; depends on the cover hall switch |
 | System | Pogo keyboard after suspend/resume | ⚠️ | Known kernel USB PHY resume issue; reboot/re-plug recovers; userspace deliberately does not touch it |
@@ -349,7 +350,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 ## Known limitations
 
 - Sensor PD occasionally hangs silently (~**1/14** clean boots): firmware-side; a clean reboot recovers.
-- One PDM crash after suspend/resume is a known artifact (sensor data still works; 0 after a clean reboot).
+- PDM crash after suspend/resume is fixed by kernel patch 0009 (fastrpc listener PF_NOFREEZE); unpatched kernels may still show one crash after resume (sensor data still works; 0 after a clean reboot).
 - Raw gyroscope / magnetometer axes / proximity are not exposed (userspace libssc/udev work).
 - Camera: Hi556 depth sensor is experimental (DTS patch + tooling provided, hardware validation pending); front and rear cannot stream simultaneously; front focus is fixed;
   Flatpak/COSMIC portal-backend limitations.

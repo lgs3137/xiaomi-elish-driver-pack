@@ -49,6 +49,8 @@ torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
 | `patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch`、`PINCTRL-LPASS.md` | LPASS pinctrl defer（pogo 键盘/USB，独立问题） |
 | `patches/0003-qcom-mdt-loader-user-selectable.patch` | QCOM_MDT_LOADER 用户可选（TEE_QSEECOM 依赖） |
 | `patches/0004-smb5-typec-legacy-reset-resume.patch`、`CHARGER-RESUME.md` | SMB5 suspend/resume 后 Type-C legacy/100mA 卡死修复 + 验证记录 |
+| `patches/0005–0008-*.patch` | 相机补丁：OV8856 BGGR/VFLIP、OV13B10 供电/reset、CN3927V VCM、Hi556 OF |
+| `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener `PF_NOFREEZE`：修复 s2idle 唤醒后 sensor PD 崩溃（睡眠死机根因） |
 | `update-boot-image.sh` | 预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（槽位自动检测；`--slot` 断言） |
 | `install-new-kernel.sh` | 安装内核并写 Linux 启动槽的脚本（自动检测；历史参考） |
 | `include/` | 指纹驱动必需的 3 个内核头文件 |
