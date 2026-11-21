@@ -12,7 +12,7 @@
 
 - **GNOME 46 控制中心（右上角 / `Super+S`）里的「手电筒」开关**：点亮/熄灭后摄闪光灯（手电模式）。
 - **开启 5 分钟后自动关闭**（防止忘记关；`torch@elish/extension.js` 的 `AUTO_OFF_SECONDS` 可改）。
-- 图标随浅色/深色主题切换（内置两个 SVG）。
+- 图标固定用白色（GNOME 46 控制中心弹出层是深色背景；黑色 SVG 仅留档）。
 - **`torch` 命令行**：`torch`（切换）、`torch on|off`、`torch set 1..255`、`torch status`。
 - 不需要 root、不需要改 udev：写亮度走 systemd-logind 的
   `Session.SetBrightness("leds", "white:flash", N)`（与 GNOME 上游手电筒草稿、Phosh、
