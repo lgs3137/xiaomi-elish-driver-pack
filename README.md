@@ -252,6 +252,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
 | 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（开/关/自动；装完注销/重新登录） |
 | PPS 快充服务（可选，装后启用） | `sudo ./pps-charger/install.sh`（一键器：`--with-pps-charger`） |
+| 控制台静音（可选） | `sudo ./install/quiet-console.sh`（sysctl + boot loglevel=3；`--rollback` 回滚） |
 | bioauth（可选，默认不装） | `sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes`（接入 sudo/pkexec 见 `bioauth/INSTALL.md`） |
 | 安全加固（可选，推荐） | 关闭 GDM 自动登录、删除 sudo 免密、保留指纹授权：见 `docs/HARDENING.md` |
 

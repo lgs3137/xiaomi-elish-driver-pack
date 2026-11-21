@@ -17,7 +17,7 @@ bioauth/       可选：通用生物认证 PAM 栈（PAM module + daemon + GTK4 
                 需显式 --with-bioauth / --bioauth-sudo / --bioauth-pkexec）
 gnss/          GNSS 子包：airoha_gps 驱动源码、airoha-gnssd/gps-nmea-share 用户态、systemd/gpsd 集成、
                 协议与排障（gnss/docs/PROTOCOL.md）、flash 修复说明（gnss/extract/）
-install/       一键安装器（turnkey/extract-all/build-userspace + lib/）、备份启动槽脚本（backup-boot.sh）
+install/       一键安装器（turnkey/extract-all/build-userspace + lib/）、备份启动槽脚本（backup-boot.sh）、控制台静音（quiet-console.sh）
                 与合并自检（check-all.sh）、文件落位表
 docs/          硬件状态权威基线（HARDWARE-STATUS.md）、整机 TODO、历史记录（HISTORY.md）、
                 升级影响（UPGRADE-IMPACT-ALL.md）、内核升级风险（KERNEL-UPGRADE-RISK.md）、
@@ -28,7 +28,7 @@ camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、
 flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in；不改 Armbian 包文件）
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；--with-torch 或单独 install.sh）
 tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展；uinput helper + systemd 服务
-pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分档；装后默认启用；--with-pps-charger）
+pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分档；装后默认启用；--with-pps-charger）+ 控制中心「充电功率」扩展
 ```
 
 ## kernel/
@@ -164,7 +164,8 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 | `README.md` | 实测结论（本机 100W 头 PPS 13s 看门狗，8s keep-alive 稳定；11V ~20.5W）、策略、安装/使用、安全注意 |
 | `elish-pps-charger` | Python 服务：PPS 11V + 8s keep-alive，按电池温度 100%/75%/55% 分档（上限 4.5A）；≥41.5°C 或 ≥90% 回 9V，失败退避 |
 | `systemd/elish-pps-charger.service` | root 服务（enabled + active，开机自启） |
-| `install.sh` / `uninstall.sh` / `verify.sh` | 只安装不启用 / 卸载并回 9V / 自检（未装 SKIP） |
+| `install.sh` / `uninstall.sh` / `verify.sh` | 安装并启用（含扩展）/ 卸载并回 9V、移除扩展 / 自检（未装 SKIP） |
+| `charge-meter@elish/` | 控制中心「充电功率」GNOME 46 扩展：3 秒刷新，显示 充电 XX.XW / 放电 -X.XW / 已充满；点击打开设置→电源（纯用户级） |
 
 ## 明确不包含 / 需现场获取
 
@@ -181,5 +182,5 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 
 ## 统计
 
-**325 个文件；体积约 2.4 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（325 条，`sha256sum -c` 通过）。
+**330 个文件；体积约 2.4 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（330 条，`sha256sum -c` 通过）。

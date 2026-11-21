@@ -50,9 +50,46 @@ if [ "$DRY_RUN" = 0 ]; then
     systemctl --no-pager --lines=5 status elish-pps-charger.service || true
 fi
 
+step "3) 安装 GNOME 46 控制中心扩展（用户 $U）"
+UUID=charge-meter@elish
+U=${PPS_USER:-${SUDO_USER:-}}
+if [ -z "$U" ] || [ "$U" = root ]; then
+    warn "无法确定桌面用户，跳过扩展安装（可在用户会话里手动 cp charge-meter@elish）"
+else
+    UIDN=$(id -u "$U"); UHOME=$(getent passwd "$U" | cut -d: -f6)
+    DEST="$UHOME/.local/share/gnome-shell/extensions/$UUID"
+    RUNDIR="/run/user/$UIDN"
+    if [ "$DRY_RUN" = 1 ]; then
+        log "DRY: 安装 $C/charge-meter@elish -> $DEST 并在 dconf 启用"
+    else
+        install -d -m 0755 -o "$U" -g "$(id -gn "$U")" "$(dirname "$DEST")"
+        rm -rf "$DEST"; cp -r "$C/charge-meter@elish" "$DEST"
+        chown -R "$U:$(id -gn "$U")" "$DEST"
+        find "$DEST" -type f -exec chmod 0644 {} +; find "$DEST" -type d -exec chmod 0755 {} +
+        if [ -S "$RUNDIR/bus" ]; then
+            CUR=$(runuser -u "$U" -- env XDG_RUNTIME_DIR="$RUNDIR" DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNDIR/bus" gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
+            NEW=$(python3 - "$CUR" "$UUID" <<'PY'
+import ast, sys
+uuid = sys.argv[2]
+try: cur = ast.literal_eval(sys.argv[1])
+except Exception: cur = []
+if uuid not in cur: cur.append(uuid)
+print(repr(cur))
+PY
+)
+            runuser -u "$U" -- env XDG_RUNTIME_DIR="$RUNDIR" DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNDIR/bus" gsettings set org.gnome.shell enabled-extensions "$NEW" 2>/dev/null \
+                && log "已在 $U 的 dconf 启用 $UUID（注销/重新登录后可见）" \
+                || warn "dconf 写入失败；登录后执行 gnome-extensions enable $UUID"
+        else
+            warn "用户 $U 当前没有图形会话；登录后执行 gnome-extensions enable $UUID"
+        fi
+    fi
+fi
+
 step "完成"
 cat <<EOF
 受控 11V PPS 快充服务已安装并启用（开机自启）。
+- 控制中心扩展: 充电功率（charge-meter@elish；注销/重新登录后显示"充电 XX.XW"）
 - 脚本: $BIN
 - 服务: elish-pps-charger.service（enabled + active）
 - 日志: journalctl -u elish-pps-charger -f

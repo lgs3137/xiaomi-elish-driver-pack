@@ -23,10 +23,17 @@
 - 温度 ≥41.5°C 或电量 ≥90% → 退回 9V 固定档；降到 ≤38.5°C 再尝试；
 - PPS 掉线自动检测并退避重试（30s 起，最长 5 分钟）；拔线/停服务自动回退固定档。
 
+## 控制中心显示充电功率（`charge-meter@elish` 扩展）
+
+`install.sh` 同时安装一个纯用户级 GNOME 46 扩展：控制中心新增「充电功率」格子，
+每 3 秒读取两块 `bq27z561` 的 `current_now × voltage_now` 并显示
+`充电功率 20.5W` / `充电功率 -8.2W`（放电）/ `充电功率 已充满`，点击打开设置→电源。
+不修改任何系统文件；GNOME 46 需要注销/重新登录后出现。
+
 ## 安装 / 使用
 
 ```bash
-sudo ./pps-charger/install.sh        # 安装并启用（开机自启）
+sudo ./pps-charger/install.sh        # 安装并启用（含控制中心充电功率扩展）
 sudo ./pps-charger/verify.sh         # 自检（未安装则 SKIP）
 journalctl -u elish-pps-charger -f   # 日志
 sudo /usr/local/sbin/elish-pps-charger --revert   # 手动回退 9V

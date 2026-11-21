@@ -53,6 +53,14 @@
 - **满电状态修复（0016）**：`bq27xxx_battery` 原来先看 `FC` 满电标志再看电流方向，导致 100% 拔线后
   仍报 `Full` / 显示充电图标；改为放电（电流为负）优先报 `DISCHARGING`，充电到 100% 仍正常显示 `FULL`。
 
+### 控制台静音（2026-11-21 晚）
+
+- 注销时 GDM 切 VT，cs35l41 功放 DSP 关闭超时（-110）打出 18 条 error，console 一直露在屏幕上；
+- `/etc/sysctl.d/99-elish-quiet-console.conf`：`kernel.printk = 3 4 1 7`（console 只留 crit/alert/emerg，
+  journald 不变）；
+- `/boot/armbianEnv.txt` 的 extraargs 追加 `loglevel=3 vt.global_cursor_default=0` 并重建启动槽：
+  开机 splash 前的早期 error 也不再显示（panic 仍显示）；重建脚本 `install/quiet-console.sh`，可 `--rollback`。
+
 ## 2026-11-20 — 闪光灯误闪修复 / 可选手电筒 / Hi556 RAW 打通
 
 - **flash-led（默认组件）**：修复每次开机 Plymouth 阶段后摄闪光灯误闪——Armbian
