@@ -1,0 +1,86 @@
+--- a/drivers/power/supply/bq25970_charger.c
++++ b/drivers/power/supply/bq25970_charger.c
+@@ -323,6 +323,7 @@
+ 	struct delayed_work psy_work;
+ 	struct delayed_work charge_work;
+ 	int psy_retries;
++	bool soc_warned;
+ };
+ 
+ static int bq2597x_set_acovp_th(struct bq2597x *bq, int threshold);
+@@ -2073,13 +2074,20 @@
+ static int bq2597x_notifier_call(struct notifier_block *nb,
+ 				 unsigned long val, void *v);
+ 
++static void bq2597x_charge_work(struct work_struct *work);
++
+ static void bq2597x_apply_charge(struct bq2597x *bq, bool enable)
+ {
++	bool cur = false;
+ 	int ret;
+ 
+ 	if (bq->skip_writes)
+ 		return;
+ 
++	bq2597x_check_charge_enabled(bq, &cur);
++	if (cur == enable)
++		return;
++
+ 	ret = bq2597x_enable_charge(bq, enable);
+ 	if (ret)
+ 		bq_err("failed to %s charge: %d\n",
+@@ -2089,12 +2097,53 @@
+ 		bq->charge_enabled);
+ }
+ 
++static int bq2597x_batt_soc(void)
++{
++	struct power_supply *psy;
++	union power_supply_propval propval;
++	int soc = -1;
++
++	psy = power_supply_get_by_name("bq27z561-0");
++	if (!psy)
++		psy = power_supply_get_by_name("bq27z561-1");
++	if (!psy)
++		return -1;
++
++	if (!power_supply_get_property(psy, POWER_SUPPLY_PROP_CAPACITY,
++				       &propval))
++		soc = propval.intval;
++	power_supply_put(psy);
++
++	return soc;
++}
++
++/* Do not run the parallel charge pump when the pack is already full. */
++#define BQ2597X_PUMP_SOC_MAX	96
++
+ static void bq2597x_charge_work(struct work_struct *work)
+ {
+ 	struct bq2597x *bq = container_of(work, struct bq2597x,
+ 					  charge_work.work);
++	bool enable = false;
++	int soc;
++
++	if (!bq->usb_present) {
++		bq2597x_apply_charge(bq, false);
++		return;
++	}
++
++	soc = bq2597x_batt_soc();
++	if (soc < 0) {
++		if (!bq->soc_warned) {
++			bq_err("battery SoC unavailable, parallel charging kept off\n");
++			bq->soc_warned = true;
++		}
++	} else if (soc < BQ2597X_PUMP_SOC_MAX) {
++		enable = true;
++	}
+ 
+-	bq2597x_apply_charge(bq, bq->usb_present);
++	bq2597x_apply_charge(bq, enable);
++	schedule_delayed_work(&bq->charge_work, msecs_to_jiffies(30000));
+ }
+ 
+ static int bq2597x_get_typec_psy(struct bq2597x *bq)

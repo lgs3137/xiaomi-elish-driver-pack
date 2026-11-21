@@ -1,0 +1,166 @@
+--- a/drivers/power/supply/bq25970_charger.c
++++ b/drivers/power/supply/bq25970_charger.c
+@@ -318,8 +318,11 @@
+ 	struct power_supply *fc2_psy;
+ 	struct power_supply *typec_psy;
+ 
+-    struct notifier_block nb;
+-    //struct delayed_work status_changed_work;
++	struct notifier_block nb;
++	bool notifier_registered;
++	struct delayed_work psy_work;
++	struct delayed_work charge_work;
++	int psy_retries;
+ };
+ 
+ static int bq2597x_set_acovp_th(struct bq2597x *bq, int threshold);
+@@ -2068,9 +2071,85 @@
+ MODULE_DEVICE_TABLE(of, bq2597x_charger_match_table);
+ 
+ static int bq2597x_notifier_call(struct notifier_block *nb,
++				 unsigned long val, void *v);
++
++static void bq2597x_apply_charge(struct bq2597x *bq, bool enable)
++{
++	int ret;
++
++	if (bq->skip_writes)
++		return;
++
++	ret = bq2597x_enable_charge(bq, enable);
++	if (ret)
++		bq_err("failed to %s charge: %d\n",
++		       enable ? "enable" : "disable", ret);
++	bq2597x_check_charge_enabled(bq, &bq->charge_enabled);
++	bq_info("%s charge (CHG_EN=%d)\n", enable ? "enable" : "disable",
++		bq->charge_enabled);
++}
++
++static void bq2597x_charge_work(struct work_struct *work)
++{
++	struct bq2597x *bq = container_of(work, struct bq2597x,
++					  charge_work.work);
++
++	bq2597x_apply_charge(bq, bq->usb_present);
++}
++
++static int bq2597x_get_typec_psy(struct bq2597x *bq)
++{
++	union power_supply_propval propval;
++
++	if (bq->typec_psy)
++		return 0;
++
++	bq->typec_psy = power_supply_get_by_name(
++		"tcpm-source-psy-c440000.spmi:pmic@2:typec@1500");
++	if (!bq->typec_psy)
++		return -ENODEV;
++
++	bq->nb.notifier_call = bq2597x_notifier_call;
++	if (power_supply_reg_notifier(&bq->nb)) {
++		bq_err("failed to register typec notifier\n");
++		bq->typec_psy = NULL;
++		return -EINVAL;
++	}
++	bq->notifier_registered = true;
++	bq_info("typec psy acquired, notifier registered\n");
++
++	if (!power_supply_get_property(bq->typec_psy, POWER_SUPPLY_PROP_ONLINE,
++				       &propval)) {
++		bq->charge_state = propval.intval;
++		bq->usb_present = !!propval.intval;
++		power_supply_changed(bq->fc2_psy);
++		if (bq->usb_present)
++			schedule_delayed_work(&bq->charge_work,
++					      msecs_to_jiffies(1000));
++	}
++	return 0;
++}
++
++static void bq2597x_psy_work(struct work_struct *work)
++{
++	struct bq2597x *bq = container_of(work, struct bq2597x,
++					  psy_work.work);
++
++	if (bq2597x_get_typec_psy(bq) == 0)
++		return;
++
++	bq->psy_retries++;
++	if (bq->psy_retries < 120)
++		schedule_delayed_work(&bq->psy_work, msecs_to_jiffies(1000));
++	else
++		bq_err("typec psy not found after %d retries\n", bq->psy_retries);
++}
++
++static int bq2597x_notifier_call(struct notifier_block *nb,
+ 		unsigned long val, void *v)
+ {
+ 	struct bq2597x *chip = container_of(nb, struct bq2597x, nb);
++	struct bq2597x *bq = chip;	/* for bq_info()/bq_err() macros */
+ 	struct power_supply *psy = v;
+ 	union power_supply_propval propval;
+ 
+@@ -2078,19 +2157,12 @@
+ 		power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE, &propval);
+ 
+ 		chip->charge_state = propval.intval;
+-        chip->usb_present = !!propval.intval;
++		chip->usb_present = !!propval.intval;
+ 
++		bq_info("typec online -> %d\n", chip->usb_present);
+ 		power_supply_changed(chip->fc2_psy);
+-
+-        if (chip->usb_present) {
+-            msleep(30000);
+-			bq2597x_enable_charge(chip, true);
+-			bq2597x_check_charge_enabled(chip, &chip->charge_enabled);
+-        }
+-        else {
+-			bq2597x_enable_charge(chip, false);
+-			bq2597x_check_charge_enabled(chip, &chip->charge_enabled);
+-        }
++		schedule_delayed_work(&chip->charge_work,
++				      msecs_to_jiffies(chip->usb_present ? 1000 : 0));
+ 	}
+ 
+ 	return NOTIFY_OK;
+@@ -2183,23 +2255,10 @@
+ 	bq_info("bq2597x probe successfully, Part Num:%d\n!",
+ 				bq->part_no);
+ 
+-	bq->typec_psy = power_supply_get_by_name(
+-			"tcpm-source-psy-c440000.spmi:pmic@2:typec@1500");
+-	if (IS_ERR(bq->typec_psy)) {
+-		ret = PTR_ERR(bq->typec_psy);
+-		dev_warn(bq->dev, "Failed to get USB Type-C: %d\n", ret);
+-		bq->typec_psy = NULL;
+-	}
+-
+-	if (bq->typec_psy) {
+-		bq->nb.notifier_call = bq2597x_notifier_call;
+-		ret = power_supply_reg_notifier(&bq->nb);
+-		if (ret) {
+-			dev_err(bq->dev,
+-				"Failed to register notifier: %d\n", ret);
+-			return ret;
+-		}
+-	}
++	INIT_DELAYED_WORK(&bq->psy_work, bq2597x_psy_work);
++	INIT_DELAYED_WORK(&bq->charge_work, bq2597x_charge_work);
++	/* tcpm-source-psy may register after us: retry in the background */
++	schedule_delayed_work(&bq->psy_work, msecs_to_jiffies(1000));
+ 
+ 	return 0;
+ 
+@@ -2265,6 +2324,11 @@
+ {
+ 	struct bq2597x *bq = i2c_get_clientdata(client);
+ 
++	cancel_delayed_work_sync(&bq->psy_work);
++	cancel_delayed_work_sync(&bq->charge_work);
++	if (bq->notifier_registered)
++		power_supply_unreg_notifier(&bq->nb);
++
+ 	bq2597x_enable_adc(bq, false);
+ 
+ 	power_supply_unregister(bq->fc2_psy);

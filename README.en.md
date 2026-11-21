@@ -69,7 +69,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | System | Display/touch/pen/hall/battery/audio/Wi-Fi/BT/USB HID/GPU/UFS/PCIe/Venus | ⚠️ | Platform baseline; **audio fixed on 2026-11-13** (PulseAudio/WirePlumber PCM contention; see `docs/HARDWARE-STATUS.md`) |
 | System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; optional `tablet-mode/` component (Quick Settings switch + uinput virtual hall) works without a cover |
 | System | Pogo keyboard after suspend/resume | ⚠️ | Known kernel USB PHY resume issue; reboot/re-plug recovers; userspace deliberately does not touch it |
-| System | Charging | ⚠️ | 5 V baseline + **PD 9 V fast charge working** (patch 0010, ~15 W at the battery); bq2597x pump / 27 W not wired yet |
+| System | Charging | ⚠️ | 5 V baseline + **PD 9 V fast charge + bq2597x dual charge pumps working** (~18–20 W at the battery); PPS 11 V with keep-alive works reliably (~20.5 W at 50–56 %, +8 % over fixed) via the optional `pps-charger/` service; 66 W would need the vendor proprietary protocol |
 | — | 5G variant | — | This unit is Wi-Fi only (5G variant is outside this package's test scope; other misc hardware is absent on all variants) |
 
 The authoritative hardware baseline is [`docs/HARDWARE-STATUS.md`](docs/HARDWARE-STATUS.md).
@@ -167,7 +167,9 @@ clean boot; sleep tests include 10-hour-class sleeps.
 | After the fix (`0010`) | **3.7–3.8 A ≈ 15 W** at the battery at low SoC (55–66 %), VBUS 8.73–8.75 V, AICL 3.3 A, temp ≤40 °C |
 | Step charging (`0011–0013`) | 6 A below 70 %, 4 A 70–80 %, 2.5 A 80–88 %, 1.5 A 88–93 %, 1 A 93–97 %, 0.5 A ≥97 %; **premature Full fixed** (keeps charging at 89–92 % instead of stopping at 83 %) |
 | 5 V mode | keeps the conservative 1.5 A; restored on unplug |
-| Remaining | bq2597x charge-pump parallel path / 27 W, 11 V tier and JEITA current limiting (`docs/TODO.md` §2) |
+| bq2597x dual pumps (`0014–0015`) | probe/notifier fix makes master/slave **present=1** and they charge in parallel at 9 V; battery **~18–20 W** at low SoC; pumps are disabled when SoC ≥96 % to avoid overcharge |
+| PPS keep-alive (`pps-charger/`, optional) | PPS APDO added to the sink caps (DTB `d7840b30…`); the local charger has a **~13 s PPS watchdog** and sends a hard reset unless the request is refreshed, so the service re-sends it every **8 s** (11 V held 2 min without a reset); ~20.5 W at the battery at 50–56 % (fixed 9 V ≈ 18.9 W, +8 %), short test 11 V/4 A reached 23.5 W+; reverts to 9 V at ≥41.5 °C |
+| Remaining | 66 W would need the vendor 11 V/6 A proprietary handshake + pump coordination; JEITA current limiting (`docs/TODO.md` §2) |
 
 ### Combined self-check (`install/check-all.sh`, 2026-11-21)
 
@@ -209,6 +211,8 @@ flash-led/     rear flash boot-blink fix (default component): Armbian LED state 
 torch/         optional GNOME 46 Quick Settings torch toggle + torch CLI (not installed by default)
 tablet-mode/   optional tablet-mode switch (on/off/auto) + GNOME 46 Quick Settings toggle
                (not installed by default; uinput helper + systemd service for devices without cover)
+pps-charger/   optional controlled 11 V PPS fast-charge service (8 s keep-alive + thermal
+               bands; enabled by default once installed)
 install/       installer: one-click turnkey.sh, extract-all.sh, build-userspace.sh,
                backup-boot.sh, check-all.sh, file placement map
 docs/          authoritative hardware baseline, TODO, history, upgrade impact/risk,
@@ -261,6 +265,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | Flash fix (default) | `sudo ./flash-led/install.sh` (turnkey installs it automatically) |
 | GNOME torch (optional) | `sudo ./torch/install.sh` (logout/login afterwards) |
 | Tablet-mode switch (optional) | `sudo ./tablet-mode/install.sh` (on/off/auto; logout/login afterwards) |
+| PPS fast-charge service (optional, enabled) | `sudo ./pps-charger/install.sh` (turnkey: `--with-pps-charger`) |
 | bioauth (optional, not default) | `sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes` (sudo/pkexec wiring: `bioauth/INSTALL.md`) |
 | Hardening (optional, recommended) | disable GDM autologin, remove passwordless sudo, keep fingerprint authorization: `docs/HARDENING.md` |
 
@@ -304,6 +309,7 @@ sudo ./gnss/install/verify.sh
 sudo ./flash-led/verify.sh          # boot-flash fix
 sudo ./torch/verify.sh              # optional torch (SKIP when not installed)
 sudo ./tablet-mode/verify.sh        # optional tablet-mode switch (SKIP when not installed)
+sudo ./pps-charger/verify.sh         # optional PPS fast-charge service (SKIP when not installed)
 sudo ./kernel/dtb/verify-combined-dtb.sh
 ```
 

@@ -34,6 +34,23 @@
   （1.5A/0.75A 档），不再提前报 Full。
 - **剩余**：`bq2597x` 电荷泵并联（20–27W 档）、11V 档与 JEITA 限流曲线见 `TODO.md` §2。
 
+### bq2597x 并联快充与 PPS 11V 实验（0014–0015 + pps-charger，同日）
+
+- **并联泵启用**：mainline 里两块 `bq2597x`（master/slave）一直 `present=0`。根因是 probe 时
+  `tcpm-source-psy` 可能还没注册，原驱动只查一次就永久放弃；notifier 里还有 30 秒 `msleep` 会阻塞
+  power_supply 回调。`0014` 改为后台每秒重试 + delayed work，`present` 变 1；`0015` 按 SoC 门控
+  （≥96% 关泵防过充，每 30s 复查）。9V 固定档下电池侧从 ~15W 提到 **~18–20W**。
+- **PPS 实验**：给 DTB sink PDO 增加 PPS APDO（3.3–11V/5A）后，TCPM 可协商 11V/3A、11V/4.5A、9V/5A；
+  最初发现本机 100W PD 头在 PPS 契约建立约 **13 秒**后主动发 Hard Reset（TCPM `Received hard reset`）。
+- **keep-alive 突破（同日深夜）**：这个 13s 复位是充电头的 **PPS 看门狗**——每 **≤8 秒重发一次当前
+  PPS 请求**即可稳定保持；另外每次重协商后要重设 SMB5 输入限流（ICL=3A），否则充电会掉到系统负载。
+  实测 11V keep-alive 连续 2 分钟零复位，11V 分档后 50–56% 电量电池侧 **~20.5W**
+  （固定 9V 约 18.9W，+8%）；短测 11V/4A 可达 23.5W+，电池温度约 40°C。
+- **结论**：标准 PPS + keep-alive 可用（受温度限制，41.5°C 回退固定档）；原厂 66W 仍需要
+  11V/6A 私有协议 + 双泵协同。受控服务 `pps-charger/` 作为可选组件（`--with-pps-charger`），
+  安装后默认启用。
+- **观测**：9V 下电池温度 40°C 左右；满电时泵会被 0015 关闭；11V 时 25W 会让电芯很快到 42°C。
+
 ## 2026-11-20 — 闪光灯误闪修复 / 可选手电筒 / Hi556 RAW 打通
 
 - **flash-led（默认组件）**：修复每次开机 Plymouth 阶段后摄闪光灯误闪——Armbian

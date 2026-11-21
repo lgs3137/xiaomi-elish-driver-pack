@@ -282,6 +282,20 @@ sudo ./tablet-mode/uninstall.sh
 装好后需**注销/重新登录**才出现控制中心开关；命令行等价：
 `elish-camera-ctl orientation tablet auto|on|off`。详见 `tablet-mode/README.md`。
 
+## 6g. PPS 快充服务（可选，默认不装；装后启用）
+
+插上支持 PPS 的 PD 充电器后，自动把契约从 9V/3A 切到 **11V PPS keep-alive**（每 8 秒重发请求，
+对付充电头的 ~13s PPS 看门狗），并按电池温度分档限流；温度 ≥41.5°C 或电量 ≥90% 回退 9V 固定档。
+
+```bash
+sudo ./pps-charger/install.sh      # 安装并启用（systemctl enable --now）
+sudo ./pps-charger/verify.sh       # 未安装则 SKIP
+journalctl -u elish-pps-charger -f
+sudo ./pps-charger/uninstall.sh    # 卸载并回退 9V
+```
+实测：50–56% 电量电池侧 ~20.5W（固定 9V 约 18.9W）；短测 11V/4A 可到 23.5W+。
+详见 `pps-charger/README.md`。
+
 ## 7. 合并自检
 
 ```bash
@@ -289,7 +303,7 @@ sudo ./tablet-mode/uninstall.sh
 ```
 
 包含：联合 DTB、传感器 `sensors/install/verify.sh`、GNSS `gnss/install/verify.sh`、指纹 `fingerprint/install/verify-fingerprint.sh`、
-相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、可选手电筒 `torch/verify.sh`、可选平板模式开关 `tablet-mode/verify.sh`（未装则 SKIP）。
+相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、可选手电筒 `torch/verify.sh`、可选平板模式开关 `tablet-mode/verify.sh`、可选 PPS 快充 `pps-charger/verify.sh`（未装则 SKIP）。
 
 ## 8. 日常 / 禁用 / 回滚
 
@@ -302,6 +316,7 @@ sudo ./tablet-mode/uninstall.sh
 - 闪光灯修复回滚：`sudo ./flash-led/uninstall.sh`（回滚后下次开机又会闪，属 Armbian 原版行为）。
 - 手电筒（可选）卸载：`sudo ./torch/uninstall.sh`（移除扩展/CLI/启用项；下次登录后图标消失）。
 - 平板模式开关（可选）卸载：`sudo ./tablet-mode/uninstall.sh`（移除 helper/服务/扩展；`auto` 行为仍由内核霍尔提供）。
+- PPS 快充服务（可选）卸载：`sudo ./pps-charger/uninstall.sh`（停服务并回退 9V 固定档）。
 - 内核回退：`LABEL=$(sed -n "s/^abl_boot_partition_label=//p" /boot/armbianEnv.txt); sudo dd if=/root/${LABEL}-backup-*.img of=/dev/disk/by-partlabel/$LABEL`（旧备份名可能是 `boot_b-backup-*`）。
 - 升级影响：**先读 `docs/UPGRADE-IMPACT-ALL.md`**（内核/固件升级会同时破坏传感器/指纹/GNSS）。
 

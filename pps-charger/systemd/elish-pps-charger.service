@@ -1,0 +1,14 @@
+[Unit]
+Description=Elish controlled 11V PPS fast charging (keep-alive, temperature limited)
+After=systemd-udevd.service multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/elish-pps-charger
+ExecStopPost=/usr/local/sbin/elish-pps-charger --revert
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

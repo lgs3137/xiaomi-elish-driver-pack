@@ -87,6 +87,21 @@ release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail
   导致 89% 时被一路降到 0.5A；现在只有真正的 `VBATT_GTET_INHIBIT / TERMINATE / INHIBIT` 才降档。
 - 实测（release #18）：9V 档 6A 起步；89–92% 按曲线降到 1.5A/0.75A，**不再提前报 Full**，电量继续上升。
 
+### 9b. bq2597x 并联快充（0014–0015，2026-11-21）
+
+- **背景**：本机有双 `bq2597x` 并联充电器（master/slave，9V 下与 SMB5 一起给 1S2P 电池充电）；
+  mainline 内核里它们 `present=0`，从未参与充电。
+- `0014`：probe 时 `tcpm-source-psy` 可能还没注册（只查一次就永久失败）→ 后台每秒重试、拿到后注册 notifier；
+  同时 notifier 里的 `msleep(30000)` 改为 delayed work，避免阻塞；修复后 `bq2597x-master/slave present=1`，
+  9V 固定档下电池侧从 ~15W 提到 **~18–20W**。
+- `0015`：按 SoC 门控泵（≥96% 关闭、<96% 恢复、每 30s 复查，读不到 SoC 保守关闭），避免满电继续灌。
+- **PPS keep-alive（2026-11-21 晚）**：给 DTB 的 sink PDO 增加 PPS APDO（3.3–11V/5A）后，
+  本机 100W PD 头会在 PPS 契约建立约 **13 秒**后主动发 Hard Reset（TCPM `Received hard reset`）。
+  实测这是充电头的 PPS 看门狗：**每 ≤8 秒重发一次当前 PPS 请求**即可稳定保持（11V 连续 2 分钟零复位），
+  但每次重协商后要重设 SMB5 输入限流（ICL=3A），否则充电会慢慢掉到系统负载。
+  受控服务 `pps-charger/` 已实现 keep-alive，可选安装（`--with-pps-charger`），50–56% 电量下
+  11V 电池侧 ~20.5W（固定 9V 约 18.9W，+8%），短测 11V/4A 可到 23.5W+，41.5°C 回退固定档。
+
 ### 10. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
 
 - `kernel/include/` 3 个头文件 + `kernel/INTEGRATION.md`：qcom_scm.h / mdt_loader.h / tee.h，
@@ -104,8 +119,9 @@ release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail
   `gps-clk-default`、`gps-enable-active/suspend`）；
 - 相机：OV8856/PM8008/CAMSS 节点 + 后摄 OV13B10/CN3927V + Hi556（`ldoc2`/`cci0`/`csiphy0`/MCLK1/GPIO26，
   2026-11-20 合并）；
+- USB-C：sink PDO 增加 PPS APDO（3.3–11V/5A，`0xc0dc2164`），保留 5V/3A 固定与 5–9V/3A 可变 PDO；
 - 已验证联合 DTB 随包：`kernel/dtb/sm8250-xiaomi-elish-csot.dtb`
-  （sha256 `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8`）；
+  （sha256 `d7840b30c36290e6735d6bf96605929304e16c199a510b373782589b64234354`，2026-11-21 晚加 PPS）；
 - 不要用当前树 DTS 重建（会丢 17 节点/109 属性）；dtc 往返破坏的是 **L10C（regulators-1/ldo10）**，
   不是 L10A。详见 `kernel/dtb/README.md` 与 `NOTES.md`。
 

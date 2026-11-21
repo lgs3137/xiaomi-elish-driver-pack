@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+# elish-pps-charger — 受控的 PPS 快充服务（Xiaomi Mi Pad 5 Pro / elish）
+#
+# 实测结论（2026-11-21）：
+#  * 本机 100W PD 头的 PPS 有 ~13 秒看门狗：建立契约后不再发请求就会 hard reset；
+#    周期重发当前请求（keep-alive，<=8s）可以稳定保持（9V/5A 实测 60s 无复位）。
+#  * 每次 PPS 重协商后要重设 SMB5 输入限流（ICL），否则充电会慢慢掉到系统负载。
+#  * 源 PPS 能力随充电器端口变化（3.3–11V/2.75A 或 /5A），从 TCPM debugfs 读取。
+#  * 11V + keep-alive 实测同样稳定（20-35s 无复位），电池侧从 9V 固定档 ~18.9W
+#    提到 23.5W+（50% 电量，4A 时仍在爬升）；因此默认使用 11V，并用温度分档/41.5C 回退控制风险。
+#
+# 策略：
+#  - 仅当源支持 PPS、电量 < SOC_MAX、温度 < TEMP_ABORT 时启用；
+#  - 请求电流 = min(源 PPS 上限, POWER_CAP) 再按温度分档（100% / 75% / 55%）；
+#    11V 下 band0/band1/band2 约为 4.5A/3.35A/2.5A（约 49.5W/37W/27W 输入）；
+#  - 每 KEEPALIVE_SEC 秒重发当前请求 + 重设 ICL；
+#  - 温度 >= TEMP_ABORT 或电量 >= SOC_MAX 退回 9V 固定档，降到 <=38.5C 再试；
+#  - PPS 掉线自动检测/退避重试；服务停止时退回固定档。
+
+import glob
+import os
+import re
+import sys
+import time
+
+PSY_PATTERN = '/sys/class/power_supply/tcpm-source-psy-*'
+BATS = ['/sys/class/power_supply/bq27z561-0',
+        '/sys/class/power_supply/bq27z561-1']
+ICL_PATH = '/sys/class/power_supply/pm8150b-charger/current_max'
+
+PPS_VOLTAGE_UV = 11_000_000
+SOC_MAX = 90
+TEMP_ABORT = 415          # 0.1C
+TEMP_BAND1 = 390
+TEMP_BAND2 = 405
+LOOP_SEC = 2
+HOLD_SEC = 12
+KEEPALIVE_SEC = 8         # 必须 < 充电头 ~13s 看门狗
+POWER_CAP_UA = 4_500_000  # 安全上限：9V*4.5A = 40.5W 输入
+ICL_UA = 3_000_000        # 每次刷新后重设 SMB5 输入限流
+
+
+def log(msg):
+    print(f'{time.strftime("%H:%M:%S")} {msg}', flush=True)
+
+
+def read(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def write(path, value):
+    with open(path, 'w') as f:
+        f.write(str(value))
+
+
+def psy_dir():
+    dirs = glob.glob(PSY_PATTERN)
+    return dirs[0] if dirs else None
+
+
+def psy_value(psy, name, default=None):
+    return read(os.path.join(psy, name), default)
+
+
+def battery_soc():
+    for b in BATS:
+        v = read(os.path.join(b, 'capacity'))
+        if v is not None:
+            return int(v)
+    return -1
+
+
+def battery_temp():
+    vals = []
+    for b in BATS:
+        v = read(os.path.join(b, 'temp'))
+        if v is not None:
+            vals.append(int(v))
+    return max(vals) if vals else -1
+
+
+def read_pps_max_ua():
+    """从 TCPM debugfs 日志里读源 PPS APDO 的最大电流（mA -> uA）。"""
+    for d in glob.glob('/sys/kernel/debug/usb/tcpm-*'):
+        try:
+            with open(os.path.join(d, 'log'), errors='ignore') as f:
+                text = f.read()
+        except OSError:
+            continue
+        matches = re.findall(r'type 3, \d+-\d+ mV, (\d+) mA', text)
+        if matches:
+            return int(matches[-1]) * 1000
+    return 0
+
+
+def next_band(cur, temp):
+    """温度 -> 电流档位（0=100%,1=75%,2=55%），带滞回。"""
+    if temp >= TEMP_BAND2:
+        return 2
+    if cur == 2:
+        return 1 if temp <= TEMP_BAND2 - 5 else 2
+    if temp >= TEMP_BAND1:
+        return 1
+    if cur == 1:
+        return 0 if temp <= TEMP_BAND1 - 10 else 1
+    return 0
+
+
+class Charger:
+    def __init__(self):
+        self.psy = None
+        self.pps = False
+        self.band = 0
+        self.cooldown = False
+        self.last_band_change = 0.0
+        self.last_log = 0.0
+        self.fail_count = 0
+        self.retry_at = 0.0
+        self.pps_max_ua = 0
+        self.cur_ua = 0
+        self.refresh_at = 0.0
+
+    def band_ua(self, band):
+        max_ua = min(self.pps_max_ua or POWER_CAP_UA, POWER_CAP_UA)
+        return int(max_ua * (1.0, 0.75, 0.55)[band])
+
+    def set_icl(self):
+        try:
+            write(ICL_PATH, ICL_UA)
+        except OSError as e:
+            log(f'set SMB5 ICL failed: {e}')
+
+    def refresh(self):
+        ua = self.cur_ua or self.band_ua(self.band)
+        try:
+            write(os.path.join(self.psy, 'current_now'), ua)
+            self.set_icl()
+            self.refresh_at = time.time()
+        except OSError:
+            pass
+
+    def revert(self, psy, why):
+        if not self.pps:
+            return
+        try:
+            write(os.path.join(psy, 'online'), 1)
+            log(f'revert to fixed 9V ({why})')
+        except OSError as e:
+            log(f'revert failed: {e}')
+        self.pps = False
+        self.band = 0
+        self.cur_ua = 0
+        self.refresh_at = 0.0
+
+    def activate(self, psy, band):
+        self.psy = psy
+        self.pps_max_ua = read_pps_max_ua()
+        ua = self.band_ua(band)
+        try:
+            write(os.path.join(psy, 'online'), 2)
+            time.sleep(2)
+            write(os.path.join(psy, 'voltage_now'), PPS_VOLTAGE_UV)
+            time.sleep(1)
+            write(os.path.join(psy, 'current_now'), ua)
+        except OSError as e:
+            log(f'PPS activation failed: {e}')
+            self.revert(psy, 'activation failed')
+            return False
+        self.pps = True
+        self.band = band
+        self.cur_ua = ua
+        self.last_band_change = time.time()
+        self.refresh_at = time.time()
+        self.set_icl()
+        log(f'PPS active: {PPS_VOLTAGE_UV // 1000}mV@{ua // 1000}mA '
+            f'(source max {self.pps_max_ua // 1000}mA)')
+        return True
+
+    def set_band(self, psy, band):
+        if band == self.band:
+            return
+        if band > self.band and time.time() - self.last_band_change < HOLD_SEC:
+            return
+        ua = self.band_ua(band)
+        try:
+            write(os.path.join(psy, 'current_now'), ua)
+        except OSError as e:
+            log(f'set current failed: {e}')
+            return
+        self.cur_ua = ua
+        self.refresh_at = time.time()
+        self.set_icl()
+        log(f'PPS current -> {ua // 1000}mA (band {band})')
+        self.band = band
+        self.last_band_change = time.time()
+
+    def run(self):
+        while True:
+            psy = psy_dir()
+            if psy is None:
+                self.pps = False
+                time.sleep(LOOP_SEC)
+                continue
+            self.psy = psy
+
+            online = psy_value(psy, 'online', '0')
+            usb_type = psy_value(psy, 'usb_type', '')
+            attached = online in ('1', '2')
+
+            if not attached or 'PD_PPS' not in usb_type:
+                if self.pps:
+                    log(f'PPS stop (online={online} type={usb_type})')
+                self.pps = False
+                self.band = 0
+                self.cur_ua = 0
+                self.refresh_at = 0.0
+                self.cooldown = False
+                time.sleep(LOOP_SEC)
+                continue
+
+            soc = battery_soc()
+            temp = battery_temp()
+
+            if soc >= SOC_MAX or temp >= TEMP_ABORT:
+                if self.pps:
+                    self.revert(psy, f'soc={soc}% temp={temp}')
+                if temp >= TEMP_ABORT:
+                    self.cooldown = True
+                time.sleep(LOOP_SEC)
+                continue
+
+            if self.cooldown:
+                if temp <= TEMP_BAND1 - 5:
+                    self.cooldown = False
+                    log(f'cooldown done (temp={temp})')
+                else:
+                    if time.time() - self.last_log > 30:
+                        log(f'cooldown: temp={temp} soc={soc}%')
+                        self.last_log = time.time()
+                    time.sleep(LOOP_SEC)
+                    continue
+
+            # PPS 掉回固定档（hard reset）后要重新激活
+            if self.pps and online == '1':
+                log('PPS lost (PD hard reset), will retry')
+                self.pps = False
+                self.band = 0
+                self.cur_ua = 0
+                self.fail_count += 1
+                self.retry_at = time.time() + min(300, 30 * self.fail_count)
+                time.sleep(LOOP_SEC)
+                continue
+
+            if not self.pps:
+                if time.time() < self.retry_at:
+                    time.sleep(LOOP_SEC)
+                    continue
+                if temp >= TEMP_BAND2:
+                    if time.time() - self.last_log > 30:
+                        log(f'waiting (temp={temp} soc={soc}%)')
+                        self.last_log = time.time()
+                    time.sleep(LOOP_SEC)
+                    continue
+                band = next_band(0, temp)
+                if not self.activate(psy, band):
+                    self.fail_count += 1
+                    self.retry_at = time.time() + min(300, 30 * self.fail_count)
+                    time.sleep(LOOP_SEC)
+                    continue
+                self.fail_count = 0
+            else:
+                if time.time() - self.last_band_change >= HOLD_SEC:
+                    self.set_band(psy, next_band(self.band, temp))
+                # keep-alive：定期重发请求，否则 ~13s 后被充电头 hard reset
+                if time.time() - self.refresh_at >= KEEPALIVE_SEC:
+                    self.refresh()
+
+            if time.time() - self.last_log > 30:
+                volt = psy_value(psy, 'voltage_now', '?')
+                cur = psy_value(psy, 'current_now', '?')
+                log(f'status soc={soc}% temp={temp} online={online} '
+                    f'PD={volt}uV/{cur}uA')
+                self.last_log = time.time()
+
+            time.sleep(LOOP_SEC)
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--revert':
+        psy = psy_dir()
+        if psy:
+            try:
+                write(os.path.join(psy, 'online'), 1)
+                log('reverted to fixed 9V')
+            except OSError as e:
+                log(f'revert failed: {e}')
+        return 0
+    c = Charger()
+    try:
+        c.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        psy = psy_dir()
+        if psy and c.pps:
+            c.revert(psy, 'service stopping')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

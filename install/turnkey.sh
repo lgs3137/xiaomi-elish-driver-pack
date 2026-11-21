@@ -16,6 +16,7 @@
 #                                  使用/不使用本机提取的相机调校数据（默认：有则用）
 #   --with-torch                   可选：GNOME 46 手电筒（控制中心开关 + torch CLI）；默认不装
 #   --with-tablet-mode             可选：平板模式开关（开/关/自动；控制中心扩展 + uinput helper）；默认不装
+#   --with-pps-charger             可选：受控 11V PPS 快充服务（8s keep-alive；安装后启用）
 #   --no-fingerprint               跳过指纹
 #   --with-dtb [--write-boot]      只安装包内单一联合 DTB（含 Hi556），不重编内核；
 #                                  --write-boot 才重建 Linux 槽（自动检测，需确认）
@@ -43,7 +44,7 @@ ANDROID=""; PMOS=""; FP=""; FP_ADB=0
 WITH_GNSS=1; WITH_CAMERA=1; WITH_FP=1; WITH_KERNEL=0; WITH_REGVER=0
 WITH_DTB=0; WITH_CAMERA_TUNING=1; SKIP_KERNEL_CHECK=0
 WITH_BIOAUTH=0; BIOAUTH_SUDO=0; BIOAUTH_PKEXEC=0
-WITH_TORCH=0; WITH_TABLET_MODE=0
+WITH_TORCH=0; WITH_TABLET_MODE=0; WITH_PPS_CHARGER=0
 DO_DEPS=1; SKIP_EXTRACT=0; SKIP_BUILD=0; SKIP_INSTALL=0; SKIP_CHECK=0
 PAM=0; FORCE=0; KSRC=""; WRITE_BOOT=0
 
@@ -67,6 +68,8 @@ while [ $# -gt 0 ]; do
         --no-torch) WITH_TORCH=0; shift ;;
         --with-tablet-mode) WITH_TABLET_MODE=1; shift ;;
         --no-tablet-mode) WITH_TABLET_MODE=0; shift ;;
+        --with-pps-charger) WITH_PPS_CHARGER=1; shift ;;
+        --no-pps-charger) WITH_PPS_CHARGER=0; shift ;;
         --no-fingerprint) WITH_FP=0; shift ;;
         --with-kernel) WITH_KERNEL=1; shift ;;
         --kernel-src) KSRC=${2:-}; shift 2 ;;
@@ -274,6 +277,16 @@ if [ "$SKIP_INSTALL" = 0 ]; then
         run bash "$PKG_ROOT/tablet-mode/install.sh" "${TMARGS[@]}"
     else
         log "跳过平板模式开关（可选组件；加 --with-tablet-mode 安装）"
+    fi
+
+    if [ "$WITH_PPS_CHARGER" = 1 ]; then
+        step "5e3) PPS 快充服务（可选）：只安装不启用"
+        PPARGS=()
+        [ "$DRY_RUN" = 1 ] && PPARGS+=(--dry-run)
+        [ "$ASSUME_YES" = 1 ] && PPARGS+=(--yes)
+        run bash "$PKG_ROOT/pps-charger/install.sh" "${PPARGS[@]}"
+    else
+        log "跳过 PPS 快充服务（可选组件；加 --with-pps-charger 安装）"
     fi
 
     if [ "$WITH_BIOAUTH" = 1 ]; then

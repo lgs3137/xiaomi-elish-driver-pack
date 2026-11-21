@@ -85,6 +85,9 @@ s2idle 唤醒不再崩 sensor PD（0009 已修）。
 8. 平板模式开关（可选，默认不装；无保护套的人推荐）：
    - `sudo ./install.sh --no-deps --skip-extract --skip-build --with-tablet-mode --yes`（或 `sudo ./tablet-mode/install.sh`）
    - 装好后注销/重新登录，控制中心出现「平板模式」开关（自动 / 开 / 关）。
+9. PPS 快充服务（可选，默认不装；装后启用）：
+   - `sudo ./install.sh --no-deps --skip-extract --skip-build --with-pps-charger --yes`（或 `sudo ./pps-charger/install.sh`）
+   - 插支持 PPS 的 PD 充电器后自动 11V keep-alive 快充；温度 ≥41.5°C 回退 9V；日志 `journalctl -u elish-pps-charger -f`。
 
 ## 常用分阶段命令
 
@@ -104,5 +107,6 @@ s2idle 唤醒不再崩 sensor PD（0009 已修）。
 | 后摄闪光灯开机误闪修复 | `sudo ./flash-led/install.sh`（默认组件，turnkey 已自动装） |
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
 | 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（装完注销/重新登录） |
+| PPS 快充服务（可选） | `sudo ./pps-charger/install.sh`（装后启用；一键器加 `--with-pps-charger`） |
 
 所有脚本支持 `--help` 与 `--dry-run`；已安装的组件会自动跳过（`--force` 可强制重编）。

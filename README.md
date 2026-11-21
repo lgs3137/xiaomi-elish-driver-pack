@@ -62,7 +62,7 @@
 | 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已修复**（2026-11-13，PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
 | 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；无保护套可用可选组件 `tablet-mode/`（控制中心开关 + uinput 虚拟霍尔） |
 | 系统 | 睡眠唤醒后 pogo 键盘 | ⚠️ | 已知内核 USB PHY resume 问题；重启/重插恢复，用户态不改（防死锁） |
-| 系统 | 充电 | ⚠️ | 5V 基础 + **PD 9V 快充已打通**（0010，电池侧 ~15W）；bq2597x 泵/27W 档未接 |
+| 系统 | 充电 | ⚠️ | 5V 基础 + **PD 9V 快充 + bq2597x 双泵并联已打通**（电池侧 ~18–20W）；PPS 11V keep-alive 稳定可用（50–56% 电量 ~20.5W，比固定档 +8%），可选组件 `pps-charger/`；66W 需原厂私有协议 |
 | — | 5G 版本 | — | 本机为 WiFi 版（5G 变体不在本包测试范围；其余杂项硬件所有型号均无） |
 
 完整硬件基线见 [`docs/HARDWARE-STATUS.md`](docs/HARDWARE-STATUS.md)。
@@ -158,8 +158,9 @@
 | 修复前 | 电池侧 1.36A ≈ **5.4W**（PMIC 默认 FCC 1.5A，驱动从未设置） |
 | 修复后（`0010`） | 低电量（55–66%）电池侧 **3.7–3.8A ≈ 15W**，VBUS 8.73–8.75V、AICL 3.3A、温度 ≤40°C |
 | 分段充电（`0011–0013`） | <70% 6A、70–80% 4A、80–88% 2.5A、88–93% 1.5A、93–97% 1A、≥97% 0.5A；**提前 Full 已修复**（89–92% 仍继续充电，不再卡在 83%） |
-| 5V 档 | 保持 1.5A 保守充电；拔线恢复默认 |
-| 剩余 | bq2597x 电荷泵并联 / 27W、11V 档、JEITA 限流曲线（`docs/TODO.md` §2） |
+| bq2597x 双泵并联（`0014–0015`） | 修 probe 时序后 master/slave **present=1**、9V 下参与充电；低电量电池侧 **~18–20W**（比 SMB5 单路 +3–5W）；满电 ≥96% 自动关闭泵（防过充） |
+| PPS keep-alive（`pps-charger/`，可选） | sink PDO 已加 PPS APDO（DTB `d7840b30…`）；本机充电头 PPS 有 **~13s 看门狗**会 hard reset，服务每 **8s** 重发请求即可稳定保持（实测 11V 2 分钟零复位）；11V 分档后 50–56% 电量电池侧 **~20.5W**（固定 9V 约 18.9W，+8%），短测 11V/4A 可到 23.5W+；温度 ≥41.5°C 回退固定档 |
+| 剩余 | 66W 需原厂 11V/6A 私有协议 + 泵协同；JEITA 限流曲线（`docs/TODO.md` §2） |
 
 ### 合并自检（`install/check-all.sh`，2026-11-21）
 
@@ -199,6 +200,7 @@ flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装）
 tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展（默认不装；
                uinput helper + systemd 服务，无保护套也能强制平板模式/自动旋转）
+pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive 维持契约、温度分档；装后默认启用）
 install/       安装器：一键安装 turnkey.sh、数据提取 extract-all.sh、用户态构建 build-userspace.sh、
                备份启动槽 backup-boot.sh、合并自检 check-all.sh、文件落位表
 docs/          硬件状态权威基线、整机 TODO、历史记录、升级影响/内核升级风险、设备数据提取指南、安全加固
@@ -248,6 +250,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | 闪光灯修复（默认） | `sudo ./flash-led/install.sh`（turnkey 自动装） |
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
 | 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（开/关/自动；装完注销/重新登录） |
+| PPS 快充服务（可选，装后启用） | `sudo ./pps-charger/install.sh`（一键器：`--with-pps-charger`） |
 | bioauth（可选，默认不装） | `sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes`（接入 sudo/pkexec 见 `bioauth/INSTALL.md`） |
 | 安全加固（可选，推荐） | 关闭 GDM 自动登录、删除 sudo 免密、保留指纹授权：见 `docs/HARDENING.md` |
 
@@ -289,6 +292,7 @@ sudo ./gnss/install/verify.sh
 sudo ./flash-led/verify.sh          # 闪光灯开机误闪修复
 sudo ./torch/verify.sh              # 可选手电筒（未安装则 SKIP）
 sudo ./tablet-mode/verify.sh        # 可选平板模式开关（未安装则 SKIP）
+sudo ./pps-charger/verify.sh         # 可选 PPS 快充服务（未安装则 SKIP）
 sudo ./kernel/dtb/verify-combined-dtb.sh
 ```
 
@@ -304,7 +308,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
 - 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件；
-- 充电：5V 基础 + PD 9V 快充（低电量约 15W）已打通，高电量按分段曲线降档；bq2597x 电荷泵并联 / 27W 与 11V 档尚未接入（`docs/TODO.md` §2）；
+- 充电：5V 基础 + PD 9V 快充 + bq2597x 双泵并联（低电量 ~18–20W）已打通；可选 PPS 服务用 11V keep-alive（~20.5W，+8%，温度 40°C 左右）；66W 需原厂私有协议（`docs/TODO.md` §2）；
 - Firefox 原生 Wayland **长睡唤醒后触屏失效**属上游 Firefox bug（mozilla 2032822 / 2026258），与本驱动包无关。
 
 ---

@@ -57,6 +57,13 @@ else
   echo "  WARN  缺少 tablet-mode/verify.sh"
 fi
 
+step "4b4. PPS 快充服务（可选组件；未安装则跳过）"
+if [ -x "$HERE/pps-charger/verify.sh" ]; then
+  "$HERE/pps-charger/verify.sh" || FAIL=1
+else
+  echo "  WARN  缺少 pps-charger/verify.sh"
+fi
+
 step "4c. bioauth（可选组件；未安装则跳过）"
 if [ -x /usr/local/libexec/bioauthd ]; then
   if command -v bioauth-doctor >/dev/null 2>&1; then
