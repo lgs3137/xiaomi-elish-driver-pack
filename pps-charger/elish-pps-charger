@@ -14,7 +14,7 @@
 #  - 请求电流 = min(源 PPS 上限, POWER_CAP) 再按温度分档（100% / 75% / 55%）；
 #    11V 下 band0/band1/band2 约为 4.5A/3.35A/2.5A（约 49.5W/37W/27W 输入）；
 #  - 每 KEEPALIVE_SEC 秒重发当前请求 + 重设 ICL；
-#  - 温度 >= TEMP_ABORT 或电量 >= SOC_MAX 退回 9V 固定档，降到 <=38.5C 再试；
+#  - 温度 >= TEMP_ABORT 或电量 >= SOC_MAX(88%) 退回 9V 固定档，交给 SMB5 涓流充到 100%；
 #  - PPS 掉线自动检测/退避重试；服务停止时退回固定档。
 
 import glob
@@ -27,9 +27,10 @@ PSY_PATTERN = '/sys/class/power_supply/tcpm-source-psy-*'
 BATS = ['/sys/class/power_supply/bq27z561-0',
         '/sys/class/power_supply/bq27z561-1']
 ICL_PATH = '/sys/class/power_supply/pm8150b-charger/current_max'
+SMB_STATUS = '/sys/class/power_supply/pm8150b-charger/status'
 
 PPS_VOLTAGE_UV = 11_000_000
-SOC_MAX = 90
+SOC_MAX = 88          # 90% 左右必须退出高压快充，交给 SMB5 涓流/分段充到 100%
 TEMP_ABORT = 415          # 0.1C
 TEMP_BAND1 = 390
 TEMP_BAND2 = 405
@@ -224,12 +225,18 @@ class Charger:
 
             soc = battery_soc()
             temp = battery_temp()
+            # SMB5 自己的 Full 状态：可能只是 VBAT 提前顶到浮充，真实电量还没满
+            # （典型在 ~90%）。此时必须退出 PPS 高压快充，交给 SMB5 涓流/分段曲线充到 100%。
+            smb_status = read(SMB_STATUS, '') or ''
 
-            if soc >= SOC_MAX or temp >= TEMP_ABORT:
+            if soc >= SOC_MAX or temp >= TEMP_ABORT or smb_status == 'Full':
                 if self.pps:
-                    self.revert(psy, f'soc={soc}% temp={temp}')
+                    self.revert(psy, f'soc={soc}% temp={temp} smb={smb_status}')
                 if temp >= TEMP_ABORT:
                     self.cooldown = True
+                if smb_status == 'Full':
+                    # 先保持慢充一段时间，避免 Full 抖动导致 PPS 反复进出
+                    self.retry_at = time.time() + 60
                 time.sleep(LOOP_SEC)
                 continue
 

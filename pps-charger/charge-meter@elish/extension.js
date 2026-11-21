@@ -18,6 +18,7 @@ const BATS = ['/sys/class/power_supply/bq27z561-0',
 const STATUS = '/sys/class/power_supply/bq27z561-0/status';
 const CAP = '/sys/class/power_supply/bq27z561-0/capacity';
 const TITLE = '充电功率';
+const ONLINE = '/sys/class/power_supply/pm8150b-charger/online';
 
 function read(path) {
     try {
@@ -87,18 +88,25 @@ class ChargeMeterToggle extends QuickSettings.QuickToggle {
     _sync() {
         const cap = battery_cap();
         const state = battery_state();
-        const watts = Math.abs(battery_power_w());
-        const charging = state === 'Charging' || state === 'Full';
+        const online = (read_int(ONLINE) ?? 0) !== 0;  // SMB5 online 是 USB 类型位掩码（如 16）
+        const power = battery_power_w();      // 正=充电，负=放电
+        const watts = Math.abs(power);
+        const charging = online || state === 'Charging' || state === 'Full';
 
+        // 只要功率可测（>50mW）就显示，不管电量计把状态叫 Charging 还是
+        // Not charging（慢充/涓流时电量计常常报 Not charging，之前就不显示 W）。
         let title;
-        if (state === 'Charging')
-            title = `${TITLE} ${watts.toFixed(1)}W`;
-        else if (state === 'Full')
-            title = `${TITLE} 已充满`;
-        else if (state === 'Discharging' && watts > 0.05)
-            title = `${TITLE} -${watts.toFixed(1)}W`;
-        else
-            title = `${TITLE} ${cap}%`;
+        if (watts >= 0.05) {
+            title = power > 0
+                ? `充电 ${watts.toFixed(1)}W`
+                : `放电 ${watts.toFixed(1)}W`;
+        } else if (online && state === 'Full') {
+            title = '充电 已充满';
+        } else if (online) {
+            title = `充电 ${watts.toFixed(1)}W`;
+        } else {
+            title = `电池 ${cap}%`;
+        }
 
         if (this.title !== title)
             this.title = title;
@@ -108,7 +116,7 @@ class ChargeMeterToggle extends QuickSettings.QuickToggle {
         this.gicon = Gio.ThemedIcon.new(icon);
 
         // checked 只作为视觉强调：充电时为 true
-        const checked = state === 'Charging';
+        const checked = charging;
         if (this.checked !== checked)
             this.checked = checked;
     }
