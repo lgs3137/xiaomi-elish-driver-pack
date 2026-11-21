@@ -52,6 +52,9 @@ torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（�
 | `patches/0005–0008-*.patch` | 相机补丁：OV8856 BGGR/VFLIP、OV13B10 供电/reset、CN3927V VCM、Hi556 OF |
 | `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener `PF_NOFREEZE`：修复 s2idle 唤醒后 sensor PD 崩溃（睡眠死机根因） |
 | `patches/0010-smb5-fast-charge-current-vbus.patch` | SMB5 快充电流：PD 9V 时电池充电电流 1.5A→6A（~15W），5V 档保持 1.5A |
+| `patches/0011-charger-taper-stepdown.patch` | 高电量/异常时对半降充电电流 |
+| `patches/0012-charger-soc-step-charging.patch` | 按电量分段的充电曲线（6A/4A/2.5A/1.5A/1A/0.5A） |
+| `patches/0013-charger-ignore-fullon-flag.patch` | 忽略 FULL_ON 正常标志，只对真 inhibit/terminate 降档 |
 | `include/` | 指纹驱动必需的 3 个内核头文件 |
 | `INTEGRATION.md` | 头文件 + drivers/tee Kconfig/Makefile 集成步骤 |
 | `initramfs/` | 修复版 initramfs hook + 安装脚本（防止 SLPI 固件进 initramfs） |
@@ -155,5 +158,5 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通，2026-11-13 室外真实定位验
 
 ## 统计
 
-**306 个文件；体积约 2.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（306 条，`sha256sum -c` 通过）。
+**309 个文件；体积约 2.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（309 条，`sha256sum -c` 通过）。

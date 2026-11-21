@@ -33,6 +33,9 @@
 | `patches/0008-hi556-of.patch` | Hi556 景深 OF match + 非 ACPI power/identify（节点已并入联合 DTB，2026-11-20 实机 RAW 出流验证） |
 | `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener 线程 `PF_NOFREEZE`：s2idle 期间继续应答 DSP，修复唤醒后 sensor PD `frpc_dsp` 崩溃（睡眠死机根因；2026-11-21 实测 20 次 s2idle（含 10h47m 长睡）0 崩溃，release #13 当日 4 次 0 崩溃） |
 | `patches/0010-smb5-fast-charge-current-vbus.patch` | SMB5 快充电流：PD 9V（VBUS≥6.5V）时把 PMIC 默认 1.5A 的电池充电电流提高到 6A，5V 档保持 1.5A；实测 9V 输入下电池侧 ~3.8A ≈ 15W（2026-11-21） |
+| `patches/0011-charger-taper-stepdown.patch` | 充电降档：检测到 VBAT 偏高/终止时对半降低充电电流（避免大电流提前触发 Full） |
+| `patches/0012-charger-soc-step-charging.patch` | 按电量分段的 step-charging 曲线（6A/4A/2.5A/1.5A/1A/0.5A），高电量继续充、不早停 |
+| `patches/0013-charger-ignore-fullon-flag.patch` | 忽略 `BATT_GT_FULL_ON` 正常标志，只对真正的 inhibit/terminate 降档 |
 | `build-and-install.sh` | 一键：应用补丁/配置/编译/模块/DTB/initramfs hook/启动槽（调用 `update-boot-image.sh`） |
 | `update-boot-image.sh` | 推荐：预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（自动检测） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查 |
@@ -76,6 +79,9 @@ patch -p1 < <本包>/kernel/patches/0007-cn3927v.patch
 patch -p1 < <本包>/kernel/patches/0008-hi556-of.patch
 patch -p1 < <本包>/kernel/patches/0009-fastrpc-listener-unfreezable.patch
 patch -p1 < <本包>/kernel/patches/0010-smb5-fast-charge-current-vbus.patch
+patch -p1 < <本包>/kernel/patches/0011-charger-taper-stepdown.patch
+patch -p1 < <本包>/kernel/patches/0012-charger-soc-step-charging.patch
+patch -p1 < <本包>/kernel/patches/0013-charger-ignore-fullon-flag.patch
 # 3) 让 QCOM_MDT_LOADER 用户可选（若树内 Kconfig 仍是裸 tristate）
 grep -q 'tristate "Qualcomm MDT firmware loader"' drivers/soc/qcom/Kconfig || \
   patch -p1 < <本包>/kernel/patches/0003-qcom-mdt-loader-user-selectable.patch

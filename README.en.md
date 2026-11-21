@@ -164,9 +164,10 @@ clean boot; sleep tests include 10-hour-class sleeps.
 |---|---|
 | Charger | USB-C PD 3.0 + PPS (`port0/power_operation_mode=usb_power_delivery`, TCPM contract 9 V / 3 A) |
 | Before the fix | 1.36 A at the battery ≈ **5.4 W** (PMIC default FCC 1.5 A, never programmed by the driver) |
-| After the fix (`0010`) | **3.7–3.8 A ≈ 15 W** at the battery (64–66 % SoC), VBUS 8.73–8.75 V, AICL 3.3 A, temp ≤40 °C |
+| After the fix (`0010`) | **3.7–3.8 A ≈ 15 W** at the battery at low SoC (55–66 %), VBUS 8.73–8.75 V, AICL 3.3 A, temp ≤40 °C |
+| Step charging (`0011–0013`) | 6 A below 70 %, 4 A 70–80 %, 2.5 A 80–88 %, 1.5 A 88–93 %, 1 A 93–97 %, 0.5 A ≥97 %; **premature Full fixed** (keeps charging at 89–92 % instead of stopping at 83 %) |
 | 5 V mode | keeps the conservative 1.5 A; restored on unplug |
-| Remaining | bq2597x charge-pump parallel path / 27 W tier and JEITA current limiting (`docs/TODO.md` §2) |
+| Remaining | bq2597x charge-pump parallel path / 27 W, 11 V tier and JEITA current limiting (`docs/TODO.md` §2) |
 
 ### Combined self-check (`install/check-all.sh`, 2026-11-21)
 
@@ -321,7 +322,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - The GNOME torch extension needs logout/login (GNOME 46 cannot hot-load new extensions);
 - Photo flash (`flash_strobe`) is unsupported: `CONFIG_V4L2_FLASH_LED_CLASS` is not enabled and the camera
   software has no flash control;
-- Charging: 5 V baseline + PD 9 V fast charge (~15 W) working; bq2597x charge-pump parallel path / 27 W tier not wired yet (`docs/TODO.md` §2);
+- Charging: 5 V baseline + PD 9 V fast charge (~15 W at low SoC) working with a step-charging curve near full; bq2597x charge-pump parallel path / 27 W and 11 V tiers not wired yet (`docs/TODO.md` §2);
 - Firefox on native Wayland **loses touch input after long sleep** — an upstream Firefox bug
   (mozilla 2032822 / 2026258), unrelated to this driver package.
 

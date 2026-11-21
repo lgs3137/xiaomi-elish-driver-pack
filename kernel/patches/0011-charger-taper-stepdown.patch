@@ -1,0 +1,180 @@
+--- a/drivers/power/supply/qcom_pm8150b_charger.c
++++ b/drivers/power/supply/qcom_pm8150b_charger.c
+@@ -270,6 +270,7 @@
+ #define DEFAULT_FAST_CHARGE_CURRENT_UA		1500000
+ #define HIGH_VOLTAGE_FAST_CHARGE_CURRENT_UA	6000000
+ #define HIGH_VOLTAGE_THRESHOLD_UV		6500000
++#define FAST_CHARGE_CURRENT_MIN_UA		500000
+ /* clang-format on */
+ 
+ enum charger_status {
+@@ -312,6 +313,7 @@
+ 
+ 	struct delayed_work status_change_work;
+ 	struct delayed_work fcc_work;
++	struct delayed_work taper_work;
+ 	int cable_irq;
+ 	bool wakeup_enabled;
+ 
+@@ -480,6 +482,7 @@
+ 					unsigned int current_ua);
+ static void smb5_update_fast_charge_current(struct smb5_chip *chip);
+ static void smb5_fcc_work(struct work_struct *work);
++static void smb5_taper_work(struct work_struct *work);
+ 
+ static void smb5_status_change_work(struct work_struct *work)
+ {
+@@ -492,11 +495,9 @@
+ 
+ 	smb5_get_prop_usb_online(chip, &usb_online);
+ 	if (!usb_online) {
+-		if (chip->fcc_ua != DEFAULT_FAST_CHARGE_CURRENT_UA) {
+-			smb5_set_fast_charge_current(chip,
+-						     DEFAULT_FAST_CHARGE_CURRENT_UA);
+-			chip->fcc_ua = DEFAULT_FAST_CHARGE_CURRENT_UA;
+-		}
++		chip->fcc_ua = 0;
++		smb5_set_fast_charge_current(chip,
++					     DEFAULT_FAST_CHARGE_CURRENT_UA);
+ 		return;
+ 	}
+ 
+@@ -578,10 +579,14 @@
+ 
+ static void smb5_update_fast_charge_current(struct smb5_chip *chip)
+ {
+-	unsigned int fcc_ua = DEFAULT_FAST_CHARGE_CURRENT_UA;
++	unsigned int fcc_ua;
+ 	int usb_uv = 0;
+ 	int rc;
+ 
++	/* taper logic already owns this charge cycle */
++	if (chip->fcc_ua)
++		return;
++
+ 	/*
+ 	 * Read VBUS directly instead of going through smb5_get_iio_chan():
+ 	 * that helper reports 0 while the charger state machine is not in
+@@ -595,22 +600,84 @@
+ 	if (rc < 0 || usb_uv == 0)
+ 		return;
+ 
+-	if (usb_uv >= HIGH_VOLTAGE_THRESHOLD_UV)
+-		fcc_ua = HIGH_VOLTAGE_FAST_CHARGE_CURRENT_UA;
++	fcc_ua = (usb_uv >= HIGH_VOLTAGE_THRESHOLD_UV) ?
++		 HIGH_VOLTAGE_FAST_CHARGE_CURRENT_UA :
++		 DEFAULT_FAST_CHARGE_CURRENT_UA;
+ 
+-	if (fcc_ua == chip->fcc_ua)
+-		return;
+-
+-	rc = smb5_set_fast_charge_current(chip, fcc_ua);
+-	if (rc < 0)
++	if (smb5_set_fast_charge_current(chip, fcc_ua) < 0)
+ 		return;
+ 
+ 	chip->fcc_ua = fcc_ua;
+ 	dev_info(chip->dev,
+-		 "fast-charge current set to %u uA (usb %u uV)\n",
++		 "fast-charge current set to %u uA (usb %d uV)\n",
+ 		 fcc_ua, usb_uv);
+ }
+ 
++/*
++ * The PMIC measures VBAT at its own sense point: while charging at a high
++ * current the IR drop makes it "see" the float/full-on threshold early and
++ * it terminates charging (reported as Full) with the pack only ~80-85% full.
++ * Reduce the fast-charge current step by step while the status registers
++ * report VBATT_GTET_INHIBIT / FULL_ON / TERMINATE, so the CV phase can take
++ * the pack to a real full charge instead of stopping early.
++ */
++static bool smb5_vbat_high(struct smb5_chip *chip)
++{
++	unsigned char stat[2];
++	unsigned int s0;
++	int rc;
++
++	rc = regmap_bulk_read(chip->regmap,
++			      chip->base + BATTERY_CHARGER_STATUS_1, stat, 2);
++	if (rc < 0)
++		return false;
++
++	s0 = stat[0] & BATTERY_CHARGER_STATUS_MASK;
++	if (stat[1] & (VBATT_GTET_INHIBIT_BIT | BATT_GT_FULL_ON_BIT))
++		return true;
++	if (s0 == TERMINATE_CHARGE || s0 == INHIBIT_CHARGE)
++		return true;
++
++	return false;
++}
++
++static void smb5_taper_work(struct work_struct *work)
++{
++	struct smb5_chip *chip = container_of(work, struct smb5_chip,
++					      taper_work.work);
++	unsigned int next;
++	int usb_online = 0;
++
++	smb5_get_prop_usb_online(chip, &usb_online);
++
++	if (!usb_online) {
++		if (chip->fcc_ua) {
++			chip->fcc_ua = 0;
++			smb5_set_fast_charge_current(chip,
++						     DEFAULT_FAST_CHARGE_CURRENT_UA);
++		}
++		goto reschedule;
++	}
++
++	if (!chip->fcc_ua) {
++		smb5_update_fast_charge_current(chip);
++	} else if (smb5_vbat_high(chip)) {
++		next = chip->fcc_ua / 2;
++		if (next < FAST_CHARGE_CURRENT_MIN_UA)
++			next = FAST_CHARGE_CURRENT_MIN_UA;
++		if (next < chip->fcc_ua &&
++		    smb5_set_fast_charge_current(chip, next) == 0) {
++			chip->fcc_ua = next;
++			dev_info(chip->dev,
++				 "charge taper: fast-charge current -> %u uA\n",
++				 next);
++		}
++	}
++
++reschedule:
++	schedule_delayed_work(&chip->taper_work, msecs_to_jiffies(10000));
++}
++
+ static void smb5_fcc_work(struct work_struct *work)
+ {
+ 	struct smb5_chip *chip = container_of(work, struct smb5_chip,
+@@ -740,10 +807,12 @@
+ 
+ 	power_supply_changed(chip->chg_psy);
+ 
++	chip->fcc_ua = 0;
+ 	schedule_delayed_work(&chip->status_change_work,
+ 			      msecs_to_jiffies(1500));
+ 	/* PD negotiation (5V -> 9V) happens shortly after VBUS is valid */
+ 	schedule_delayed_work(&chip->fcc_work, msecs_to_jiffies(3000));
++	schedule_delayed_work(&chip->taper_work, msecs_to_jiffies(5000));
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -1009,8 +1078,15 @@
+ 		return dev_err_probe(chip->dev, rc,
+ 				     "Failed to init fcc work\n");
+ 
++	rc = devm_delayed_work_autocancel(chip->dev, &chip->taper_work,
++					  smb5_taper_work);
++	if (rc)
++		return dev_err_probe(chip->dev, rc,
++				     "Failed to init taper work\n");
++
+ 	smb5_set_fast_charge_current(chip, DEFAULT_FAST_CHARGE_CURRENT_UA);
+-	chip->fcc_ua = DEFAULT_FAST_CHARGE_CURRENT_UA;
++	chip->fcc_ua = 0;
++	schedule_delayed_work(&chip->taper_work, msecs_to_jiffies(10000));
+ 
+ 	rc = smb5_configure_typec(chip);
+ 	if (rc < 0)

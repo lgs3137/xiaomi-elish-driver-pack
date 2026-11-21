@@ -1,0 +1,170 @@
+--- a/drivers/power/supply/qcom_pm8150b_charger.c
++++ b/drivers/power/supply/qcom_pm8150b_charger.c
+@@ -323,6 +323,8 @@
+ 	struct power_supply *chg_psy;
+ 
+ 	unsigned int fcc_ua;
++	unsigned int fcc_base;
++	int taper_band;
+ };
+ 
+ static enum power_supply_property smb5_properties[] = {
+@@ -496,6 +498,7 @@
+ 	smb5_get_prop_usb_online(chip, &usb_online);
+ 	if (!usb_online) {
+ 		chip->fcc_ua = 0;
++		chip->taper_band = -1;
+ 		smb5_set_fast_charge_current(chip,
+ 					     DEFAULT_FAST_CHARGE_CURRENT_UA);
+ 		return;
+@@ -608,6 +611,7 @@
+ 		return;
+ 
+ 	chip->fcc_ua = fcc_ua;
++	chip->fcc_base = fcc_ua;
+ 	dev_info(chip->dev,
+ 		 "fast-charge current set to %u uA (usb %d uV)\n",
+ 		 fcc_ua, usb_uv);
+@@ -641,37 +645,108 @@
+ 	return false;
+ }
+ 
++static int smb5_batt_soc(struct smb5_chip *chip)
++{
++	union power_supply_propval v;
++	struct power_supply *psy;
++	int soc = -1;
++
++	psy = power_supply_get_by_name("bq27z561-0");
++	if (!psy)
++		psy = power_supply_get_by_name("bq27z561-1");
++	if (!psy)
++		return -1;
++
++	if (!power_supply_get_property(psy, POWER_SUPPLY_PROP_CAPACITY, &v))
++		soc = v.intval;
++	power_supply_put(psy);
++
++	return soc;
++}
++
++/* step-charging curve: current vs. state of charge (uA) */
++static unsigned int smb5_soc_band_current(int band)
++{
++	static const unsigned int ua[] = {
++		6000000, 4000000, 2500000, 1500000, 1000000, 500000,
++	};
++
++	if (band < 0 || band >= ARRAY_SIZE(ua))
++		return 0;
++	return ua[band];
++}
++
++static int smb5_soc_band(int soc)
++{
++	if (soc < 0)
++		return -1;
++	if (soc < 70)
++		return 0;
++	if (soc < 80)
++		return 1;
++	if (soc < 88)
++		return 2;
++	if (soc < 93)
++		return 3;
++	if (soc < 97)
++		return 4;
++	return 5;
++}
++
++static void smb5_taper_program(struct smb5_chip *chip, unsigned int ua,
++			       const char *why)
++{
++	if (ua < FAST_CHARGE_CURRENT_MIN_UA)
++		ua = FAST_CHARGE_CURRENT_MIN_UA;
++	if (ua > chip->fcc_base)
++		ua = chip->fcc_base;
++	if (ua == chip->fcc_ua)
++		return;
++	if (smb5_set_fast_charge_current(chip, ua))
++		return;
++	chip->fcc_ua = ua;
++	dev_info(chip->dev, "charge %s: fast-charge current -> %u uA\n",
++		 why, ua);
++}
++
+ static void smb5_taper_work(struct work_struct *work)
+ {
+ 	struct smb5_chip *chip = container_of(work, struct smb5_chip,
+ 					      taper_work.work);
+-	unsigned int next;
++	unsigned int target;
+ 	int usb_online = 0;
++	int soc, band;
+ 
+ 	smb5_get_prop_usb_online(chip, &usb_online);
+ 
+ 	if (!usb_online) {
+-		if (chip->fcc_ua) {
+-			chip->fcc_ua = 0;
+-			smb5_set_fast_charge_current(chip,
+-						     DEFAULT_FAST_CHARGE_CURRENT_UA);
+-		}
++		chip->fcc_ua = 0;
++		chip->taper_band = -1;
++		smb5_set_fast_charge_current(chip,
++					     DEFAULT_FAST_CHARGE_CURRENT_UA);
+ 		goto reschedule;
+ 	}
+ 
+ 	if (!chip->fcc_ua) {
+ 		smb5_update_fast_charge_current(chip);
+-	} else if (smb5_vbat_high(chip)) {
+-		next = chip->fcc_ua / 2;
+-		if (next < FAST_CHARGE_CURRENT_MIN_UA)
+-			next = FAST_CHARGE_CURRENT_MIN_UA;
+-		if (next < chip->fcc_ua &&
+-		    smb5_set_fast_charge_current(chip, next) == 0) {
+-			chip->fcc_ua = next;
+-			dev_info(chip->dev,
+-				 "charge taper: fast-charge current -> %u uA\n",
+-				 next);
+-		}
++		if (!chip->fcc_ua)
++			goto reschedule;
++	}
++
++	soc = smb5_batt_soc(chip);
++	band = smb5_soc_band(soc);
++
++	if (band >= 0 && band != chip->taper_band) {
++		chip->taper_band = band;
++		target = smb5_soc_band_current(band);
++		smb5_taper_program(chip, target, "soc-step");
++	} else if (smb5_vbat_high(chip) &&
++		   chip->fcc_ua > FAST_CHARGE_CURRENT_MIN_UA) {
++		/* unexpected early inhibit: one more conservative half-step */
++		target = chip->fcc_ua / 2;
++		if (target < FAST_CHARGE_CURRENT_MIN_UA)
++			target = FAST_CHARGE_CURRENT_MIN_UA;
++		smb5_taper_program(chip, target, "vbat-high");
+ 	}
+ 
+ reschedule:
+@@ -808,6 +883,7 @@
+ 	power_supply_changed(chip->chg_psy);
+ 
+ 	chip->fcc_ua = 0;
++	chip->taper_band = -1;
+ 	schedule_delayed_work(&chip->status_change_work,
+ 			      msecs_to_jiffies(1500));
+ 	/* PD negotiation (5V -> 9V) happens shortly after VBUS is valid */
+@@ -1086,6 +1162,8 @@
+ 
+ 	smb5_set_fast_charge_current(chip, DEFAULT_FAST_CHARGE_CURRENT_UA);
+ 	chip->fcc_ua = 0;
++	chip->fcc_base = DEFAULT_FAST_CHARGE_CURRENT_UA;
++	chip->taper_band = -1;
+ 	schedule_delayed_work(&chip->taper_work, msecs_to_jiffies(10000));
+ 
+ 	rc = smb5_configure_typec(chip);

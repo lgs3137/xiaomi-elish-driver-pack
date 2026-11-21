@@ -2,8 +2,8 @@
 
 - **设备**：Xiaomi Mi Pad 5 Pro（SM8250 / elish，**WiFi 版**，CSOT 面板）
 - **系统**：Armbian 26.8.14 noble（Ubuntu 24.04 用户态），GNOME 46（Wayland）
-- **内核**：`6.18.44-current-sm8250`，release 构建 #15（`SMP Sat Nov 21 14:10:40 CST 2026`；release 配置，**无** PM_DEBUG / DPM_WATCHDOG 等诊断项；含 0009 睡眠修复与 0010 PD 快充）
-- **包版本 / 更新日期**：**2026.11.21**（本文件按 2026-11-21 release #15 实测刷新）
+- **内核**：`6.18.44-current-sm8250`，release 构建 #18（`SMP Sat Nov 21 15:21:00 CST 2026`；release 配置，**无** PM_DEBUG / DPM_WATCHDOG 等诊断项；含 0009 睡眠修复与 0010–0013 快充/分段充电）
+- **包版本 / 更新日期**：**2026.11.21**（本文件按 2026-11-21 release #18 实测刷新）
 - **用途**：后续会话/安装/排查**以本文件为准**；历史里程碑见 [`HISTORY.md`](HISTORY.md)，未完成项见 [`TODO.md`](TODO.md)。
 - **判定标准**：✅ 已驱动且当前可用；⚠️ 部分驱动/有已知功能缺陷；❌ 有硬件但 Linux 未驱动；— 本机不存在。
 
@@ -26,7 +26,7 @@
 | 已驱动 | 指纹 Goodix GF3626 | ✅ fprintd 录入/验证、GDM 解锁、sudo 认证（当前走 bioauth）、`fp-ta-watchdog` 自动恢复；自检 OK=19 / WARN=1 / FAIL=0 |
 | 已驱动 | 音频 | ✅（PA/WirePlumber 争用唯一 PCM 已修复：用户级 `51-disable-alsa.lua`；相机 PipeWire 不受影响） |
 | 已驱动 | 闪光灯 / 手电筒 | ✅ `white:flash`；开机误闪已修复（默认组件 `flash-led/`）；手电筒可选（`torch/`，默认不装） |
-| 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电：5V 基础 + **PD 9V 快充已打通**（0010，电池侧 ~15W）；bq2597x 泵 / 27W 档未接 |
+| 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电：5V 基础 + **PD 9V 快充已打通**（电池侧低电量 ~15W，高电量按分段曲线降档，不再提前 Full）；bq2597x 泵 / 27W 与 11V 档未接 |
 | 功能缺陷 | 睡眠唤醒后 pogo 键盘可能失效/反复重枚举 | ⚠️ host USB PHY resume 内核问题；重启/重插恢复，用户态不改（历史危险复位已禁用） |
 | 本机不存在 | 5G 版本（本机 WiFi 版；5G 变体不在本包测试范围） | — |
 
@@ -95,7 +95,7 @@
 | 显示 | CSOT 面板 + DPU/DSI；背光 KTZ8866（i2c 11-0011） |
 | 触摸/笔 | NT36523：`NVTCapacitiveTouchScreen`、`NVTCapacitivePen`（基础笔输入已驱动） |
 | 霍尔/按键 | `gpio-keys`：`switch-lid`/`switch-tablet-mode`（SW=3），电源键/resin |
-| 电池/充电 | 双 `bq27z561`、`pm8150b`、`bq2597x` master/slave、USB-C TCPM/UCSI；suspend/resume 后 Type-C legacy/100mA 卡死已修复（`kernel/patches/0004`）；**PD 9V 快充已打通**（`kernel/patches/0010`：VBUS≥6.5V 时 SMB5 电池充电电流 1.5A→6A，实测 64–66% 电量时电池侧 3.7–3.8A ≈ **15W**，VBUS 8.73–8.75V、AICL 3.3A、电池温度 ≤40°C；5V 档保持 1.5A）；`bq2597x` 电荷泵仍 present=0（并联/27W 档待后续） |
+| 电池/充电 | 双 `bq27z561`、`pm8150b`、`bq2597x` master/slave、USB-C TCPM/UCSI；suspend/resume 后 Type-C legacy/100mA 卡死已修复（`0004`）；**PD 9V 快充已打通**（`0010`：VBUS≥6.5V 时电池充电电流 1.5A→6A，低电量实测 3.7–3.8A ≈ **15W**）；**提前 Full 已修复**：`0011–0013` 按电量分段降档（<70% 6A … ≥97% 0.5A），89–92% 仍持续充电；`bq2597x` 电荷泵仍 present=0（并联 / 27W 与 11V 档待后续） |
 | 音频 | `Xiaomi Mi Pad 5 Pro` 声卡；8×CS35L41 外放、耳机、录音。无输出已修复：根因是 PipeWire/WirePlumber ALSA monitor 与 PulseAudio 争用唯一 PCM（`hw:Pro,0`），用户级 `~/.config/wireplumber/main.lua.d/51-disable-alsa.lua`（`alsa_monitor.enabled=false`）解决，相机 PipeWire 不受影响；遗留 `Enable(0) failed: -110` 为功放下电 hibernate 超时（播放上电正常、无 `PUP-done` 超时，不影响外放） |
 | WiFi/BT | QCA6390（ath11k + btqca/hci_uart）；`wlp1s0`/`hci0` 正常 |
 | 键盘/鼠标 | USB HID：`Xiaomi Pad Keyboard`、`Xiaomi Pad Mouse`、`Xiaomi Pad`，外接蓝牙鼠标 |
@@ -137,8 +137,8 @@ journalctl -t elish-sensors-resume -b --no-pager | tail   # 唤醒恢复耗时�
 cat /sys/power/suspend_stats                   # success / fail
 dmesg | grep -iE 'frpc_dsp|PDM|crash detected' # 应为空
 
-# 充电 / PD 快充
-dmesg | grep -i 'fast-charge current'          # PD 9V 时应为 set to 6000000 uA
+# 充电 / PD 快充 / 分段曲线
+dmesg | grep -iE 'fast-charge current|charge soc-step|charge vbat-high'   # 6A 起步 + 按电量降档
 cat /sys/class/power_supply/pm8150b-charger/{voltage_now,current_max,usb_type}
 cat /sys/class/power_supply/bq27z561-0/current_now   # 9V 快充时电池侧约 1.8–2.0A（两 gauge 合计 ~3.8A）
 cat /sys/class/power_supply/bq2597x-master/present   # 0 = 电荷泵未接

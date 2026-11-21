@@ -56,6 +56,7 @@
 | 0008 hi556 | ✅ | ✅ |
 | 0009 fastrpc listener（2026-11-21 新增） | 未纳入 2026-11-13 dry-run；与 0001 同文件，升级时一并复核 | 同左 |
 | 0010 smb5 快充（2026-11-21 新增） | 未纳入 dry-run；改 `qcom_pm8150b_charger.c`（Armbian 补丁集新增文件，非 mainline），升级时要确认该文件仍存在且补丁能打 | 同左 |
+| 0011–0013 充电曲线（2026-11-21 新增） | 未纳入 dry-run；同样改 `qcom_pm8150b_charger.c`，须按序应用 0010→0013 | 同左 |
 
 另外：`sdm845_slpi_resource_init` 在 6.18.y 与 v6.19 中都存在，
 所以 `auto_boot` 的 sed 逻辑跨版本风险低。

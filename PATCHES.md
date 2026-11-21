@@ -75,14 +75,26 @@ release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail
 （修复前 1.36A ≈ 5.4W），VBUS 8.73–8.75V，AICL 3.3A，电池温度 ≤40°C，无回退/抖动。
 更高档位（bq2597x 电荷泵并联、27W）仍待后续。
 
-### 9. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
+### 9. 分段充电曲线与提前 Full 修复（0011–0013，2026-11-21）
+
+- **问题**：SMB5 用自己测的 VBAT 判满；6A 大电流下 IR 压降让它在真实电量 ~83% 时就 `TERMINATE_CHARGE`
+  （用户看到 "Full" 停充），且之后不自动回充。
+- `0011-charger-taper-stepdown.patch`：每 10 秒读充电状态寄存器，一旦出现 VBAT 偏高/终止就把充电电流对半降档，
+  让充电继续（第一版一次验过：83% → 87%）。
+- `0012-charger-soc-step-charging.patch`：改为按电量分段的 step-charging 曲线（读 `bq27z561` 的 `capacity`）：
+  <70% 6A、70–80% 4A、80–88% 2.5A、88–93% 1.5A、93–97% 1A、≥97% 0.5A；保留“仍偏高再对半”保护。
+- `0013-charger-ignore-fullon-flag.patch`：`BATT_GT_FULL_ON` 是接近满电的正常模式标志，之前被误判为异常，
+  导致 89% 时被一路降到 0.5A；现在只有真正的 `VBATT_GTET_INHIBIT / TERMINATE / INHIBIT` 才降档。
+- 实测（release #18）：9V 档 6A 起步；89–92% 按曲线降到 1.5A/0.75A，**不再提前报 Full**，电量继续上升。
+
+### 10. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
 
 - `kernel/include/` 3 个头文件 + `kernel/INTEGRATION.md`：qcom_scm.h / mdt_loader.h / tee.h，
   以及 drivers/tee Kconfig/Makefile 集成点、QCOM_MDT_LOADER 依赖；
 - `kernel/initramfs/hooks/xiaomi-elish-firmware`：修复版 hook，跳过 `slpi.mbn` 符号链接/`.disabled`，
   防止真固件被打进 initramfs。
 
-### 10. DTB（非补丁，配置改动）
+### 11. DTB（非补丁，配置改动）
 
 - 传感器：`qcom,vmids = <3 15 5 6>`（SLPI fastrpc 节点）+ fastrpc reserved-memory/remote heap；
 - 指纹：`/fingerprint` 节点（`compatible="goodix,gf3626"`、`firmware-name="gfenu"`、

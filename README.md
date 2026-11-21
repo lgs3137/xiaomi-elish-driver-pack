@@ -156,9 +156,10 @@
 |---|---|
 | 充电器识别 | USB-C PD 3.0 + PPS（`port0/power_operation_mode=usb_power_delivery`，TCPM 契约 9V/3A） |
 | 修复前 | 电池侧 1.36A ≈ **5.4W**（PMIC 默认 FCC 1.5A，驱动从未设置） |
-| 修复后（`0010`） | 电池侧 **3.7–3.8A ≈ 15W**（64–66% 电量），VBUS 8.73–8.75V、AICL 3.3A、温度 ≤40°C |
+| 修复后（`0010`） | 低电量（55–66%）电池侧 **3.7–3.8A ≈ 15W**，VBUS 8.73–8.75V、AICL 3.3A、温度 ≤40°C |
+| 分段充电（`0011–0013`） | <70% 6A、70–80% 4A、80–88% 2.5A、88–93% 1.5A、93–97% 1A、≥97% 0.5A；**提前 Full 已修复**（89–92% 仍继续充电，不再卡在 83%） |
 | 5V 档 | 保持 1.5A 保守充电；拔线恢复默认 |
-| 剩余 | bq2597x 电荷泵并联 / 27W 档、JEITA 限流曲线（`docs/TODO.md` §2） |
+| 剩余 | bq2597x 电荷泵并联 / 27W、11V 档、JEITA 限流曲线（`docs/TODO.md` §2） |
 
 ### 合并自检（`install/check-all.sh`，2026-11-21）
 
@@ -299,7 +300,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
 - 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件；
-- 充电：5V 基础 + PD 9V 快充（约 15W）已打通；bq2597x 电荷泵并联 / 27W 档尚未接入（`docs/TODO.md` §2）；
+- 充电：5V 基础 + PD 9V 快充（低电量约 15W）已打通，高电量按分段曲线降档；bq2597x 电荷泵并联 / 27W 与 11V 档尚未接入（`docs/TODO.md` §2）；
 - Firefox 原生 Wayland **长睡唤醒后触屏失效**属上游 Firefox bug（mozilla 2032822 / 2026258），与本驱动包无关。
 
 ---

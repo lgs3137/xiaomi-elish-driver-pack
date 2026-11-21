@@ -1,0 +1,24 @@
+--- a/drivers/power/supply/qcom_pm8150b_charger.c
++++ b/drivers/power/supply/qcom_pm8150b_charger.c
+@@ -621,9 +621,9 @@
+  * The PMIC measures VBAT at its own sense point: while charging at a high
+  * current the IR drop makes it "see" the float/full-on threshold early and
+  * it terminates charging (reported as Full) with the pack only ~80-85% full.
+- * Reduce the fast-charge current step by step while the status registers
+- * report VBATT_GTET_INHIBIT / FULL_ON / TERMINATE, so the CV phase can take
+- * the pack to a real full charge instead of stopping early.
++ * Drop to a lower current when the status registers report a real inhibit
++ * or termination.  BATT_GT_FULL_ON is only a benign mode indicator and is
++ * set for a long time near full, so it must not trigger the step-down.
+  */
+ static bool smb5_vbat_high(struct smb5_chip *chip)
+ {
+@@ -637,7 +637,7 @@
+ 		return false;
+ 
+ 	s0 = stat[0] & BATTERY_CHARGER_STATUS_MASK;
+-	if (stat[1] & (VBATT_GTET_INHIBIT_BIT | BATT_GT_FULL_ON_BIT))
++	if (stat[1] & VBATT_GTET_INHIBIT_BIT)
+ 		return true;
+ 	if (s0 == TERMINATE_CHARGE || s0 == INHIBIT_CHARGE)
+ 		return true;

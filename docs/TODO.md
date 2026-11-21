@@ -19,11 +19,12 @@
 
 目标：**不移植完整 Android SMB5 栈**，在已打通的 SMB5 单路快充基础上继续加档。
 
-- **已完成（2026-11-21，`kernel/patches/0010-smb5-fast-charge-current-vbus.patch`）**：
-  PD 9V 协商成功后，SMB5 电池充电电流从 PMIC 默认 1.5A 提到 6A（`FAST_CHARGE_CURRENT_CFG`），
-  实测 64–66% 电量时电池侧 **3.7–3.8A ≈ 15W**（修复前 1.36A ≈ 5.4W），VBUS 8.73–8.75V、
-  AICL 3.3A、电池温度 ≤40°C、无抖动；5V 档保持 1.5A。旧问题（suspend/resume 后 Type-C legacy/100mA
-  卡死）由 `0004` 修复，`bq2597x present=0` 是并联储能路径未接，不影响 9V 单路快充。
+- **已完成（2026-11-21，0010–0013）**：
+  PD 9V 协商成功后 SMB5 电池充电电流从 PMIC 默认 1.5A 提到 6A（低电量实测 **3.7–3.8A ≈ 15W**，
+  VBUS 8.73–8.75V、AICL 3.3A、温度 ≤40°C）；随后 0011/0012 加入按电量分段的 step-charging 曲线
+  （<70% 6A、70–80% 4A、80–88% 2.5A、88–93% 1.5A、93–97% 1A、≥97% 0.5A），0013 修掉把
+  `BATT_GT_FULL_ON` 当异常的误判——release #18 实测 89–92% 继续充电，不再提前 Full。
+  旧问题（suspend/resume 后 Type-C legacy/100mA 卡死）由 `0004` 修复；5V 档保持 1.5A。
 - **剩余范围（第 2 步继续）**：
   1. 接上 `bq2597x` 电荷泵并联路径（目标 20–27W 档）：驱动目前 `present=0`，需处理与 TCPM 的
      notifier 联动、2:1 泵使能/电流分配与终止条件；
