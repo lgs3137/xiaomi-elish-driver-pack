@@ -88,7 +88,7 @@
 | 文件 | `pps-charger/`（Python 服务、systemd unit、`charge-meter@elish` 充电功率扩展、install/uninstall/verify、README） |
 | 安装 | 可选组件；`sudo ./pps-charger/install.sh` 安装并启用（turnkey: `--with-pps-charger`） |
 | 安装路径 | `/usr/local/sbin/elish-pps-charger`、`/etc/systemd/system/elish-pps-charger.service` |
-| 策略 | 电量<90% 且温度<41.5°C 时切 PPS 11V，电流 = min(源上限, 4.5A) 按温度 100%/75%/55% 分档；每 8s 重发请求并重设 SMB5 ICL=3A；≥41.5°C 或 ≥90% 回 9V 固定档，≤38.5°C 再试；失败退避 30s–5min |
+| 策略 | 电量<88% 且温度<41.5°C 时切 PPS 11V，电流 = min(源上限, 4.5A) 按温度 100%/75%/55% 分档；每 8s 重发请求并重设 SMB5 ICL=3A；≥41.5°C、≥88% 或 SMB5 报 Full（提前浮充）回 9V 固定档交给涓流，≤38.5°C 再试；失败退避 30s–5min |
 | 依赖 | `kernel/dtb` 的 sink PDO 含 PPS APDO；GNOME/TCPM sysfs 可写（root） |
 | 验证 | `sudo ./pps-charger/verify.sh`；`journalctl -u elish-pps-charger` |
 | 回滚 | `sudo ./pps-charger/uninstall.sh`（并退回 9V 固定档） |
