@@ -81,7 +81,7 @@
 |---|---|
 | 相机方向 | 后端读 Mutter `DisplayConfig` transform 自动选旋转角：横屏 180°、竖屏 90°；`elish-camera-ctl rotate front|rear <角度>` 可覆盖 |
 | 平板模式 | 由保护套折叠霍尔 `SW_TABLET_MODE`（gpiochip3 line121）决定：折到背面=1→GNOME 平板模式（自动旋转+软键盘）；键盘在前/取下=0→笔记本模式 |
-| 配置 | `/etc/elish-orientation.conf`：`tablet_mode=on|off|auto`、`rebuild_mode=idle|live|off`；`elish-camera-ctl orientation`（zenity 面板/CLI） |
+| 配置 | `/etc/elish-orientation.conf`：`tablet_mode=on|off|auto`、`rebuild_mode=idle|live|off`；`elish-camera-ctl orientation`（zenity 面板/CLI）；可选组件 `tablet-mode/` 提供控制中心开关 + uinput 虚拟平板模式（无保护套可用） |
 | 相机流重建 | `idle`：使用中不打断、空闲后按新方向重建；`live`：立即重建并自动重开 Snapshot；`off`：不重建 |
 | 霍尔数量 | Android vendor DTBO 另有 `hall_intr3`(gpio136)、`hall_intr4`(gpio138)、`gamekey hall_left`(gpio121)/`hall_right`(gpio64)、键盘 MCU gpio155；mainline 只接 2 个开关，额外霍尔读数恒定、不可用于键盘插拔判断 |
 | 已知限制 | Snapshot/aperture 不支持预览中途换分辨率，故默认 idle；唤醒后传感器恢复 **3.3–6.0 s**（0009 修复后） |

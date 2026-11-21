@@ -27,6 +27,7 @@ camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、
                 + 旧 OV8856 helper + install.sh + elish-camera/verify.sh
 flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in；不改 Armbian 包文件）
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；--with-torch 或单独 install.sh）
+tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展；uinput helper + systemd 服务
 ```
 
 ## kernel/
@@ -143,6 +144,18 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通，2026-11-13 室外真实定位验
 | `torch` | CLI：`torch on|off|toggle|set N|status`（安装到 `/usr/local/bin/torch`） |
 | `install.sh` / `uninstall.sh` / `verify.sh` | 安装（用户级扩展 + 用户 dconf 启用）/卸载/验证 |
 
+## tablet-mode/（可选组件，默认不装）
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` | 用途、三种模式、安装/使用/卸载、安全与依赖 |
+| `install.sh` / `uninstall.sh` | 安装/卸载（编译 uinput helper、装 systemd 服务、装 GNOME 扩展并写 dconf） |
+| `verify.sh` | 自检（未安装则 SKIP）：helper、服务、配置可写、扩展与加载状态 |
+| `systemd/elish-tablet-mode.service` | 开机启动 helper（`/usr/local/bin/elish-tablet-mode-switch`） |
+| `tablet-mode@elish/` | GNOME 46 Quick Settings 扩展（开/关/自动循环；读 `/etc/elish-orientation.conf`） |
+
+helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput 虚拟 `SW_TABLET_MODE`，不碰真实 lid）。
+
 ## 明确不包含 / 需现场获取
 
 | 内容 | 原因 | 获取方式 |
@@ -158,5 +171,5 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通，2026-11-13 室外真实定位验
 
 ## 统计
 
-**309 个文件；体积约 2.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（309 条，`sha256sum -c` 通过）。
+**317 个文件；体积约 2.4 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（317 条，`sha256sum -c` 通过）。

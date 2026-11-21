@@ -59,6 +59,8 @@ elish-camera-ctl rotate front|rear <0|90|180|270|auto>
 ```
 
 - 两个 V4L2 设备：`/dev/video2`（前）、`/dev/video20`（后）；App 打开哪个，后端就切到对应传感器。
+- 没有磁吸保护套时可装可选组件 `tablet-mode/`：在 GNOME 控制中心切换「自动 / 开 / 关」，
+  等效于 `elish-camera-ctl orientation tablet ...`（见 `tablet-mode/README.md`）。
 - 分辨率/帧率由**生产者**决定（consumer 的 `S_FMT` 只回显），用 `elish-camera-ctl` 或命令参数改。
 - 第三方 App：Guvcview 直连 `/dev/video2`/`/dev/video20`；ffmpeg/GStreamer 用 V4L2（NV12）；
   Flatpak/portal App（GNOME Snapshot）使用原生 PipeWire 节点，完整矩阵见

@@ -64,6 +64,19 @@
 | 验证 | `sudo ./torch/verify.sh`；`gnome-extensions info torch@elish`（ACTIVE；新装需注销/重新登录） |
 | 回滚 | `sudo ./torch/uninstall.sh` |
 
+## tablet-mode（可选组件，默认不装）
+
+| 项 | 值 |
+|---|---|
+| 组件 | 平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展；uinput 虚拟 `SW_TABLET_MODE` |
+| 文件 | `tablet-mode/`（install/uninstall/verify、systemd 单元、`tablet-mode@elish/` 扩展） |
+| 安装 | 默认不装；turnkey 加 `--with-tablet-mode`，或单独 `sudo ./tablet-mode/install.sh` |
+| 安装路径 | `/usr/local/bin/elish-tablet-mode-switch`；`/etc/systemd/system/elish-tablet-mode.service`；`~<user>/.local/share/gnome-shell/extensions/tablet-mode@elish/` |
+| 配置 | `/etc/elish-orientation.conf` 的 `tablet_mode=on|off|auto`（安装后设为 root:<用户组> 0664，普通用户可写） |
+| 依赖 | gcc（编译 helper）、GNOME Shell 46、相机组件的 `elish-camera-ctl`（写配置） |
+| 验证 | `sudo ./tablet-mode/verify.sh`；`systemctl status elish-tablet-mode`；`gnome-extensions info tablet-mode@elish` |
+| 回滚 | `sudo ./tablet-mode/uninstall.sh` |
+
 ## 传感器用户态
 
 | 组件 | 版本/来源 | 安装后 sha256（参考） |

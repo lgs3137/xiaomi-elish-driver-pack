@@ -50,6 +50,13 @@ else
   echo "  WARN  缺少 torch/verify.sh"
 fi
 
+step "4b3. 平板模式开关（可选组件；未安装则跳过）"
+if [ -x "$HERE/tablet-mode/verify.sh" ]; then
+  "$HERE/tablet-mode/verify.sh" || FAIL=1
+else
+  echo "  WARN  缺少 tablet-mode/verify.sh"
+fi
+
 step "4c. bioauth（可选组件；未安装则跳过）"
 if [ -x /usr/local/libexec/bioauthd ]; then
   if command -v bioauth-doctor >/dev/null 2>&1; then

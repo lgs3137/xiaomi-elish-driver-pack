@@ -268,6 +268,20 @@ sudo ./torch/uninstall.sh
 ```
 装好后需**注销/重新登录**才会出现在控制中心；拍照闪光（`flash_strobe`）仍不支持。
 
+## 6f. 平板模式开关（可选，默认不装）
+
+没有磁吸保护套（或霍尔失效）时，用控制中心开关在「自动 / 开 / 关」之间切换平板模式：
+`on` = 总是平板模式（自动旋转开），`off` = 总是笔记本模式（自动旋转关），
+`auto` = 跟随保护套霍尔。实现为 uinput 虚拟 `SW_TABLET_MODE` + GNOME 46 Quick Settings 扩展。
+
+```bash
+sudo ./tablet-mode/install.sh      # 编译 helper + systemd 服务 + 用户扩展（可 --dry-run）
+sudo ./tablet-mode/verify.sh       # 未安装则 SKIP
+sudo ./tablet-mode/uninstall.sh
+```
+装好后需**注销/重新登录**才出现控制中心开关；命令行等价：
+`elish-camera-ctl orientation tablet auto|on|off`。详见 `tablet-mode/README.md`。
+
 ## 7. 合并自检
 
 ```bash
@@ -275,7 +289,7 @@ sudo ./torch/uninstall.sh
 ```
 
 包含：联合 DTB、传感器 `sensors/install/verify.sh`、GNSS `gnss/install/verify.sh`、指纹 `fingerprint/install/verify-fingerprint.sh`、
-相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、可选手电筒 `torch/verify.sh`（未装则 SKIP）。
+相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、可选手电筒 `torch/verify.sh`、可选平板模式开关 `tablet-mode/verify.sh`（未装则 SKIP）。
 
 ## 8. 日常 / 禁用 / 回滚
 
@@ -287,6 +301,7 @@ sudo ./torch/uninstall.sh
 - GNSS 卸载：`cd gnss && sudo ./install/uninstall.sh`（保留内核模块；GNSS flash 不动）。
 - 闪光灯修复回滚：`sudo ./flash-led/uninstall.sh`（回滚后下次开机又会闪，属 Armbian 原版行为）。
 - 手电筒（可选）卸载：`sudo ./torch/uninstall.sh`（移除扩展/CLI/启用项；下次登录后图标消失）。
+- 平板模式开关（可选）卸载：`sudo ./tablet-mode/uninstall.sh`（移除 helper/服务/扩展；`auto` 行为仍由内核霍尔提供）。
 - 内核回退：`LABEL=$(sed -n "s/^abl_boot_partition_label=//p" /boot/armbianEnv.txt); sudo dd if=/root/${LABEL}-backup-*.img of=/dev/disk/by-partlabel/$LABEL`（旧备份名可能是 `boot_b-backup-*`）。
 - 升级影响：**先读 `docs/UPGRADE-IMPACT-ALL.md`**（内核/固件升级会同时破坏传感器/指纹/GNSS）。
 

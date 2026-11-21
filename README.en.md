@@ -67,7 +67,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | Kernel | LPASS pinctrl clock-timeout defer (pogo keyboard/USB random failures) | ✅ | Stand-alone patch `kernel/patches/0002-…` |
 | Kernel | SMB5 Type-C legacy/100 mA resume hang | ✅ | Verified with 3 suspend/resume cycles with charger attached |
 | System | Display/touch/pen/hall/battery/audio/Wi-Fi/BT/USB HID/GPU/UFS/PCIe/Venus | ⚠️ | Platform baseline; **audio fixed on 2026-11-13** (PulseAudio/WirePlumber PCM contention; see `docs/HARDWARE-STATUS.md`) |
-| System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; depends on the cover hall switch |
+| System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; optional `tablet-mode/` component (Quick Settings switch + uinput virtual hall) works without a cover |
 | System | Pogo keyboard after suspend/resume | ⚠️ | Known kernel USB PHY resume issue; reboot/re-plug recovers; userspace deliberately does not touch it |
 | System | Charging | ⚠️ | 5 V baseline + **PD 9 V fast charge working** (patch 0010, ~15 W at the battery); bq2597x pump / 27 W not wired yet |
 | — | 5G variant | — | This unit is Wi-Fi only (5G variant is outside this package's test scope; other misc hardware is absent on all variants) |
@@ -207,6 +207,8 @@ camera/        camera sub-package: elish-camera GPU pipeline (full-res front/rea
                udev/autostart/resume integration, install.sh + verify.sh
 flash-led/     rear flash boot-blink fix (default component): Armbian LED state restore guard
 torch/         optional GNOME 46 Quick Settings torch toggle + torch CLI (not installed by default)
+tablet-mode/   optional tablet-mode switch (on/off/auto) + GNOME 46 Quick Settings toggle
+               (not installed by default; uinput helper + systemd service for devices without cover)
 install/       installer: one-click turnkey.sh, extract-all.sh, build-userspace.sh,
                backup-boot.sh, check-all.sh, file placement map
 docs/          authoritative hardware baseline, TODO, history, upgrade impact/risk,
@@ -258,6 +260,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | Camera | `sudo ./camera/install.sh` + `bash ./camera/elish-camera/verify.sh` |
 | Flash fix (default) | `sudo ./flash-led/install.sh` (turnkey installs it automatically) |
 | GNOME torch (optional) | `sudo ./torch/install.sh` (logout/login afterwards) |
+| Tablet-mode switch (optional) | `sudo ./tablet-mode/install.sh` (on/off/auto; logout/login afterwards) |
 | bioauth (optional, not default) | `sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes` (sudo/pkexec wiring: `bioauth/INSTALL.md`) |
 | Hardening (optional, recommended) | disable GDM autologin, remove passwordless sudo, keep fingerprint authorization: `docs/HARDENING.md` |
 
@@ -300,6 +303,7 @@ sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
 sudo ./gnss/install/verify.sh
 sudo ./flash-led/verify.sh          # boot-flash fix
 sudo ./torch/verify.sh              # optional torch (SKIP when not installed)
+sudo ./tablet-mode/verify.sh        # optional tablet-mode switch (SKIP when not installed)
 sudo ./kernel/dtb/verify-combined-dtb.sh
 ```
 

@@ -60,7 +60,7 @@
 | 内核 | LPASS pinctrl clock-timeout defer（pogo 键盘/USB 随机失效） | ✅ | 独立补丁 `kernel/patches/0002-…` |
 | 内核 | SMB5 Type-C legacy/100mA resume 卡死 | ✅ | 带充电器 3 轮 suspend/resume 验证 |
 | 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已修复**（2026-11-13，PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
-| 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；依赖保护套霍尔 |
+| 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；无保护套可用可选组件 `tablet-mode/`（控制中心开关 + uinput 虚拟霍尔） |
 | 系统 | 睡眠唤醒后 pogo 键盘 | ⚠️ | 已知内核 USB PHY resume 问题；重启/重插恢复，用户态不改（防死锁） |
 | 系统 | 充电 | ⚠️ | 5V 基础 + **PD 9V 快充已打通**（0010，电池侧 ~15W）；bq2597x 泵/27W 档未接 |
 | — | 5G 版本 | — | 本机为 WiFi 版（5G 变体不在本包测试范围；其余杂项硬件所有型号均无） |
@@ -197,6 +197,8 @@ camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、
                虚拟相机、autoserve、自动对焦）、辅助脚本、udev/自启/休眠恢复、install.sh + verify.sh
 flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in）
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装）
+tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展（默认不装；
+               uinput helper + systemd 服务，无保护套也能强制平板模式/自动旋转）
 install/       安装器：一键安装 turnkey.sh、数据提取 extract-all.sh、用户态构建 build-userspace.sh、
                备份启动槽 backup-boot.sh、合并自检 check-all.sh、文件落位表
 docs/          硬件状态权威基线、整机 TODO、历史记录、升级影响/内核升级风险、设备数据提取指南、安全加固
@@ -245,6 +247,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | 相机 | `sudo ./camera/install.sh` + `bash ./camera/elish-camera/verify.sh` |
 | 闪光灯修复（默认） | `sudo ./flash-led/install.sh`（turnkey 自动装） |
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
+| 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（开/关/自动；装完注销/重新登录） |
 | bioauth（可选，默认不装） | `sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes`（接入 sudo/pkexec 见 `bioauth/INSTALL.md`） |
 | 安全加固（可选，推荐） | 关闭 GDM 自动登录、删除 sudo 免密、保留指纹授权：见 `docs/HARDENING.md` |
 
@@ -285,6 +288,7 @@ sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
 sudo ./gnss/install/verify.sh
 sudo ./flash-led/verify.sh          # 闪光灯开机误闪修复
 sudo ./torch/verify.sh              # 可选手电筒（未安装则 SKIP）
+sudo ./tablet-mode/verify.sh        # 可选平板模式开关（未安装则 SKIP）
 sudo ./kernel/dtb/verify-combined-dtb.sh
 ```
 

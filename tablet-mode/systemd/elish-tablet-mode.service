@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep elish tablet mode (virtual SW_TABLET_MODE) per /etc/elish-orientation.conf
+After=systemd-udevd.service
+Before=display-manager.service graphical.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elish-tablet-mode-switch
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target

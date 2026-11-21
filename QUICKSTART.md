@@ -48,6 +48,9 @@ sudo ./install.sh --with-kernel --kernel-src /var/tmp/kbuild-src --write-boot --
 > 默认组件还包含**后摄闪光灯“开机闪一下”修复**（`flash-led/`，自动安装）；**GNOME 手电筒**
 > （`torch/`）是可选组件、默认不装：完整安装加 `--with-torch`，或单独 `sudo ./torch/install.sh`
 > （装好后注销/重新登录，控制中心出现「手电筒」开关）。
+> **平板模式开关**（`tablet-mode/`，可选、默认不装）：没有磁吸保护套的人可以用它在控制中心
+> 切换「开 / 关 / 自动」，强制平板模式/自动旋转；加 `--with-tablet-mode` 或单独
+> `sudo ./tablet-mode/install.sh`（同样需注销/重新登录）。
 
 ## 3. 重启并验证
 
@@ -79,6 +82,9 @@ s2idle 唤醒不再崩 sensor PD（0009 已修）。
    - `sudo ./install.sh --no-deps --skip-extract --skip-build --with-torch --yes`（或 `sudo ./torch/install.sh`）
    - 装好后注销/重新登录，控制中心（右上角或 Super+S）出现「手电筒」开关；`torch on/off` 命令行同样可用。
    （开机闪光灯误闪修复已由默认组件 `flash-led/` 自动安装，无需手动操作。）
+8. 平板模式开关（可选，默认不装；无保护套的人推荐）：
+   - `sudo ./install.sh --no-deps --skip-extract --skip-build --with-tablet-mode --yes`（或 `sudo ./tablet-mode/install.sh`）
+   - 装好后注销/重新登录，控制中心出现「平板模式」开关（自动 / 开 / 关）。
 
 ## 常用分阶段命令
 
@@ -97,5 +103,6 @@ s2idle 唤醒不再崩 sensor PD（0009 已修）。
 | GNSS | `sudo ./gnss/install/install.sh` |
 | 后摄闪光灯开机误闪修复 | `sudo ./flash-led/install.sh`（默认组件，turnkey 已自动装） |
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
+| 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（装完注销/重新登录） |
 
 所有脚本支持 `--help` 与 `--dry-run`；已安装的组件会自动跳过（`--force` 可强制重编）。

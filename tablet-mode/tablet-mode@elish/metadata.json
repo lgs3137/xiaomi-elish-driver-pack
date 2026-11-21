@@ -1,0 +1,7 @@
+{
+  "name": "平板模式",
+  "description": "在右上角控制中心添加「平板模式」开关：开 / 关 / 自动（跟随磁吸保护套霍尔）。自动旋转依赖平板模式；没有保护套的人可以用它强制开启平板模式。写入 /etc/elish-orientation.conf，由 elish-tablet-mode.service 即时生效。",
+  "uuid": "tablet-mode@elish",
+  "shell-version": ["46"],
+  "version": 1
+}
