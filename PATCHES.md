@@ -111,6 +111,15 @@ release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail
 - **修复**：`0016-bq27xxx-discharging-status.patch` 把电流方向放到最前——`curr < 0` 直接报
   `DISCHARGING`，其余情况再按 `FC`/正电流/零电流判断；充电到 100% 时仍正常显示 `FULL`。
 
+### 9d. 唤醒后电源键抑制（0017，2026-11-22）
+
+- **问题**：s2idle 唤醒要 2–6 秒（触屏重下固件、传感器 iio claim、音频 DSP），用户以为没醒，
+  连按电源键；logind 把每一次都当成 suspend 切换 → 屏幕亮一下又灭、反复进出睡眠。
+- **修复**：PMIC 电源键驱动 `pm8941-pwrkey` 在 resume 时记录 `wake_ignore_ms`（默认 6000ms），
+  IRQ 里丢弃该窗口内的电源键事件；logind 收不到按键就不会再 suspend。PMIC 长按强制断电不受影响。
+- **实测**：唤醒后 6 秒内的连按不再触发 suspend；9 秒后按电源正常睡眠。参数可实时写
+  `/sys/module/pm8941_pwrkey/parameters/wake_ignore_ms`（0 关闭）。
+
 ### 10. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
 
 - `kernel/include/` 3 个头文件 + `kernel/INTEGRATION.md`：qcom_scm.h / mdt_loader.h / tee.h，

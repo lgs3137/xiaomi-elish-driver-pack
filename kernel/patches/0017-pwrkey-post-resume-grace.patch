@@ -1,0 +1,49 @@
+--- a/drivers/input/misc/pm8941-pwrkey.c
++++ b/drivers/input/misc/pm8941-pwrkey.c
+@@ -80,10 +80,21 @@
+ 	u32 code;
+ 	u32 sw_debounce_time_us;
+ 	ktime_t sw_debounce_end_time;
++	ktime_t wake_ignore_until;
+ 	bool last_status;
+ 	const struct pm8941_data *data;
+ };
+ 
++/*
++ * 唤醒后的按键抑制：s2idle 恢复需要几秒（触屏固件、传感器、音频 DSP），
++ * 用户在这段时间连按电源会被 logind 当成“再睡/唤醒”切换，导致屏幕亮一下又灭。
++ * 恢复完成后 wake_ignore_ms 内的电源键事件直接丢弃，N 秒后恢复正常。
++ */
++static unsigned int wake_ignore_ms = 6000;
++module_param(wake_ignore_ms, uint, 0644);
++MODULE_PARM_DESC(wake_ignore_ms,
++		 "Ignore power-key events for this many ms after resume (0 = disable)");
++
+ static int pm8941_reboot_notify(struct notifier_block *nb,
+ 				unsigned long code, void *unused)
+ {
+@@ -152,6 +163,13 @@
+ 	unsigned int sts;
+ 	int err;
+ 
++	if (wake_ignore_ms &&
++	    ktime_before(ktime_get(), pwrkey->wake_ignore_until)) {
++		dev_dbg(pwrkey->dev,
++			"ignoring power key event during post-resume grace\n");
++		return IRQ_HANDLED;
++	}
++
+ 	if (pwrkey->sw_debounce_time_us) {
+ 		if (ktime_before(ktime_get(), pwrkey->sw_debounce_end_time)) {
+ 			dev_dbg(pwrkey->dev,
+@@ -237,6 +255,10 @@
+ 	if (device_may_wakeup(dev))
+ 		disable_irq_wake(pwrkey->irq);
+ 
++	if (wake_ignore_ms)
++		pwrkey->wake_ignore_until = ktime_add_ms(ktime_get(),
++							 wake_ignore_ms);
++
+ 	return 0;
+ }
+ 
