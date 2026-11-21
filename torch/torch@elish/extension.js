@@ -33,17 +33,45 @@ class TorchToggle extends QuickSettings.QuickToggle {
         this._autoOffId = 0;
         this._inFlight = false;
 
-        // GNOME 46 的 Quick Settings 弹出层始终是深色背景，白色图标才可见。
-        // （之前按 gtk-theme-variant 判断，浅色 GTK 主题下会选黑图标，导致看不见。）
+        // 颜色要看 Shell 自己的配色（shell-color-scheme），不是 GTK 主题名。
+        // 之前用 gtk-theme-variant：gtk-theme=Adwaita 被判成 light，而 Quick
+        // Settings 实际跟随 shell-color-scheme=prefer-dark → 选了黑图标，看不见。
+        // 其他图标是 symbolic 主题图标，Shell 会自动重着色，所以不受影响。
+        try {
+            this._themeHandlerId = St.Settings.get().connect(
+                'notify::shell-color-scheme', () => this._syncIcon());
+        } catch (e) {
+            this._themeHandlerId = 0;
+        }
         this._syncIcon();
         this._syncFromSysfs();
 
         this.connect('clicked', () => this._onClicked());
     }
 
+    _isDarkStyle() {
+        const settings = St.Settings.get();
+        let scheme = '';
+        try {
+            scheme = (settings.shellColorScheme ?? '').toString().toLowerCase();
+        } catch (e) {
+            scheme = '';
+        }
+        if (!scheme) {
+            try {
+                scheme = (settings.gtkThemeVariant ?? '').toString().toLowerCase();
+            } catch (e) {
+                scheme = '';
+            }
+        }
+        // 未知时按深色处理（GNOME 46 Quick Settings 默认深色背景）
+        return !scheme.includes('light');
+    }
+
     _syncIcon() {
+        const file = this._isDarkStyle() ? 'torch-white.svg' : 'torch-black.svg';
         this.gicon = Gio.icon_new_for_string(
-            this._iconsDir.get_child('torch-white.svg').get_path());
+            this._iconsDir.get_child(file).get_path());
     }
 
     _startAutoOff() {
@@ -106,6 +134,10 @@ class TorchToggle extends QuickSettings.QuickToggle {
 
     destroy() {
         this._clearAutoOff();
+        if (this._themeHandlerId) {
+            St.Settings.get().disconnect(this._themeHandlerId);
+            this._themeHandlerId = 0;
+        }
         super.destroy();
     }
 });
