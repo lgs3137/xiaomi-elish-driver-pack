@@ -1,5 +1,6 @@
 # 合并升级影响评估（传感器 + 指纹 + GNSS + 相机/闪光灯）
 
+> **更新**：2026-11-21（按 release #13 状态复核）。
 > 针对"多套功能共用一次内核/DTB/boot 镜像"的合并包。传感器侧详细频率分析见
 > `../sensors/docs/UPGRADE-IMPACT.md`；本文件补充指纹与合并影响。
 >
@@ -49,6 +50,11 @@ sudo apt-mark hold libfprint-2-2
 
 `fprintd`/`libpam-fprintd` 通常可升级，但升级后要重测；若遇到 PAM 行为变化再 hold。
 
+> 若用**同名本地 deb** 替代发行版 `libfprint-2-2`（如 `1:1.94.100+goodixqsee1-0`）来避免 apt 覆盖：
+> `dpkg -i` 可能清掉 apt hold，安装后务必重新 `sudo apt-mark hold libfprint-2-2`；
+> 回退时 `sudo apt-mark unhold libfprint-2-2 && sudo apt-get install --reinstall libfprint-2-2`，
+> 指纹驱动会消失，需按 `fingerprint/INSTALL.md` 重编自编译版本。
+
 ## 4. 升级前后检查清单
 
 **升级前**
@@ -87,18 +93,22 @@ lsinitramfs /boot/initrd.img-$(uname -r) | grep 'elish/slpi' && echo 'ERROR: 需
 
 ## 6. 合并包的额外注意
 
-- 内核/DTB 重建后**必须同时验证各套功能**（`kernel/dtb/verify-combined-dtb.sh` + `sensors/verify.sh`
-  + `fingerprint/verify-fingerprint.sh`），不要只验证一边。
+- 内核/DTB 重建后**必须同时验证各套功能**（`kernel/dtb/verify-combined-dtb.sh` + `sensors/install/verify.sh`
+  + `fingerprint/install/verify-fingerprint.sh`），不要只验证一边。
 - 升级后 boot 镜像必须包含**联合 DTB**；如果只保留指纹节点或只保留 vmids，另一套功能会失效。
 - `zz-update-abl-kernel` 会自动重建并写 Linux 启动槽（危险；槽位由 armbianEnv 决定）；升级内核前先备份，升级后立即检查。
+- **启动镜像**：`/boot/armbian-kernel-csot.img` 由 `/etc/kernel/postinst.d/zz-update-abl-kernel` 生成；
+  cmdline 在 `/boot/armbianEnv.txt` 的 `extraargs`。**该文件被 shell `source`，含空格的值必须加引号**。
 - 内核升级后 Armbian 补丁集可能随版本变化，`kernel/ARMBIAN-BASELINE.md` 说明如何获取 6.18.44 基线；
   新内核需要对应版本补丁（可能需 re-port）。
+- 睡眠死机修复（`0009`，fastrpc listener `PF_NOFREEZE`）编在 `fastrpc.ko` 内，与内核一起被覆盖；
+  重做内核时务必一并应用，否则 s2idle 睡眠死机问题会回归。
 - 闪光灯/手电筒：`flash-led/` 修复在 `/usr/local` + systemd drop-in，与 Armbian 包解耦，
   `armbian-bsp-cli-*`/内核升级不会覆盖；若上游 `armbian-led-state-restore.sh` 接口变化，
   重跑 `sudo ./flash-led/install.sh`（`flash-led/verify.sh` 会提示）。`torch/` 是可选组件，
   GNOME Shell 大版本升级后需更新扩展 `metadata.json` 的 `shell-version` 并重装。
 
-## 7. GNSS（Airoha AG3335，2026-11-12 新增）
+## 7. GNSS（Airoha AG3335）
 
 | 项 | 影响 |
 |---|---|

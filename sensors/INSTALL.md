@@ -129,14 +129,14 @@ sudo depmod -a
 
 - 补丁基于 pristine v6.18.44，包含：SDSP VMID 候选（`{3,5}` 优先）+ 官方 SMMU sensors-PD 修复。
 - 细节与验证见 `../kernel/README.md`。
-- **注意**：如果你使用本机 `/var/tmp/kbuild-src` 这棵源码树，它里面 `qcom_q6v5_pas.c` 曾被实验性改成
-  `auto_boot=false`（已安装模块是原厂）。只编译 `fastrpc.ko` 不受影响；但如果你要 `make modules_install`
-  全量安装，请先把 `qcom_q6v5_pas.c` 恢复为 upstream（`auto_boot=true`），否则 SLPI 不会开机自启，
-  传感器栈会等不到系统服务启动 SLPI（或需要手动 start）。
 - DTB 的联合修改见 `../kernel/dtb/README.md`；先只装模块，若 dmesg 出现
   `SDSP assign try [0]: 0` 即成功，无需改 DTB。
 
-### 3.2 hexagonrpcd（hexagonrpc v0.3.2 + warm-attach 补丁）
+### 3.2 hexagonrpcd（hexagonrpc v0.3.2 + warm-attach / M2 可写 registry 补丁）
+
+默认部署是 **M2 可写 registry** 构建（`0001`+`0003`+`0004`+`0005`，让 PD 的 registry 写回成功、
+PD 初始化 ~35 s→8.2 s）；下方是最小 warm-attach 构建，完整默认构建命令见
+`userspace/hexrpc/README.md`。
 
 ```bash
 git clone https://github.com/linux-msm/hexagonrpc
@@ -148,7 +148,7 @@ sudo ninja -C build install
 ```
 
 详见 `userspace/hexrpc/README.md`。安装后二进制在 `/opt/hexrpc-032b/bin/hexagonrpcd`，
-库在 `/opt/hexrpc-032b/lib/aarch64-linux-gnu/`。
+库在 `/opt/hexrpc-032b/lib/aarch64-linux-gnu/`（M2 构建另装为 `hexagonrpcd.writable-v1`）。
 
 ### 3.3 libssc 0.4.4
 
@@ -201,7 +201,7 @@ D-Bus/polkit 配置；并 enable `slpi-fw-guard`、`slpi-sensors`、`sensor-boot
 sudo reboot
 ```
 
-开机后约 22 秒（M2 可写 registry 后；此前 ~79s）：
+开机后约 **20.9 秒**（2026-11-21 release #13 实测 `up=20.92 sensors OK`；改造前 ~79s）：
 
 ```bash
 # 1) 内核层

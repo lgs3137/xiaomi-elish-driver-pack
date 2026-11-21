@@ -1,7 +1,9 @@
 # 内核升级风险评估（用本包修补新的 Armbian 内核）
 
-> 结论基于 2026-11-13 的实测数据：GitHub 提交 churn + 把包内补丁对
-> `armbian/linux@linux-6.18.y` HEAD 与 mainline `v6.19` 做 `patch --dry-run`。
+> **文档更新**：2026-11-21。结论基于 2026-11-13 的实测数据（GitHub 提交 churn + 把包内补丁对
+> `armbian/linux@linux-6.18.y` HEAD 与 mainline `v6.19` 做 `patch --dry-run`）；churn/dry-run 为
+> 该日快照。2026-11-21 新增的 `0009`（fastrpc listener `PF_NOFREEZE`，睡眠死机修复）尚未纳入该次
+> dry-run，升级时与 `0001` 同文件一并复核（见 §2）。
 > 工具：`kernel/compat-check.sh`（只读，见文末）。
 
 ## 0. 结论速览
@@ -24,7 +26,7 @@
 
 | 内核文件 | 包内方式 | mainline (2024+) | Armbian 6.18.y (2025-06+) |
 |---|---|---|---|
-| `drivers/misc/fastrpc.c` | 补丁 0001（55 行） | 71 | 22 |
+| `drivers/misc/fastrpc.c` | 补丁 0001（55 行）+ 0009（~18 行，睡眠修复） | 71 | 22 |
 | `drivers/remoteproc/qcom_q6v5_pas.c` | 脚本 sed `auto_boot` | 59 | 7 |
 | `drivers/firmware/qcom/qcom_scm.c` | **整文件复制** | 100+ | 16 |
 | `drivers/soc/qcom/mdt_loader.c` | **整文件复制** | 17 | 9 |
@@ -52,6 +54,7 @@
 | 0006 ov13b10 | ✅ | ✅（offset 1 行） |
 | 0007 cn3927v | ✅ | ✅（offset 10 行） |
 | 0008 hi556 | ✅ | ✅ |
+| 0009 fastrpc listener（2026-11-21 新增） | 未纳入 2026-11-13 dry-run；与 0001 同文件，升级时一并复核 | 同左 |
 
 另外：`sdm845_slpi_resource_init` 在 6.18.y 与 v6.19 中都存在，
 所以 `auto_boot` 的 sed 逻辑跨版本风险低。
@@ -82,6 +85,7 @@
    ./kernel/compat-check.sh --fetch-ref linux-6.18.y --repo armbian/linux
    ```
 4. 看 `apply_kpatch` 的 "补丁不匹配，跳过" 警告——不要忽略；必要时手工 rebase；
+   注意 `0001` 与 `0009` 改同一文件（`drivers/misc/fastrpc.c`），顺序应用后都要校验；
 5. **整文件覆盖**（`qcom_scm.c` / `mdt_loader.c`）不要直接覆盖：
    先 `diff` 新树版本，把 QSEECOM 相关改动重新应用到新版本上；
 6. DTB：`kernel/dtb/verify-combined-dtb.sh` 校验；必要时按 `kernel/dtb/README.md` 从新 DTS 重做；

@@ -1,6 +1,8 @@
 # 安全加固（可选，推荐）
 
-本机（Xiaomi Pad 5 Pro / elish）在 2026-11-13 完成了以下加固，**保留指纹授权**：
+> **更新**：2026-11-21（加固实施于 2026-11-13，截至本文仍生效）。
+
+本机（Xiaomi Pad 5 Pro / elish）已完成以下加固，**保留指纹授权**：
 
 ## 已实施
 
@@ -56,4 +58,7 @@ sudo bash ~/security-hardening-backup-latest/restore.sh
 - 删除免密后，**DSH Agent（以 caitming 运行、无交互终端）不能再执行 sudo**；需要 root 的操作请在桌面
   终端手动执行，或临时恢复免密后操作、再重新加固。
 - 指纹 sudo 属安全敏感配置；请确保密码登录可用（`/etc/pam.d/sudo` 已包含密码回退）。
+- **PAM 故障逃生通道**：`pkexec` 走 polkit、不经过 `/etc/pam.d/sudo`，可在指纹/PAM 钩子坏掉时提权；
+  修改 `/etc/pam.d/sudo` 前先备份（`fingerprint/INSTALL.md` 的安装脚本会自动备份到
+  `/root/fp-pam-backup-*`）；回退时先移除自定义 PAM 行，再删脚本与 sudoers 规则。
 - 升级 `libfprint-2-2` 等包可能影响指纹；升级后按 `fingerprint/INSTALL.md` 重装自编译库。

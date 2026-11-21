@@ -1,10 +1,12 @@
 # GNSS 子包注意事项
 
+> 文档基线：2026-11-21（协议/实测结论见 `README.md`、`docs/PROTOCOL.md`）。
+
 ## 红线
 
 1. **不要写 `boot_a` / Android 分区**；只操作 rootfs / boot_b。
 2. **不要为了定位重刷 GNSS flash**。当前 flash 内容正确且能启动；刷写流程
-   （`../gnss/extract` 与历史 `brom_download.py`）只用于修复损坏的 flash，风险高。
+   （见 `extract/README.md`）只用于修复损坏的 flash，风险高（整片擦除）。
 3. 改 DTB 时不要用 `dtc` 往返（会破坏 regulator 4 字节属性）；用本包已验证 DTB
    或完整源码重建，见 `../kernel/dtb/README.md`。
 4. 串口必须 **921600 8N1**；BROM 阶段的 115200 只用于下载，不用于固件通信。

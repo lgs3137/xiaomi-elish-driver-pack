@@ -43,5 +43,6 @@ TA 名字必须与 DTB `/fingerprint` 的 `firmware-name` 一致（本项目为 
 ## 其他数据
 
 - 指纹模板：录入时由 fprintd/TA 写入 `/var/lib/fprint/...`，属于用户私有数据，**不随包分发**。
-- 指纹相关内核源码已随包提供；Armbian 基线获取见 `../kernel/ARMBIAN-BASELINE.md`。
-- 传感器侧数据/固件提取见 `sensors/extract/README.md`。
+- 指纹相关内核源码已随包提供；Armbian 基线获取见 `../../kernel/ARMBIAN-BASELINE.md`。
+- 传感器侧数据/固件提取见 `../../sensors/extract/README.md`。
+- 安装后内核模块/libfprint 的 sha256 参考值见 `../../VERSIONS.md`（本文件只保留子包特有的 TA 校验表）。

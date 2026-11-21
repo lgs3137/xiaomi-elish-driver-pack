@@ -34,8 +34,7 @@ ag3335_bootloader（B2 末字节 0x5A）→ gnss_config；写前先 `D4 00` 整�
 协议与刷写步骤不要自己重写，直接用公开实现并逐字节对照：
 
 - Quectel `GNSSTool` / `QGNSS_BROM/MTK/mtk_brom_3335.cpp`（GPL-3.0）；
-- Quectel LC29H/L89 升级指南（AG3335 平台）；
-- 本机开发历史（仅记录，不随包）：`brom_download.py`（`android_sync` /
-  `full_android` stage）与工作区 `gnss-notes/RE-brom.md`、`RE-image.md`。
+- Quectel LC29H/L89 升级指南（AG3335 平台）。
 
-刷写流程细节见 `../docs/PROTOCOL.md` §4。
+本机开发期用过的 `brom_download.py` 等脚本为历史工具，不在包内；项目时间线见
+`../../docs/HISTORY.md`。刷写流程细节见 `../docs/PROTOCOL.md` §4。

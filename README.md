@@ -3,11 +3,11 @@
 [English](README.en.md)
 
 在 **Xiaomi Mi Pad 5 Pro**（Qualcomm **SM8250 / elish**，CSOT 面板，WiFi 版）上，把 Armbian Linux 的
-**传感器（SLPI/SSC）**、**指纹（Goodix GF3626）**、**GNSS（Airoha AG3335）**、**相机（OV8856 / OV13B10，
-GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的驱动/系统集成包**：
-共享同一内核、DTB 与 boot 镜像，提供**一键安装器**、单组件安装脚本、设备数据提取指南与完整文档。
+**传感器（SLPI/SSC）**、**指纹（Goodix GF3626）**、**GNSS（Airoha AG3335）**、**相机（OV8856 / OV13B10 / Hi556）**
+四套功能合并为一个**可重复安装的驱动/系统集成包**：共享同一内核、DTB 与 boot 镜像，提供**一键安装器**、
+单组件安装脚本、设备数据提取指南与完整文档。
 
-- **版本**：2026.11.20
+- **版本**：2026.11.21
 - **适用设备**：Xiaomi Mi Pad 5 Pro（elish，CSOT 面板，WiFi 版）
 - **适用系统**：Armbian 26.8.14（Ubuntu 24.04 noble）+ kernel `6.18.44-current-sm8250`
 - **许可**：本包原创部分 **MIT**（见 `LICENSE`）；上游代码/补丁保留各自许可证（见文末）
@@ -23,7 +23,7 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 
 - [支持状态一览](#支持状态一览)
 - [适用系统版本](#适用系统版本)
-- [实测结果](#实测结果2026-11-13本机同一台设备)
+- [实测结果](#实测结果2026-11-21本机同一台设备)
 - [包内组件](#包内组件)
 - [安装](#安装)
 - [构建](#构建)
@@ -40,29 +40,29 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 
 | 子系统 | 组件 | 状态 | 说明 |
 |---|---|---|---|
-| **传感器** | SLPI/SSC 传感器栈（加速度/环境光/旋转矢量方向/指南针 heading） | ✅ | 自动亮度/自动旋转可用；开机 ~22s 可用（M2 后） |
-| 传感器 | 启动时序加速（L2/M1/M2） | ✅ | 服务早期启动 + hexrpc 可写 registry：PD 初始化 35s→8s |
-| 传感器 | 休眠唤醒恢复 | ✅ | sleep hook + worker，唤醒 ~10s 后 iio 重新 claim（M2 后） |
+| **传感器** | SLPI/SSC 传感器栈（加速度/环境光/旋转矢量方向/指南针 heading） | ✅ | 自动亮度/自动旋转可用；开机 **~21 s** 可用（M2 后） |
+| 传感器 | 启动时序加速（L2/M1/M2） | ✅ | 服务早期启动 + hexrpc 可写 registry：PD 初始化 35 s→**8.2 s** |
+| 传感器 | 休眠唤醒恢复 | ✅ | sleep hook + worker，唤醒后 **3–6 s** 传感器就绪并重新 claim（0009 后） |
+| 传感器 | **s2idle 睡眠死机**（唤醒后全系统卡死，需长按电源） | ✅ | **根因已修复**：`kernel/patches/0009-fastrpc-listener-unfreezable.patch`；11-19～11-21 共 20 次 s2idle（含 10h47m、5h50m 长睡）**0 崩溃** |
 | 传感器 | 原始陀螺 / 磁力计三轴 / 接近（SAR） | 🚫 | 用户态 libssc/udev 未暴露；属软件缺口，非硬件驱动 |
 | **指纹** | Goodix GF3626（fprintd 录入/验证、GDM 锁屏/登录、sudo 指纹） | ✅ | TA 需自提；TA 拒服务看门狗自动恢复 |
 | **生物认证（可选）** | bioauth：通用 PAM 生物认证栈（指纹/密码，单窗口全屏 UI，sudo/pkexec 可选接入） | ✅ | **默认不装**；`--with-bioauth` 安装；回滚/救援见 `bioauth/INSTALL.md` |
 | **GNSS** | Airoha AG3335（QUP5 UART + PAIR + gpsd + GeoClue2） | ✅ | 室外真实定位已验证（mode=3、12 星）；GeoClue 位置与指南针 heading；Pure Maps 已验证 |
-| **相机** | 前摄 OV8856 3280×2464 / 后摄 OV13B10 4208×3120 全分辨率拍照/录像 | ✅ | GPU debayer + Venus HEVC/H.264，~30fps；两个 V4L2 虚拟相机 |
+| **相机** | 前摄 OV8856 3280×2464 / 后摄 OV13B10 4208×3120 全分辨率拍照/录像 | ✅ | GPU debayer + Venus HEVC/H.264，~30 fps；两个 V4L2 虚拟相机 |
 | 相机 | 后摄 AF/AE/AWB、CN3927V VCM、EEPROM 24c64 | ✅ | 软件 AF 扫焦写 focus sysfs |
 | 相机 | PipeWire / xdg-desktop-portal / Snapshot | ✅ | 两个 `media.role=Camera` 节点，portal 取流已实测 |
 | 相机 | LSC / CCM 画质调校 | ✅ | **不随包提供调校数据**，仅提供本机只读提取脚本；提取后默认启用（后摄暗角 4.4×→~1×），未提取时中性/关闭；`ELISH_LSC=0`/`ELISH_CCM=0` 可关 |
-| 相机 | Hi556 景深 | ⚠️ | **RAW 出流已验证**（2592×1944 SGRBG10@~30fps，checker test pattern），Hi556 节点已合并进**单一联合 DTB**；无深度/彩色用户态；原“PM8150A L1/L2 被占”已纠正为 DTS 缺 ldoc2 节点 |
+| 相机 | Hi556 景深 | ⚠️ | **RAW 出流已验证**（2592×1944 SGRBG10 @ ~30 fps，checker test pattern），节点已合并进**单一联合 DTB**；无深度/彩色用户态 |
 | 相机 | 前后摄同时出流 | 🚫 | CAMSS/DTB 资源限制，一次只能一路 |
 | **相机闪光灯/手电筒** | 后摄闪光灯 LED（PM8150L `white:flash`）：开机误闪修复 + 手电筒 | ✅ | **开机 logo 阶段误闪已修复**（默认组件 `flash-led/`）；手电筒可选 GNOME 46 控制中心开关 + `torch` CLI（`--with-torch`，默认不装） |
-| **内核/系统** | 联合 DTB（传感器 vmids + 指纹节点 + GNSS QUP5 UART + 相机节点） | ✅ | 模型级、无本机私有信息；构建/校验见 `kernel/dtb/README.md` |
+| **内核/系统** | 联合 DTB（传感器 vmids + 指纹节点 + GNSS QUP5 UART + 相机节点 + Hi556） | ✅ | 模型级、无本机私有信息；构建/校验见 `kernel/dtb/README.md` |
 | 内核 | fastrpc SDSP VMID/sensors-PD、QSEECOM/TEE、mdt_loader、qcom_scm、goodix_fp_spi | ✅ | 指纹/传感器内核层 |
 | 内核 | LPASS pinctrl clock-timeout defer（pogo 键盘/USB 随机失效） | ✅ | 独立补丁 `kernel/patches/0002-…` |
 | 内核 | SMB5 Type-C legacy/100mA resume 卡死 | ✅ | 带充电器 3 轮 suspend/resume 验证 |
-| 内核 | 睡眠死机（唤醒后全系统卡死，需长按电源） | ✅ | `kernel/patches/0009-fastrpc-listener-unfreezable.patch`；release 内核实测 7 次 s2idle（含 10.5h）0 崩溃 |
-| 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已于 2026-11-13 修复**（PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
+| 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已修复**（2026-11-13，PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
 | 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；依赖保护套霍尔 |
 | 系统 | 睡眠唤醒后 pogo 键盘 | ⚠️ | 已知内核 USB PHY resume 问题；重启/重插恢复，用户态不改（防死锁） |
-| 系统 | 充电 | ⚠️ | 基础 ~1.95A；快充泵/33W+ 无原装充电器未验证 |
+| 系统 | 充电 | ⚠️ | 基础 ~1.95 A；快充泵/PD 9V 未验证（缺原装 PD 充电器） |
 | — | 5G 版本 | — | 本机为 WiFi 版（5G 变体不在本包测试范围；其余杂项硬件所有型号均无） |
 
 完整硬件基线见 [`docs/HARDWARE-STATUS.md`](docs/HARDWARE-STATUS.md)。
@@ -75,9 +75,9 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 |---|---|
 | 设备 | Xiaomi Mi Pad 5 Pro（代号 **elish**，CSOT 面板，WiFi 版） |
 | SoC | Qualcomm Snapdragon 870（**SM8250**） |
-| 发行版 | **Armbian 26.8.14 noble**（Ubuntu 24.04 LTS 用户态） |
+| 发行版 | **Armbian 26.8.14 noble**（Ubuntu 24.04 LTS 用户态），GNOME 46 |
 | 内核 | **`6.18.44-current-sm8250`**（Armbian sm8250 基线 + 本包补丁；BTF/ABI 三件套见 `kernel/README.md`） |
-| 启动 | Linux 启动槽由 `/boot/armbianEnv.txt` 的 `abl_boot_partition_label` 决定（本机 `boot_b`；脚本自动跟随，**不写死**）；只写该槽，**不碰 Android 槽**（本机 Android 在 `boot_a`，你的布局以实际为准） |
+| 启动 | Linux 启动槽由 `/boot/armbianEnv.txt` 的 `abl_boot_partition_label` 决定（本机 `boot_b`；脚本自动跟随，**不写死**）；只写该槽，**不碰 Android 槽** |
 | 面板 | CSOT（本包联合 DTB 为 `sm8250-xiaomi-elish-csot.dtb`；BOE 变体未实测） |
 | 内核源码（构建用） | 同版本 Armbian sm8250 源码树（如 `/var/tmp/kbuild-src`）；不随包附带 |
 | 依赖 | Ubuntu 24.04 包；一键安装器 `--deps` 自动安装 |
@@ -87,44 +87,47 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 
 ---
 
-## 实测结果（2026-11-13，本机同一台设备）
+## 实测结果（2026-11-21，本机同一台设备）
 
-同一台 elish（CSOT），Armbian noble + `6.18.44-current-sm8250`，干净启动 + 一次合盖唤醒：
+同一台 elish（CSOT），Armbian noble + `6.18.44-current-sm8250` **release 构建 #13**（无诊断选项），
+干净启动；睡眠测试含 10 小时级长睡。
 
 ### 启动 / 传感器 / 唤醒
 
 | 指标 | 实测 |
 |---|---|
-| 桌面就绪（systemd `Startup finished`） | **38.3 s**（kernel 3.2s + userspace 35.0s；graphical 34.8s userspace） |
-| 开机 → 传感器可用 | **21.65 s**（`hexrpc-boot.log [start] up=21.65 sensors OK`；改造前 ~79s，−73%） |
-| PD registry 初始化（SLPI 起到 sensors OK） | **8.2 s**（M2 可写 registry 前 ~36–42s） |
+| 桌面就绪（systemd `Startup finished`） | **21.42 s**（kernel 3.16 s + userspace 18.26 s；`graphical.target` 17.96 s） |
+| 开机 → 传感器可用 | **20.92 s**（`hexrpc-boot.log [start] up=20.92 sensors OK`） |
+| PD registry 初始化（SLPI 起到 sensors OK） | **8.2 s**（M2 可写 registry 前 ~36–42 s） |
 | iio 状态 | active、单实例、**NRestarts=0** |
-| 合盖 → 唤醒 → 传感器恢复/重新 claim | **≈10.2 s**（s2idle；此前 ~35–40s） |
+| 合盖 → 唤醒 → 传感器恢复/重新 claim | **3.3 s**（首次）/ **6.0 s**（iio 未运行时 worker 拉起）；s2idle |
 | 自动旋转 | 唤醒后可用（实测） |
-| 传感器自检 | `13 项 OK`；PDM crash **已由 0009 修复**（未打补丁内核休眠唤醒后仍可能出现，干净重启后为 0） |
+| s2idle 睡眠死机 | **已修复**（0009）：11-19～11-21 共 **20 次 s2idle**（含 10h47m、5h50m、5h43m、3h33m 长睡）**0 次** PDM/fatal/crash detected；release #13 当日 4 次 0 崩溃（`suspend_stats` success=4 fail=0） |
+| 传感器自检 | **14 项 OK / 0 FAIL**；PDM 崩溃 0 |
 
-### 指纹
+### 指纹（2026-11-13 完整验证；2026-11-21 复核）
 
 | 指标 | 实测 |
 |---|---|
-| `fprintd-list` | Goodix QSEE match-on-chip，已录入 `left-index-finger` |
+| `fprintd-list` | Goodix QSEE match-on-chip，已录入指纹模板 |
 | 录入 / 验证 | ✅（`fprintd-enroll` / `fprintd-verify`） |
 | GDM 锁屏 / 登录 | ✅（`enable-fingerprint-authentication=true`） |
-| sudo 指纹 | ✅（`pam_fprintd` 8s 超时→密码回退；2026-11-13 实测按指纹提权成功） |
+| sudo 指纹 | ✅（`pam_fprintd` 8 s 超时→密码回退；旧 `--pam` 栈，可选） |
 | TA 拒服务恢复 | ✅ `fp-ta-watchdog` 自动重载 loader |
-| 指纹自检 | **OK=20 / WARN=0 / FAIL=0** |
+| 指纹自检 | **OK=19 / WARN=1 / FAIL=0**（WARN：未启用旧 `--pam` sudo 指纹栈，属可选） |
 
-### GNSS
+### GNSS（2026-11-13 室外验证）
 
 | 指标 | 实测 |
 |---|---|
 | 链路 | `/dev/ttyHS1`(921600) → `airoha_gps.ko` → `airoha-gnssd` → `/dev/ttyGNSS0` → gpsd |
-| NMEA | 1 Hz，已转发句子数 10491+；`gpsd` TPV 正常（室内 `mode=1` 属正常） |
+| NMEA | 1 Hz，已转发句子数 3939+；`gpsd` TPV 正常（室内 `mode=1` 属正常） |
+| 室外定位 | **mode=3、12 星、GGA quality=1**（2 分钟内锁定） |
 | GeoClue2 | `gps-nmea-share` → `/run/gps-share.sock`；GeoClue Location 可用 |
 | 指南针 | `CompassHeading` 实测 ≈176–177°；GeoClue heading 可用 |
 | 地图应用 | GNOME Maps（位置）；Pure Maps 3.5.1（位置+罗盘）已验证 |
 
-### 相机
+### 相机（2026-11-12 实测；管线未变）
 
 | 指标 | 实测 |
 |---|---|
@@ -133,8 +136,10 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | GPU debayer | 前摄 11.0–12.1 ms/帧；后摄 18.7–19.8 ms/帧（p95 ≤14.7 / ≤22.1） |
 | Venus 编码吞吐（不限速） | 3280×2464 HEVC **135 fps**；4208×3120 HEVC **90.6 fps** |
 | 虚拟相机 | `/dev/video2`（前，NV12 3280×2464）、`/dev/video20`（后，NV12 3120×4208） |
-| PipeWire / portal | 两个 `media.role=Camera` 节点；portal `OpenPipeWireRemote` 取流 + Snapshot 已验证 |
+| PipeWire / portal | 两个 `media.role=Camera` 节点；portal `OpenPipeWireRemote` + Snapshot 已验证 |
 | 后摄软件 AF | 实测室内目标最佳 focus=640（0–1023） |
+| LSC 画质调校 | 后摄暗角 4.4×→~1×（本机提取调校数据后；数据不随包） |
+| Hi556 景深 | RAW10 2592×1944 SGRBG10 @ ~30 fps，checker test pattern 通过（2026-11-20） |
 | 相机自检 | **OK=23 / WARN=0 / FAIL=0** |
 
 ### 闪光灯 / 手电筒（2026-11-20）
@@ -145,19 +150,19 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 | 手电筒 | ✅ `torch` CLI（logind `SetBrightness`，普通用户可用）；可选 GNOME 46 控制中心开关（headless Shell 实测 ACTIVE，注销/登录后生效） |
 | 拍照闪光灯（`flash_strobe`） | 🚫 无软件支持（内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`；需内核/相机后端开发） |
 
-### 合并自检（`install/check-all.sh`）
+### 合并自检（`install/check-all.sh`，2026-11-21）
 
 | 项 | 结果 |
 |---|---|
-| 联合 DTB（传感器 vmids + 指纹 + GNSS） | ✅ 通过 |
-| 传感器栈 | 13 OK / 1 FAIL（旧内核休眠后 PDM crash；0009 已修复） |
-| 指纹栈 | 20 OK / 0 FAIL |
-| GNSS 栈 | 正常（非 root 运行时 polkit 规则只能 WARN） |
+| 联合 DTB（传感器 vmids + 指纹 + GNSS + 相机节点） | ✅ 通过 |
+| 传感器栈 | **14 OK / 0 FAIL** |
+| 指纹栈 | 19 OK / 1 WARN / 0 FAIL（WARN 为可选的旧 `--pam` 栈未启用） |
+| GNSS 栈 | 正常（非 root 时 polkit 规则只能 WARN） |
 | initramfs 固件不变量 | ✅ 不含 SLPI 固件 |
 | 相机栈 | 23 OK / 0 FAIL |
 | 闪光灯开机误闪修复 | ✅ 通过（`flash-led/verify.sh`） |
 | GNOME 手电筒（可选） | 未装 → SKIP；已装 → ✅ |
-| apt 状态 | 建议 hold `libfprint-2-2`（否则升级覆盖自编译库） |
+| apt 状态 | 已 hold `linux-image/dtb/headers-current-sm8250`、`armbian-firmware-full`、`libfprint-2-2` |
 
 > 完整自检建议 `sudo ./install/check-all.sh`（以 root 可读更多系统文件）。
 
@@ -166,27 +171,24 @@ GPU debayer + Venus 硬编）** 四套功能合并为一个**可重复安装的�
 ## 包内组件
 
 ```
-README.md / README.en.md / QUICKSTART.md / INSTALL.md / LICENSE
-kernel/        统一内核：驱动源码/补丁、内核配置、initramfs hook、模型级联合 DTB、
+README.md / README.en.md / QUICKSTART.md / INSTALL.md / NOTES.md / PATCHES.md / VERSIONS.md / MANIFEST.md
+LICENSE / SHA256SUMS / install.sh（一键安装入口 = install/turnkey.sh 包装）
+kernel/        统一内核：驱动源码/补丁、内核配置、initramfs hook、模型级联合 DTB（含 Hi556）、
                一键内核构建安装脚本（build-and-install.sh）、Linux 启动槽重建脚本（自动检测）
-sensors/       传感器子包：systemd/udev/D-Bus 集成、启动/唤醒/诊断脚本、
-               hexrpc/libssc/iio-sensor-proxy 补丁与编译说明、数据提取脚本、文档
+sensors/       传感器子包：systemd/udev/D-Bus 集成、启动/唤醒脚本、hexrpc/libssc/iio 补丁与
+               编译说明、数据提取脚本、文档
 fingerprint/   指纹子包：qsee-supplicant/libfprint 源码与补丁、udev/systemd/PAM 配置、
                TA 提取、安装/验证/卸载脚本、文档
-bioauth/       可选：通用生物认证 PAM 栈（PAM module + daemon + GTK4 全屏 helper），
-               默认不装；--with-bioauth 安装，--bioauth-sudo/--bioauth-pkexec 接入 PAM
+bioauth/       可选：通用生物认证 PAM 栈（PAM module + daemon + GTK4 全屏 helper），默认不装
 gnss/          GNSS 子包：airoha_gps 驱动源码、airoha-gnssd/gps-nmea-share 用户态、
                systemd/gpsd/GeoClue 集成、协议与排障文档、flash 修复提取说明
 camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、GPU debayer、Venus 硬编、
-               虚拟相机、autoserve、自动对焦）、辅助脚本、udev/自启/休眠恢复、
-               install.sh + verify.sh、docs/（架构/接口/measurements 历史测量）
-flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫
-               （wrapper + systemd drop-in），不修改 Armbian 包文件
-torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；
-               --with-torch 或 sudo ./torch/install.sh）
-install/       安装器：一键安装 turnkey.sh、数据提取 extract-all.sh、用户态构建
-               build-userspace.sh、备份启动槽 backup-boot.sh、合并自检 check-all.sh、文件落位表
-docs/          硬件状态基线、整机 TODO、历史记录、升级影响、备份/救援、设备数据提取指南
+               虚拟相机、autoserve、自动对焦）、辅助脚本、udev/自启/休眠恢复、install.sh + verify.sh
+flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in）
+torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装）
+install/       安装器：一键安装 turnkey.sh、数据提取 extract-all.sh、用户态构建 build-userspace.sh、
+               备份启动槽 backup-boot.sh、合并自检 check-all.sh、文件落位表
+docs/          硬件状态权威基线、整机 TODO、历史记录、升级影响/内核升级风险、设备数据提取指南、安全加固
 ```
 
 ---
@@ -208,121 +210,35 @@ docs/          硬件状态基线、整机 TODO、历史记录、升级影响、
 
 ### 1. 全组件一键安装（推荐）
 
-一键流程（预览 → 正式安装 → 可选 DTB/内核 → 重启验证）统一见 [`QUICKSTART.md`](QUICKSTART.md)；
-手动分步/排障见 [`INSTALL.md`](INSTALL.md)。
+```bash
+# 预览 → 正式安装 → 可选内核/DTB → 重启验证
+./install.sh --dry-run --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elish-slpi-*.apk
+sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elish-slpi-*.apk --yes
+```
 
+- **内核/DTB 是硬依赖**：sensor/fastrpc/fingerprint/GNSS/相机驱动都依赖已打补丁的内核 + 联合 DTB。
+  `--with-kernel` 是显式 opt-in（会写 Linux 启动槽 + 需自备内核源码），对全新系统不是“可选”；
+  已运行本包完整内核+DTB 时才可跳过（安装器会预检并警告）。
+- **联合 DTB（含 Hi556）**：`--with-dtb --write-boot` 只装 DTB 并重建 Linux 槽；`--with-kernel` 在内核步骤中一并安装。
 - **相机 LSC/CCM**：`--android` 提取阶段会同时取 `com.qti.tuned.*.bin`，编译相机时在本机生成
   `src/tuning_data.h`（数据不随包、不提交）；没有调校 bin 时自动用中性 LSC/CCM。
-- **联合 DTB（含 Hi556）**：默认安装流程不带 DTB 写盘；加 `--with-dtb --write-boot` 只装 DTB
-  并重建 Linux 槽；`--with-kernel` 则在内核步骤中一并安装。
 
 ### 2. 单组件安装
 
-#### 2.1 内核 / DTB / initramfs（首次安装必需；已有匹配内核+DTB 时可跳过）
+| 组件 | 命令 |
+|---|---|
+| 内核 / DTB（首次必需） | `sudo ./kernel/build-and-install.sh --kernel-src <源码> --write-boot`；只装 DTB：`sudo ./kernel/install-dtb.sh [--write-boot]` |
+| 传感器 | `sudo ./sensors/install/install-system-files.sh`（+ `install-data.sh`，数据先提取） |
+| 指纹 | `sudo ./install/build-userspace.sh --skip-hexrpc --skip-libssc --skip-iio` + `sudo ./fingerprint/install/install-fingerprint-files.sh` |
+| GNSS | `sudo ./gnss/install/install.sh`（`airoha_gps.ko` 由内核步骤编译安装） |
+| 相机 | `sudo ./camera/install.sh` + `bash ./camera/elish-camera/verify.sh` |
+| 闪光灯修复（默认） | `sudo ./flash-led/install.sh`（turnkey 自动装） |
+| GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
+| bioauth（可选，默认不装） | `sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes`（接入 sudo/pkexec 见 `bioauth/INSTALL.md`） |
+| 安全加固（可选，推荐） | 关闭 GDM 自动登录、删除 sudo 免密、保留指纹授权：见 `docs/HARDENING.md` |
 
-只安装包内单一联合 DTB（含 Hi556，不重编内核）：
-```bash
-sudo ./kernel/install-dtb.sh                # 只更新 rootfs/boot 下 DTB
-sudo ./kernel/install-dtb.sh --write-boot   # 另重建 Linux 槽（自动检测/需确认）
-# 或一键器：sudo ./install.sh --with-dtb --write-boot --yes
-```
-
-**注意**：本包绝大多数驱动（sensor/fastrpc/fingerprint/GNSS/相机）都依赖已打补丁的内核 + 联合 DTB。
-`--with-kernel` 之所以是显式选项，是因为它会**写 Linux 启动槽**且需要自备同版本内核源码；
-对全新系统它不是“可选依赖”，而是必须步骤。已有本包完整内核+DTB 时才可跳过（安装器会预检并警告）。
-
-完整内核（含 DTB）需要内核源码：
-```bash
-sudo ./kernel/build-and-install.sh --kernel-src /var/tmp/kbuild-src --write-boot
-# 只预检/不写盘： --dry-run
-# 复用已编译产物： --skip-build
-```
-**启动槽位不写死**：脚本读取 `/boot/armbianEnv.txt` 的 `abl_boot_partition_label`
-（本机 `boot_b`；若你的 Linux 在 `boot_a` 等其他槽也会自动跟随），`--slot <label>` 只做断言。
-
-脚本自动：应用内核补丁、集成 QSEECOM/mdt_loader/qcom_scm、确保 `q6v5_pas auto_boot=true`、
-编译 Image/modules、安装模块（fastrpc/goodix_fp_spi/airoha_gps）、安装联合 DTB、
-修 initramfs hook、备份并重建 Linux 启动槽（按 armbianEnv 自动检测；**不碰 Android 槽**）。手动步骤见 `kernel/README.md`。
-
-#### 2.2 传感器
-
-```bash
-# 一键（提取 + 数据母本 + 系统集成 + 自检）
-sudo ./install.sh --android <vendor.img> --pmos <slpi.apk> --skip-build --yes
-
-# 或分步：
-sudo ./install/extract-all.sh --android <vendor.img> --pmos <slpi.apk>
-sudo ./sensors/install/install-data.sh --android /var/tmp/elish-build/extracted/android \
-     --armbian /var/tmp/elish-build/extracted/armbian --firmware /var/tmp/elish-build/extracted/pmos
-sudo ./sensors/install/install-system-files.sh   # systemd/udev/D-Bus/脚本/调参
-sudo ./sensors/install/verify.sh
-```
-用户态二进制（hexagonrpcd + M1/M2 补丁、libssc、iio-sensor-proxy）由
-`install/build-userspace.sh` 自动打补丁并编译；手动命令见 `sensors/userspace/*/README.md`。
-
-#### 2.3 指纹
-
-```bash
-# TA（从自己设备/adb/固件镜像）
-sudo ./install/extract-all.sh --fingerprint-adb --skip-sensors
-sudo install -m0644 /var/tmp/elish-build/extracted/fingerprint-ta/gfenu.* /lib/firmware/
-
-# 用户态（qsee-supplicant、libfprint、fprintd、系统集成）
-sudo ./install/build-userspace.sh --skip-hexrpc --skip-libssc --skip-iio
-sudo ./fingerprint/install/install-fingerprint-files.sh
-sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
-```
-详细（PAM/sudo 指纹、看门狗、回退）见 `fingerprint/INSTALL.md`。
-
-#### 2.4 GNSS
-
-```bash
-sudo ./gnss/install/install.sh     # 编译并安装 airoha-gnssd + gpsd/GeoClue 集成
-sudo ./gnss/install/verify.sh
-```
-`airoha_gps.ko` 由内核步骤（或 `--with-kernel`）一并编译安装。
-
-#### 2.5 相机
-
-```bash
-sudo ./camera/install.sh           # 编译 elish-camera + 脚本/udev/自启/休眠恢复 + orientation 权限
-bash ./camera/elish-camera/verify.sh
-```
-
-#### 2.6 后摄闪光灯开机误闪修复 / 手电筒（手电筒可选）
-
-```bash
-sudo ./flash-led/install.sh     # 默认组件：修复开机 logo 阶段后摄闪光灯闪一下（turnkey 自动装）
-sudo ./flash-led/verify.sh
-sudo ./flash-led/uninstall.sh   # 回滚（回滚后开机又会闪，属 Armbian 原版行为）
-
-# 可选：GNOME 46 控制中心「手电筒」开关 + torch 命令行（默认不装；装完注销/重新登录）
-sudo ./torch/install.sh
-torch / torch off / torch set 64
-bash ./torch/verify.sh
-```
-根因/证据/升级注意见 `flash-led/README.md`；手电筒走向 logind，无需 root，拍照用的
-`flash_strobe` 仍不支持（内核未开 V4L2 flash）。
-
-#### 2.7 bioauth 生物认证 PAM（可选，默认不装）
-
-在指纹栈之上提供通用生物认证：sudo/pkexec 可选接入、单窗口全屏“安全屏幕”、密码/指纹
-切换、锁定与超时。默认**不安装**，不改任何 PAM 配置。
-
-```bash
-# 只装文件（不改 sudo/pkexec）
-sudo ./install.sh --no-deps --skip-extract --skip-build --with-bioauth --yes
-# 接入 sudo / pkexec（会备份 PAM；先读安全红线）
-sudo ./install.sh --no-deps --skip-extract --skip-build --bioauth-sudo --yes
-sudo ./install.sh --no-deps --skip-extract --skip-build --bioauth-pkexec --yes
-# 回滚：sudo ./bioauth/scripts/install-bioauth.sh --rollback
-```
-详见 `bioauth/INSTALL.md`（不要与旧 `--pam` 指纹栈同时启用）。
-
-#### 2.8 安全加固（可选，推荐）
-
-关闭 GDM 自动登录、删除 sudo 免密，保留指纹授权（sudo/登录均可用指纹）：
-见 `docs/HARDENING.md`（本机实测：`sudo -n` 需密码、指纹 sudo 可用、唤醒/自动旋转正常）。
+传感器/指纹/GNSS/相机的详细手动步骤分别见 `sensors/INSTALL.md`、`fingerprint/INSTALL.md`、`gnss/INSTALL.md`、
+`camera/README.md`；内核细节见 `kernel/README.md`。
 
 ### 3. 数据 / 固件提取（本包不附带）
 
@@ -339,18 +255,18 @@ sudo ./install/extract-all.sh --android <vendor.img> --pmos <slpi.apk> [--finger
 - **一键安装器**会自动 `git clone` 上游源码、应用本包补丁并编译安装（源码缓存在 `/var/tmp/elish-build`）；
 - 手动构建步骤：
   - 内核：`kernel/README.md`（步骤 A/B、配置检查、ABI 三件套）
-  - hexrpc：`sensors/userspace/hexrpc/README.md`（v0.3.2 + 0001/0003/0004/0005）
+  - hexrpc：`sensors/userspace/hexrpc/README.md`（v0.3.2 + 本包补丁）
   - libssc / iio：`sensors/userspace/*/README.md`
   - 指纹：`fingerprint/INSTALL.md`（qsee-supplicant、libfprint goodix-qsee）
   - 相机：`camera/elish-camera/Makefile`（`make -C camera/elish-camera`）
-- 已验证的源码版本/commit 与安装后 sha256 参考见 `VERSIONS.md` 与各子包版本文件。
+- 已验证的源码版本/commit 与安装后 sha256 参考见根 `VERSIONS.md`（子包 README 列各自组件版本）。
 
 ---
 
 ## 验证
 
 ```bash
-sudo ./install/check-all.sh         # 合并自检（DTB/传感器/指纹/GNSS/相机/initramfs）
+sudo ./install/check-all.sh         # 合并自检（DTB/传感器/指纹/GNSS/相机/闪光灯/initramfs/apt）
 sensor-status                       # 传感器总览（服务/固件路径/PDM/iio/数值）
 bash camera/elish-camera/verify.sh  # 相机栈
 ./kernel/compat-check.sh --src <新内核源码树>   # 升级前：补丁/整文件兼容性 dry-run（只读）
@@ -366,14 +282,15 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 ## 已知限制
 
 - 传感器 PD 偶发静默卡死（约 **1/14** 次干净启动）：固件侧问题，干净重启恢复，非本包可修；
-- 休眠唤醒后 PDM crash：**已由 `kernel/patches/0009` 修复**（未打补丁内核仍可能看到 1 次；干净重启后自检为 0）；
 - 原始陀螺/磁力计三轴/接近未暴露（libssc/udev 层待补）；
-- 相机：景深 Hi556 为实验性（DTS 补丁与工具已提供，待上机验证）；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
+- 相机：Hi556 景深无深度/彩色用户态；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
 - pogo 键盘唤醒后可能失效（内核 USB PHY resume；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器）；
 - 指纹 TA 需自提；`libfprint-2-2` 升级会覆盖自编译库（建议 hold）；内核/固件升级后需按 `docs/UPGRADE-IMPACT-ALL.md` 重做；
-- sudo 指纹 PAM 属安全敏感配置，安装前确保能用密码回退；
+- sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
-- 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件。
+- 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件；
+- 充电为 5V 基础 ~1.95 A，快充泵/9V PD 未验证（缺原装 PD 充电器）；
+- Firefox 原生 Wayland **长睡唤醒后触屏失效**属上游 Firefox bug（mozilla 2032822 / 2026258），与本驱动包无关。
 
 ---
 
@@ -403,9 +320,9 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 ### 个人 / AI 贡献
 
 - **caitming** — 项目发起、设备实验、内核/驱动集成、测试与维护；
-- **DeepSeek Harness AI Agent（deepseek-flash）** — 承担三份只读逆向分析、传感器启动加速
-  L2/M1/M2 与唤醒 R1/R2 的实现、hexrpc 可写 registry 补丁适配、相机/指纹/GNSS 集成验证、
-  安装器与文档（含本 README）编写。
+- **DeepSeek Harness AI Agent（deepseek-flash）** — 只读逆向分析、传感器启动加速 L2/M1/M2 与唤醒恢复、
+  hexrpc 可写 registry 补丁适配、s2idle 睡眠死机根因定位与 fastrpc `PF_NOFREEZE` 修复、相机/指纹/GNSS
+  集成验证、安装器与文档编写。
 
 ---
 
@@ -423,6 +340,5 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 
 - 硬件基线：`docs/HARDWARE-STATUS.md`（权威）
 - 整机待办/已知问题：`docs/TODO.md`；历史开发/部署记录：`docs/HISTORY.md`
-- 升级影响：`docs/UPGRADE-IMPACT-ALL.md`、`sensors/docs/UPGRADE-IMPACT.md`
-- 内核升级风险评估与操作清单：`docs/KERNEL-UPGRADE-RISK.md`
-- 回滚/救援：`docs/` 与 `kernel/README.md`、备份脚本（安装内核/系统前会自动备份 Linux 启动槽与关键配置）
+- 升级影响：`docs/UPGRADE-IMPACT-ALL.md`；内核升级风险与操作清单：`docs/KERNEL-UPGRADE-RISK.md`
+- 回滚/救援：`kernel/README.md` 与安装脚本的自动备份（安装内核/系统前会备份 Linux 启动槽与关键配置）

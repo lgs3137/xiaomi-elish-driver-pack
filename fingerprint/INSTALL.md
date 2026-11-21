@@ -5,7 +5,9 @@
 >
 > **一键安装器已自动完成 TA 提取、qsee-supplicant/libfprint/fprintd 的编译安装与系统集成**
 > （`../install.sh` / `../install/build-userspace.sh`）；下面是手动等价步骤。
-> 危险点先读 `NOTES.md`：内核 ABI 三件套、CMA、TA 拒服务、libfprint 被 apt 覆盖、PAM。
+> 危险点先读 `NOTES.md`：内核 ABI 三件套、CMA、TA 拒服务、libfprint 被 apt 覆盖（建议 hold）、PAM。
+>
+> 文档基线：2026-11-21（安装后自检基准：`OK=19 WARN=1 FAIL=0`；WARN 为旧 `--pam` sudo 指纹栈未启用）。
 
 ## 0. 前置与备份
 
@@ -32,7 +34,7 @@ sudo ../install/backup-boot.sh
 | `qcom_scm.c` | 含 `qcom_scm_qseecom_*` |
 | `goodix_fp_spi/` | 指纹传感器模块源码 |
 | `config-used-6.18.44` | 实际编译配置（TEE/QSEECOM/BTF 等） |
-| `ARMBIAN-BASELINE.md` | Armbian sm8250 基线获取说明（见 `../kernel/`） |
+| `ARMBIAN-BASELINE.md` | Armbian sm8250 基线获取说明（`../kernel/ARMBIAN-BASELINE.md`） |
 | `dtb/` | 指纹 DT 片段 + 联合 DTB 校验说明 |
 
 本步只确认结果：
@@ -107,7 +109,9 @@ sudo ldconfig
 
 验证：`strings /usr/lib/aarch64-linux-gnu/libfprint-2.so.2.0.0 | grep -m1 1.94`；
 `/usr/lib/aarch64-linux-gnu/libfprint-2.so.2.0.0` 存在。日志补丁是看门狗依赖（可跳过，但看门狗失效）。
-> `apt upgrade` 升级 `libfprint-2-2` 会覆盖自编译库 → 指纹消失；升级后重新 `ninja -C build install`。
+> `apt upgrade` 升级 `libfprint-2-2` 会覆盖自编译库 → 指纹消失。**建议 `sudo apt-mark hold libfprint-2-2`**
+> 禁止 apt 自动升级；确需升级时先 `apt-mark unhold`，升级后重新 `ninja -C build install && sudo ldconfig`。
+> 安装后库 sha256 参考值见 `../VERSIONS.md`（指纹用户态节）。
 
 ## 6. fprintd 与设备白名单
 
@@ -166,6 +170,7 @@ sudo systemctl enable --now fp-ta-watchdog.service
 ./install/verify-fingerprint.sh "$USER"
 # 逐项：服务 active、/dev/goodix_fp+/dev/tee*、firmware_name=gfenu、TA 9 文件、
 # goodix 模块、fprintd drop-in、qsee 二进制、libfprint 补丁、CMA、模板
+# 期望汇总：OK=19 WARN≤1 FAIL=0（WARN 为旧 --pam sudo 栈未启用）
 fprintd-enroll -f left-index-finger "$USER"     # 按提示 5–25 次
 fprintd-verify "$USER"                          # verify-match
 ```
@@ -177,12 +182,12 @@ fprintd-verify "$USER"                          # verify-match
 - **PAM**：恢复 `/root/fp-pam-backup-*/sudo` 到 `/etc/pam.d/sudo`；若曾停用 NOPASSWD，按需恢复。
 - **内核/启动镜像**：`LABEL=$(sed -n "s/^abl_boot_partition_label=//p" /boot/armbianEnv.txt); sudo dd if=/root/${LABEL}-backup-*.img of=/dev/disk/by-partlabel/$LABEL`（旧备份名可能为 `boot_b-backup-*`），
   或 `/boot/armbian-kernel-csot.img` 备份。
-- **libfprint**：`sudo apt install --reinstall libfprint-2-2 && sudo systemctl restart fprintd`。
+- **libfprint**：`sudo apt-mark unhold libfprint-2-2; sudo apt install --reinstall libfprint-2-2 && sudo systemctl restart fprintd`。
 - **服务/配置**：`sudo ./install/uninstall-fingerprint.sh`（保留模块/TA/libfprint）。
 
 ## 13. 升级注意
 
 - **内核升级**：本包的内核改动（QSEECOM/mdt_loader/qcom_scm/goodix 模块 + 联合 DTB + fastrpc 补丁）
   会在 `apt upgrade` 内核时被覆盖；需按 `../kernel/README.md` 重做，且 boot 镜像会丢失指纹 DT 节点。
-- **libfprint/fprintd/PAM 包升级**：libfprint 必须重编；fprintd 升级后检查 drop-in 是否保留。
+- **libfprint/fprintd/PAM 包升级**：libfprint 必须重编（建议 `apt-mark hold libfprint-2-2`）；fprintd 升级后检查 drop-in 是否保留。
 - **TA 不需要升级**，但换 Android 固件版本后需重新提取并核对 sha256。

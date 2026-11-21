@@ -2,7 +2,7 @@
 
 合并包 = 传感器安装包（已清理）+ 指纹安装包（已清理）+ GNSS 子包 + 共享内核/DTB 资产
 + 相机/闪光灯修复（默认）、相机画质调校提取脚本、Hi556 已合并进联合 DTB + 构建脚本
-+ 与可选 GNOME 手电筒 + 合并文档。**不包含任何设备调校数据/DTB/DTS 提取物**。
++ 可选 GNOME 手电筒 / bioauth + 合并文档。**不包含任何设备调校数据/DTB/DTS 提取物**。
 **不含**固件、编译产物、日志、指纹模板、密钥/序列号、PAM/sudoers 备份。
 
 ## 顶层
@@ -11,23 +11,22 @@
 README.md / README.en.md / QUICKSTART.md / INSTALL.md / NOTES.md / PATCHES.md / VERSIONS.md / MANIFEST.md / LICENSE / SHA256SUMS
 install.sh     一键安装入口（= install/turnkey.sh 的包装）
 kernel/        统一内核（详见下）
-sensors/       传感器子包（自包含，52 文件）
+sensors/       传感器子包（自包含）
 fingerprint/   指纹子包（自包含）
 bioauth/       可选：通用生物认证 PAM 栈（PAM module + daemon + GTK4 helper；默认不装；
-               需显式 --with-bioauth / --bioauth-sudo / --bioauth-pkexec）
-gnss/          GNSS 子包：airoha_gps 驱动源码、airoha-gnssd 用户态、systemd/gpsd 集成、
-               协议与逆向结论（gnss/docs/PROTOCOL.md）、flash 修复说明（extract/）
+                需显式 --with-bioauth / --bioauth-sudo / --bioauth-pkexec）
+gnss/          GNSS 子包：airoha_gps 驱动源码、airoha-gnssd/gps-nmea-share 用户态、systemd/gpsd 集成、
+                协议与排障（gnss/docs/PROTOCOL.md）、flash 修复说明（gnss/extract/）
 install/       一键安装器（turnkey/extract-all/build-userspace + lib/）、备份启动槽脚本（backup-boot.sh）
-               与合并自检（check-all.sh）
-docs/          合并升级影响评估（UPGRADE-IMPACT-ALL.md）+ 硬件状态权威基线（HARDWARE-STATUS.md）
-               + 整机 TODO（TODO.md）+ 历史记录（HISTORY.md）+ 设备数据/固件提取指南（DEVICE-DATA-EXTRACTION.md）
-               + 安全加固说明（HARDENING.md）+ 内核升级风险评估（KERNEL-UPGRADE-RISK.md）
-               + Android/Linux 充电驱动对比（CHARGING-DRIVER-COMPARISON.md）
-camera/        相机子包：elish-camera/（前后摄全分辨率 3280×2464/4208×3120，GPU debayer + Venus 硬编，~30fps 拍照/录像，/dev/video2+/dev/video20 双虚拟相机，autoserve 自动路由，PipeWire/portal，后摄自动对焦；LSC/CCM 仅提供本机提取脚本，不随包带调校数据）+ 旧 OV8856 helper + install.sh（一键安装）+ elish-camera/verify.sh（自检）
-flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫
-               （wrapper + systemd drop-in；不修改 Armbian 包文件）
-torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
-               （默认不装；--with-torch 或单独 install.sh）
+                与合并自检（check-all.sh）、文件落位表
+docs/          硬件状态权威基线（HARDWARE-STATUS.md）、整机 TODO、历史记录（HISTORY.md）、
+                升级影响（UPGRADE-IMPACT-ALL.md）、内核升级风险（KERNEL-UPGRADE-RISK.md）、
+                设备数据/固件提取指南（DEVICE-DATA-EXTRACTION.md）、安全加固说明（HARDENING.md）
+camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、GPU debayer、Venus 硬编、
+                双虚拟相机、autoserve、自动对焦；LSC/CCM 仅提供本机提取脚本，不随包带调校数据）
+                + 旧 OV8856 helper + install.sh + elish-camera/verify.sh
+flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in；不改 Armbian 包文件）
+torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；--with-torch 或单独 install.sh）
 ```
 
 ## kernel/
@@ -37,84 +36,35 @@ torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI
 | `README.md` | 统一内核构建步骤、配置/ABI 校验、联合 DTB/boot 镜像 |
 | `build-and-install.sh` | 一键补丁/配置/编译/模块/DTB/initramfs/Linux 启动槽（按 armbianEnv 自动检测；自动备份；不碰 Android 槽） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查（支持 --src / --fetch-ref） |
+| `install-dtb.sh` | 只安装包内单一联合 DTB（`--write-boot` 才重建 Linux 槽） |
+| `update-boot-image.sh` | 预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（槽位自动检测；`--slot` 断言） |
+| `install-new-kernel.sh` | 安装内核并写 Linux 启动槽的脚本（自动检测；历史脚本，不推荐） |
 | `qseecom/` | 指纹 QSEECOM TEE 驱动 |
 | `mdt_loader.c` / `qcom_scm.c` | 指纹内核文件 |
 | `goodix_fp_spi/` | 指纹传感器驱动源码（无编译产物） |
 | `config-used-6.18.44` / `kernel.release` | 内核配置/版本 |
 | `ARMBIAN-BASELINE.md` | Armbian sm8250 基线获取说明（不随包补丁集） |
-| `patches/0001-fastrpc-...patch`、`fastrpc.c.modified` | 传感器 fastrpc 补丁/完整文件 |
+| `patches/0001-fastrpc-…patch`、`fastrpc.c.modified` | 传感器 fastrpc 补丁/完整文件 |
 | `patches/fingerprint/` | 指纹内核补丁：**qseecom-tee-series.patch（14 文件权威系列）** + fp-spi ×4 + scm-qseecom 分片 |
-| `boot/` | `zz-update-abl-kernel` 系统 hook 副本（参考；统一用 update-boot-image.sh） |
-| `integration/` | DTS vmids 片段（完整基线重建参考） |
 | `patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch`、`PINCTRL-LPASS.md` | LPASS pinctrl defer（pogo 键盘/USB，独立问题） |
 | `patches/0003-qcom-mdt-loader-user-selectable.patch` | QCOM_MDT_LOADER 用户可选（TEE_QSEECOM 依赖） |
 | `patches/0004-smb5-typec-legacy-reset-resume.patch`、`CHARGER-RESUME.md` | SMB5 suspend/resume 后 Type-C legacy/100mA 卡死修复 + 验证记录 |
 | `patches/0005–0008-*.patch` | 相机补丁：OV8856 BGGR/VFLIP、OV13B10 供电/reset、CN3927V VCM、Hi556 OF |
 | `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener `PF_NOFREEZE`：修复 s2idle 唤醒后 sensor PD 崩溃（睡眠死机根因） |
-| `update-boot-image.sh` | 预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（槽位自动检测；`--slot` 断言） |
-| `install-new-kernel.sh` | 安装内核并写 Linux 启动槽的脚本（自动检测；历史参考） |
 | `include/` | 指纹驱动必需的 3 个内核头文件 |
 | `INTEGRATION.md` | 头文件 + drivers/tee Kconfig/Makefile 集成步骤 |
 | `initramfs/` | 修复版 initramfs hook + 安装脚本（防止 SLPI 固件进 initramfs） |
-| `dtb/` | **单一**已验证联合 DTB（模型级，已合并 Hi556）+ 说明/参考/校验脚本 |
+| `dtb/` | **单一**已验证联合 DTB（模型级，已合并相机/OV8856/OV13B10/Hi556）+ 说明/参考/校验脚本 |
 | `dtb/hi556/` | Hi556 **构建/应用方法脚本**（不再分发单独 stage1/stage2 DTB）；联合 DTB 已含 Hi556；DTS/patch 不随包 |
+| `boot/` | `zz-update-abl-kernel` 系统 hook 副本（参考；统一用 update-boot-image.sh） |
+| `integration/` | DTS vmids 片段（完整基线重建参考） |
 
 ## sensors/
 
-原传感器安装包的用户态部分：`README/INSTALL/NOTES/PATCHES/VERSIONS/MANIFEST`、`userspace/`（hexrpc/iio/libssc）、
+原传感器安装包的用户态部分：`README/INSTALL/NOTES`、`userspace/`（hexrpc/iio/libssc）、
 `systemd/`、`scripts/`、`install/`、`extract/`、`docs/`（TROUBLESHOOTING、IIO-FIX、UPGRADE-IMPACT）。
-内核资产统一在顶层 `kernel/`（不再在 sensors/ 内重复）。
-
-## gnss/
-
-Airoha AG3335 GNSS 子包（2026-11-12 打通）：
-
-| 内容 | 说明 |
-|---|---|
-| `README.md` / `INSTALL.md` / `NOTES.md` | 子包说明、安装、限制与排障 |
-| `docs/PROTOCOL.md` | 主机协议（PAIR ASCII）、启动链/波特率、anld 下载流程与镜像表（仅修复 flash 用） |
-| `kernel/` | `airoha_gps_driver.c` + Makefile：`/dev/airoha_gps` 的 OPEN/CLOSE/DF/DI（电源/时钟/pinctrl），无内核源码补丁 |
-| `userspace/` | `airoha-gnssd.c`：上电 + `$PAIR002` + NMEA→pty + 自愈；`gps-nmea-share.c`：gpsd NMEA → GeoClue socket（均为纯 C，无第三方依赖） |
-| `systemd/` | `airoha-gnssd.service`（Type=notify）、`gps-nmea-share.service`、gpsd/geoclue drop-in |
-| `polkit/` | `49-iio-sensor-proxy-geoclue.rules`：放行 geoclue 用户 claim iio 传感器（GeoClue compass heading 必需） |
-| `install/` | `install.sh`（含 gpsd 配置）、`verify.sh`、`uninstall.sh` |
-| `extract/` | 仅当 GNSS flash 损坏需重刷时的厂商文件提取说明（正常使用不需要） |
-
-## bioauth/（可选，默认不装）
-
-通用（不绑定 Goodix/TA）的生物认证 PAM 栈，复用本包 fprintd/libfprint 后端。合并包默认
-**不安装**；只有 `./install.sh --with-bioauth`（或 `--bioauth-sudo` / `--bioauth-pkexec`）
-才会安装，单独安装/回滚见 `bioauth/INSTALL.md`。
-
-| 内容 | 说明 |
-|---|---|
-| `README.md` / `INSTALL.md` | 组件说明与安装/回滚/安全红线 |
-| `daemon/bioauthd.py` | root daemon：状态/锁定/密码校验/fprintd 后端/session 级 cancel |
-| `pam/pam_bioauth.c` | PAM 模块（TTY + GUI 单窗口，req-scoped cancel，超时不计数） |
-| `gui/bioauth-ui` | 单窗口全屏 GTK4 “安全屏幕” helper（ready 握手 / attempt id / 日志脱敏） |
-| `gui/tests/helper_driver.py` | helper 独立驱动（截图/几何/AT-SPI 交互验证） |
-| `config/` `systemd/` `pam.d/` | 默认配置、systemd 单元、测试服务与 pkexec/polkit PAM |
-| `scripts/` | `install-bioauth.sh`（安装/接 sudo/接 pkexec/回滚/卸载/--dry-run）、`bioauth-doctor`、fprintd-verify 队列 |
-| `tests/` | daemon 单测 + TTY/GUI 端到端（无需 root，不碰系统 PAM） |
-| `audit-pam-*.md` / `uac-secure-screen-*.md` / `verification-*.md` | 独立审计、UAC/pkexec 对比与安全边界、独立验证报告 |
-
-## flash-led/（默认组件，2026-11-20 新增）
-
-| 内容 | 说明 |
-|---|---|
-| `README.md` | 根因/证据、修复方式、升级注意、实测结果 |
-| `elish-led-state-restore-flash-safe.sh` | wrapper：过滤 `/etc/armbian-leds.conf` 中 flash 类 LED 的 stanza 后调用 Armbian 原 restore 脚本（原脚本支持 `$1` 状态文件） |
-| `install.sh` / `uninstall.sh` | 安装/回滚（wrapper + systemd drop-in；自带离线过滤自检与 `ExecStart` 检查） |
-| `verify.sh` | 静态检查 + 离线过滤自检；`--live` 重启恢复服务并抓 udev 事件（应为 0 条 `white:flash`） |
-
-## torch/（可选组件，默认不装，2026-11-20 新增）
-
-| 内容 | 说明 |
-|---|---|
-| `README.md` | 功能、安装/卸载/验证、logind 原理、限制、可选 raw-sysfs udev 规则 |
-| `torch@elish/` | GNOME 46 Quick Settings 扩展（metadata/extension.js/torch.js/图标；开启 5 分钟自动关） |
-| `torch` | CLI：`torch on|off|toggle|set N|status`（安装到 `/usr/local/bin/torch`） |
-| `install.sh` / `uninstall.sh` / `verify.sh` | 安装（用户级扩展 + 用户 dconf 启用）/卸载/验证 |
+子包版本/补丁/清单信息已合并进 `README.md` / `NOTES.md`，避免与根 `VERSIONS.md` / `PATCHES.md` 重复；
+内核资产统一在顶层 `kernel/`（不在 `sensors/` 内重复）。
 
 ## fingerprint/
 
@@ -127,6 +77,68 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通）：
 | `extract/` | `extract-gfenu-ta.sh` + TA 来源与 sha256 |
 | `install/` | 安装/自检/卸载脚本 |
 
+## bioauth/（可选，默认不装）
+
+通用（不绑定 Goodix/TA）的生物认证 PAM 栈，复用本包 fprintd/libfprint 后端。合并包默认
+**不安装**；只有 `./install.sh --with-bioauth`（或 `--bioauth-sudo` / `--bioauth-pkexec`）
+才会安装，单独安装/回滚见 `bioauth/INSTALL.md`。安全边界、PAM 审计与验证结论已并入 `bioauth/README.md`。
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` / `INSTALL.md` | 组件说明、安全边界/审计结论、安装/回滚/安全红线 |
+| `daemon/bioauthd.py` | root daemon：状态/锁定/密码校验/fprintd 后端/session 级 cancel |
+| `pam/pam_bioauth.c` | PAM 模块（TTY + GUI 单窗口，req-scoped cancel，超时不计数） |
+| `gui/bioauth-ui` | 单窗口全屏 GTK4 “安全屏幕” helper（ready 握手 / attempt id / 日志脱敏） |
+| `gui/tests/helper_driver.py` | helper 独立驱动（截图/几何/AT-SPI 交互验证） |
+| `config/` `systemd/` `pam.d/` | 默认配置、systemd 单元、测试服务与 pkexec/polkit PAM |
+| `scripts/` | `install-bioauth.sh`（安装/接 sudo/接 pkexec/回滚/卸载/--dry-run）、`bioauth-doctor`、fprintd-verify 队列 |
+| `tests/` | daemon 单测 + TTY/GUI 端到端（无需 root，不碰系统 PAM） |
+
+## gnss/
+
+Airoha AG3335 GNSS 子包（2026-11-12 打通，2026-11-13 室外真实定位验证）：
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` / `INSTALL.md` / `NOTES.md` | 子包说明、安装、限制与排障 |
+| `docs/PROTOCOL.md` | 主机协议（PAIR ASCII）、启动链/波特率、anld 下载流程与镜像表（仅修复 flash 用） |
+| `kernel/` | `airoha_gps_driver.c` + Makefile：`/dev/airoha_gps` 的 OPEN/CLOSE/DF/DI（电源/时钟/pinctrl），无内核源码补丁 |
+| `userspace/` | `airoha-gnssd.c`：上电 + PAIR 运行时初始化 + NMEA→pty + 自愈；`gps-nmea-share.c`：gpsd NMEA → GeoClue socket（均为纯 C，无第三方依赖） |
+| `systemd/` | `airoha-gnssd.service`（Type=notify）、`gps-nmea-share.service`、gpsd/geoclue drop-in |
+| `polkit/` | `49-iio-sensor-proxy-geoclue.rules`：放行 geoclue 用户 claim iio 传感器（GeoClue compass heading 必需） |
+| `install/` | `install.sh`（含 gpsd 配置）、`verify.sh`、`uninstall.sh` |
+| `extract/` | 仅当 GNSS flash 损坏需重刷时的厂商文件提取说明（正常使用不需要） |
+
+## camera/
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` | 当前状态、限制、安装/自检入口 |
+| `elish-camera/` | C 源码（capture/gpu_debayer/venus_enc/loopback/main）、tools、`docs/architecture.md`、`docs/interface.md`、`verify.sh` |
+| `elish-camera-*` | 辅助脚本：ctl/scan/init/color/rear-*/vcam/autostart/switch/check-usb/gui |
+| `install.sh` | 一键安装（编译 + 脚本/udev/自启/休眠恢复 + orientation 权限 + 可选调校提取） |
+| `system/` | 休眠唤醒恢复（worker / sleep hook / oneshot service） |
+| `99-elish-vcm.rules` / `99-elish-dma-heap.rules` | VCM focus sysfs video 组可写 / DMA heap 权限 |
+| `elish-vcam.modprobe.conf` / `elish-vcam.modules-load.conf` | 两个 v4l2loopback 设备（/dev/video2 前 + /dev/video20 后，NV12 全分辨率） |
+
+## flash-led/（默认组件）
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` | 根因/证据、修复方式、升级注意、实测结果 |
+| `elish-led-state-restore-flash-safe.sh` | wrapper：过滤 `/etc/armbian-leds.conf` 中 flash 类 LED 的 stanza 后调用 Armbian 原 restore 脚本 |
+| `install.sh` / `uninstall.sh` | 安装/回滚（wrapper + systemd drop-in；自带离线过滤自检与 `ExecStart` 检查） |
+| `verify.sh` | 静态检查 + 离线过滤自检；`--live` 重启恢复服务并抓 udev 事件（应为 0 条 `white:flash`） |
+
+## torch/（可选组件，默认不装）
+
+| 内容 | 说明 |
+|---|---|
+| `README.md` | 功能、安装/卸载/验证、logind 原理、限制、可选 raw-sysfs udev 规则 |
+| `torch@elish/` | GNOME 46 Quick Settings 扩展（metadata/extension.js/torch.js/图标；开启 5 分钟自动关） |
+| `torch` | CLI：`torch on|off|toggle|set N|status`（安装到 `/usr/local/bin/torch`） |
+| `install.sh` / `uninstall.sh` / `verify.sh` | 安装（用户级扩展 + 用户 dconf 启用）/卸载/验证 |
+
 ## 明确不包含 / 需现场获取
 
 | 内容 | 原因 | 获取方式 |
@@ -134,12 +146,13 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通）：
 | SLPI 单文件固件 `slpi.mbn` | 厂商固件二进制 | `sensors/extract/extract-pmos-slpi-mbn.sh`（pMOS APK） |
 | sensors registry/config/socinfo、proto/hals、acdb | 设备型号数据 | `sensors/extract/`（armbian-firmware + Android vendor 镜像） |
 | 指纹 TA `gfenu.*`（4.8MB） | 厂商签名固件 | `fingerprint/extract/extract-gfenu-ta.sh`（自己设备） |
-| GNSS 厂商镜像（`ag3335_bootloader.bin` 等 5 个） | 已在设备 GNSS flash 内且能正常启动；**正常使用不需要** | 仅 flash 损坏时：`gnss/extract/README.md`（Android vendor 镜像提取） |
-| `fastrpc.ko`、`goodix_fp_spi.ko` | 与内核 ABI 绑定 | 按 `kernel/README.md` 编译 |
-| 后摄 EEPROM 校准 dump（24c64，8KB） | 单机工厂校准数据（本机私有） | 从自己设备 at24 sysfs 读取：`docs/DEVICE-DATA-EXTRACTION.md` §4 |
+| GNSS 厂商镜像（`ag3335_bootloader.bin` 等 5 个） | 已在设备 GNSS flash 内且能正常启动；**正常使用不需要** | 仅 flash 损坏时：`gnss/extract/README.md` |
+| `fastrpc.ko`、`goodix_fp_spi.ko`、`airoha_gps.ko` | 与内核 ABI 绑定 | 按 `kernel/README.md` / `gnss/kernel/README.md` 编译 |
+| 后摄 EEPROM 校准 dump（24c64，8KB） | 单机工厂校准数据（本机私有） | 从自己设备 at24 sysfs 读取：`docs/DEVICE-DATA-EXTRACTION.md` |
 | hexagonrpcd/libssc/iio/libfprint/qsee 二进制 | 编译产物（本包不附带任何预编译） | 按各子包 README 编译 |
 | 日志、指纹模板、PAM/sudoers 备份、Android 抓包/工具 | 运行记录/私有/非安装必需 | 不随包 |
 
 ## 统计
 
-**323 个文件；体积约 2.4MB**（不含 SHA256SUMS）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成。
+**305 个文件；体积约 2.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（305 条，`sha256sum -c` 通过）。

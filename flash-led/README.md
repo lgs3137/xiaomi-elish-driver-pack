@@ -1,5 +1,7 @@
 # flash-led — 后摄闪光灯“开机闪一下”修复（默认组件）
 
+> 适用包版本 **2026.11.21**。
+
 小米平板 5 Pro（elish）在 **Armbian** 上每次开机、Plymouth 启动画面显示期间，后摄闪光灯会
 **瞬间闪一下**。本组件修复该问题；**默认安装**（`install.sh` / `turnkey.sh` 自动执行），
 不修改任何 Armbian 包文件，BSP/apt 升级不会还原。
@@ -7,7 +9,7 @@
 > 手电筒（把闪光灯当手电用）是**可选**的另一个组件：`torch/`（GNOME 46 控制中心开关 +
 > `torch` CLI，默认不装，`--with-torch` 安装）。见 [`../torch/README.md`](../torch/README.md)。
 
-## 根因（2026-11-20 诊断）
+## 根因
 
 - Armbian 的 `armbian-led-state.service` 在开机很早的阶段（Plymouth 启动画面刚出现时）
   执行 `/usr/lib/armbian/armbian-led-state-restore.sh`，按 `/etc/armbian-leds.conf`
@@ -74,7 +76,7 @@ sudo ./flash-led/uninstall.sh
 安装脚本自带两项自检：离线过滤自检（假 sysfs 配置，验证 flash 类 stanza 被剔除且普通
 LED 保留）+ 检查 systemd 实际 `ExecStart` 已指向 wrapper。
 
-## 实测结果（本机，2026-11-20）
+## 实测结果（本机）
 
 | 项 | 结果 |
 |---|---|

@@ -48,7 +48,7 @@ sudo scripts/install-bioauth.sh --uninstall      # 卸载 bioauth（先恢复 PA
    ```
 3. 所有 PAM 改动都会备份到 `/root/bioauth-sudo-backup-<时间戳>/`；禁止只装一半组件
    （module/daemon/helper 必须同一构建，`bioauth-doctor` 会检查）。
-4. 不要和本包旧的 `--pam`（`fingerprint/system/pam.d/sudo` 指纹栈）**同时**启用；
+4. 不要和本包旧的 `--pam`（`../fingerprint/system/pam.d/sudo` 指纹栈）**同时**启用；
    turnkey 会拒绝同时传 `--pam` 与 `--bioauth-sudo`。
 5. debug 日志只能通过环境变量开启（`BIOAUTH_PAM_DEBUG=1`），不要把 `debug` 写在真实
    `/etc/pam.d/sudo` 行上；日志不记录密码。
@@ -74,9 +74,13 @@ make check-gui                 # 真实 Wayland 全屏 UI + AT-SPI 交互
 
 ## 说明
 
-- 本组件代码与 `/home/.../default-workspace/bioauth` 同源；包内快照包含源码、测试、
-  诊断工具与文档（audit-pam / uac-secure-screen / verification）。
-- 设计/安全边界、UAC 与 pkexec 对比见 `uac-secure-screen-20261113.md`；独立审计见
-  `audit-pam-20261113.md`。
+- 文档基线：2026-11-21；行为与审计/验证结论为 **2026-11-13 实测**（此后代码未变）。
+- 包内快照包含源码、测试、诊断工具与文档（安装/回滚本文件；安全边界、独立审计
+  结论与验证结果已并入 `README.md` 的 “Security boundary and audit conclusions” 一节；
+  项目时间线见 `../docs/HISTORY.md`）。
+- 安全前提（红线）：**默认不安装**、**不改 PAM**；只有显式 `--bioauth-sudo` /
+  `--bioauth-pkexec` 才接入，且任何路径都必须保留密码回退（`PAM_IGNORE` →
+  `common-auth`）与 `/root/bioauth-sudo-backup-*` 回滚备份；**不要**把它当成可信
+  输入通道/安全桌面宣传（全屏 UI 只是表现层）。
 - GDM 未改（仍 stock `gdm-fingerprint` + `pam_fprintd`）；pkexec 是否接入由上面的
-  `--bioauth-pkexec` 显式决定。
+  `--bioauth-pkexec` 显式决定，未接入时 pkexec 保持纯密码救援路径。

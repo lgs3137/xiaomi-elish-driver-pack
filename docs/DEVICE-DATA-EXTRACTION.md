@@ -1,6 +1,6 @@
 # 设备数据 / 固件提取指南（本包不附带）
 
-本包遵循统一打包约定：
+> **更新**：2026-11-21。本包遵循统一打包约定：
 
 > **只含代码、补丁、系统配置、脚本与文档**；不含固件、编译产物、日志、指纹模板、
 > 密钥/序列号、PAM/sudoers 备份，也不含任何**单机私有数据**（如工厂校准 dump）。
@@ -54,18 +54,18 @@ python3 camera/elish-camera/docs/evidence/eeprom-24c64-parse.py rear-eeprom-24c6
 ```
 
 也可用 `i2c-tools`（`i2cdetect -y <bus>` / `i2cdump -y <bus> 0x51`）。
-解析结论见 `camera/elish-camera/docs/architecture.md` §1（EEPROM）与 `docs/HARDWARE-STATUS.md` §1.1。
+解析结论见 `camera/elish-camera/docs/architecture.md` §1（EEPROM）与 `docs/HARDWARE-STATUS.md` §1。
 
 ## 5. 用户态 / 内核二进制（本包不附带预编译，按源码编译）
 
 | 组件 | 说明 |
 |---|---|
 | hexagonrpcd（warm-attach + regver + M2 可写 registry） | `sensors/userspace/hexrpc/README.md`：v0.3.2 + 补丁 0001/0003/0004/0005（`install/build-userspace.sh` 自动完成） |
-| libssc / iio-sensor-proxy | `sensors/userspace/libssc/README.md`、`iio-sensor-proxy/README.md` |
+| libssc / iio-sensor-proxy | `sensors/userspace/libssc/README.md`、`sensors/userspace/iio-sensor-proxy/README.md` |
 | libfprint / qsee-supplicant | `fingerprint/` 子包 README |
 | `fastrpc.ko` / `goodix_fp_spi.ko` / `airoha_gps.ko` 等 | 按 `kernel/README.md`、`gnss/` 的编译说明用本包补丁构建 |
 
-部署后的参考 sha256 见 `VERSIONS.md` / 各子包 `VERSIONS.md`（用于核对自行编译的产物）。
+部署后的参考 sha256 见根 `VERSIONS.md`（子包不再各带版本文件；用于核对自行编译的产物）。
 
 ## 6. 联合 DTB（唯一随包的二进制，例外）
 

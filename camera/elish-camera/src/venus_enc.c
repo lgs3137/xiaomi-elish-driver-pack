@@ -7,8 +7,7 @@
  * (Annex B) written to a file; elish_mux_mp4() stream-copies that into MP4
  * via the host ffmpeg.
  *
- * Driver facts that shaped this code (see docs/architecture.md §4 and
- * docs/measurements/measurements-encode.md):
+ * Driver facts that shaped this code (see docs/architecture.md):
  *
  *  - venc_try_fmt_common() aligns luma width to 128 and height to 32, so a
  *    request for 4208x3120 comes back as 4224x3136 (stride 4224) and
@@ -21,7 +20,7 @@
  *  - The codec profile/level controls default to level 1.0, so the SPS must
  *    be fixed up explicitly or ffmpeg/players see a wildly understated
  *    level.  We set the highest level the driver exposes: H.264 5.1
- *    (4208x3120 exceeds level 5.1 MaxFS, see measurements doc) and HEVC 5.1
+ *    (4208x3120 exceeds level 5.1 MaxFS; see docs/architecture.md) and HEVC 5.1
  *    or 6.2 depending on picture size.
  *  - Force-IDR is done with V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME, which only
  *    works once both queues are streaming.

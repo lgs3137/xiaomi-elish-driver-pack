@@ -29,22 +29,26 @@ sudo cat /var/log/sensor-boot-report.txt   # 若已生成
 |---|---|---|
 | `NRestarts` 持续增长、`systemctl status` 一直 activating、`dbus.service` cgroup 里有 iio | D-Bus service 文件缺 `SystemdService=`，或 drop-in 用了 `Restart=always` | 确认 `/usr/share/dbus-1/system-services/net.hadess.SensorProxy.service` 含 `SystemdService=iio-sensor-proxy.service`；drop-in 为 `Restart=on-failure`；`systemctl daemon-reload && systemctl reload dbus`；`systemctl restart iio-sensor-proxy` |
 | iio active 且单实例，但 `LightLevel=0` / `orientation=undefined` | GNOME claim 早于设备注册（claim→polling 竞态） | 确认 iio 二进制带补丁（`strings /usr/libexec/iio-sensor-proxy | grep patched` 或看启动日志 "staying alive"）；`sudo systemctl restart iio-sensor-proxy`；`journalctl -b | grep Claim` 看是否有 AccessDenied/NoReply |
-| `journalctl -u iio-sensor-proxy` 有 `No sensors found at startup; staying alive waiting for hotplug (patched)`，随后设备出现但无传感器 | 热插注册失败（PD 未就绪） | 正常会由启动脚本 warm restart 兜底；若没有，手动 `systemctl restart iio-sensor-proxy`；若仍无，看 `dmesg` PD 状态 |
+| `journalctl -u iio-sensor-proxy` 有 `No sensors found at startup; staying alive waiting for hotplug (patched)`，随后设备出现但无传感器 | 热插注册失败（PD 未就绪） | 启动脚本在 IIO_DELAY 后拉起 iio 并轮询健康检查；仍无数据则手动 `systemctl restart iio-sensor-proxy`；再不行看 `dmesg` PD 状态 |
 
 ## 3. 传感器数据出现但方向/亮度不对
 
 - 自动旋转方向：修改 `/etc/udev/rules.d/81-libssc-xiaomi-elish.rules` 的 `ACCEL_MOUNT_MATRIX`，
   然后 `sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=misc` 并重启 iio。
 - 自动亮度：检查 `HasAmbientLight` 与 `LightLevel` 是否变化（遮光测试）；`monitor-sensor`。
-- 陀螺/proximity：本包未启用（见 NOTES.md）。
+- 陀螺/proximity：本包未启用（见 `../NOTES.md`）。
 
 ## 4. 休眠/唤醒后异常
 
-- 唤醒后 PD 可能报 `frpc_dsp` 崩溃（**内核 0009 修复后不再发生**）；未打补丁时通常监听器重连 + iio 重启能恢复。
+- **唤醒后 sensor PD 崩溃已由内核 0009 修复**（`fastrpc listener PF_NOFREEZE`；2026-11-19 起 20 次
+  s2idle、最长 10h47m，0 次 PDM/crash）。若仍看到 `PDM ... crash`，说明内核未含 0009 或不是本包内核，
+  按 `../../kernel/patches/0009-fastrpc-listener-unfreezable.patch` 重新构建。
+- 唤醒后传感器迟迟不恢复：先看 `journalctl -t elish-sensors-resume` 与
+  `systemctl status iio-sensor-proxy`；实测恢复为 **3.3 s / 6.0 s**（iio 未运行时 worker 拉起）。
+  若超过 1 分钟仍无数据，`sudo reboot`（同 boot 不可重试）。
 - 若唤醒后锁屏无法解锁：先确认不是"定时关机与 suspend 撞车"（检查 `/var/lib/suspend-watch.log`
   是否 `pending scheduled shutdown canceled`）。已有 `40-cancel-scheduled-shutdown.sh` 防御；
   如已发生，长按电源强制重启（或 TTY 登录 `sudo systemctl restart gdm`）。
-- 唤醒后传感器没了：`sudo reboot`（同 boot 不可重试）。
 
 ## 5. 升级后失效
 
@@ -73,5 +77,3 @@ sudo journalctl -b -u slpi-sensors -u iio-sensor-proxy --no-pager > /tmp/service
 sudo cp /var/log/hexrpc-boot.log /tmp/
 sensor-status > /tmp/status.txt
 ```
-
-（附：历史完整调试记录已移出包，归档于工作区。）

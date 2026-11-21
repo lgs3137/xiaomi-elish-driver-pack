@@ -19,11 +19,15 @@ sudo ninja -C build install
 sudo ldconfig
 ```
 
+> 本机验证快照是 `v0.4.4-9-g4e4c6c8`（HEAD `4e4c6c8cc702a754bd700506c01961aaf971a23b`）；
+> 严格复现本机状态用该 commit，纯 `v0.4.4` tag 未逐项回归。
+
 安装结果（本机验证）：
 
 ```
 /usr/local/lib/aarch64-linux-gnu/libssc.so -> libssc.so.2
 /usr/local/lib/aarch64-linux-gnu/libssc.so.2
+/usr/local/lib/aarch64-linux-gnu/libssc.so.2 sha256 参考 a46d9ca7878ea7d58f4de382b4f58f323d97cb3f4c5ec7fef5e74f91e27fe944
 /usr/local/include/libssc/...
 ```
 

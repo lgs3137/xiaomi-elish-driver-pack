@@ -16,7 +16,7 @@
 ## 编译安装
 
 ```bash
-# 需要与运行内核完全同版本的源码树（本机历史路径 /var/tmp/kbuild-src）
+# 需要与运行内核完全同版本的源码树（示例路径 /var/tmp/kbuild-src，按实际替换）
 make -C /var/tmp/kbuild-src M="$PWD" modules
 sudo install -D -m 644 airoha_gps.ko "/lib/modules/$(uname -r)/extra/airoha_gps.ko"
 sudo depmod -a
@@ -32,5 +32,5 @@ ls -l /dev/airoha_gps
 ## 注意
 
 - 已安装的模块与内核 ABI 绑定；升级内核后需按同样步骤重编（详见
-  `../docs/UPGRADE-IMPACT-ALL.md`）。
+  `../../docs/UPGRADE-IMPACT-ALL.md` 与 `../../VERSIONS.md`）。
 - 该模块与传感器 fastrpc / 指纹驱动无冲突，可同时加载。

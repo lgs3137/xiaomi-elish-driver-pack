@@ -1,5 +1,7 @@
 # torch — 可选：GNOME 46 控制中心「手电筒」开关 + `torch` 命令行
 
+> 适用包版本 **2026.11.21**。
+
 把后摄闪光灯（`/sys/class/leds/white:flash`）当手电筒用。**可选组件，默认不装**；
 需要时显式启用：`sudo ./install.sh --with-torch ...`（turnkey）或 `sudo ./torch/install.sh`。
 
@@ -81,6 +83,14 @@ install.sh / uninstall.sh / verify.sh
 sudo ./torch/verify.sh            # 文件 + dconf + Shell 加载状态 + logind 通道（未装则 SKIP）
 sudo ./torch/uninstall.sh         # 移除扩展/CLI/启用项（下次登录后图标消失）
 ```
+
+## 实测（本机）
+
+- `torch on|off|set|status` 走 logind `Session.SetBrightness("leds", "white:flash", N)`，
+  普通用户（当前活动会话所有者）可用；SSH/系统服务调用会被拒绝。
+- 扩展在 headless Shell 测试中状态为 ACTIVE；安装后当前桌面不会热加载，
+  **注销/重新登录**后出现在控制中心。
+- 拍照闪光（`flash_strobe`）无软件支持，见下。
 
 ## 限制 / 注意
 

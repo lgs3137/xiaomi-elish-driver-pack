@@ -14,11 +14,11 @@
 
 ## 1. 内核 ABI 三件套（最危险）
 
-每次重编内核后必须检查（详见 `../kernel/README.md`）：
+每次重编内核后必须检查（详见 `../kernel/README.md`），三者必须与外部模块一致：
 
 | 检查 | 期望 |
 |---|---|
-| `strings vmlinux \| grep mod_unload` | `6.18.44-current-sm8250 SMP mod_unload aarch64` |
+| vermagic（`modinfo`/`strings vmlinux \| grep mod_unload`） | `6.18.44-current-sm8250 SMP mod_unload aarch64` |
 | `pahole -C module vmlinux \| grep 'size:'` | `size: 1280` |
 | `CONFIG_DEBUG_INFO_BTF` / `CONFIG_MODULE_ALLOW_BTF_MISMATCH` | 都是 `=y` |
 
@@ -38,7 +38,7 @@
 - **这不是 TA 堆泄漏**，也不是永久性的：内存缓过来后同一分配会成功（实测用
   `/dev/dma_heap/reserved` 分配 9MB 正常）。每次重载 loader 都要重新做这次
   9MB 分配，所以重载越频繁越容易踩中。
-- 现在的处理（2026-11-13）：
+- 当前处理（2026-11-13 起固化）：
   - `qsee-app-loader@.service` 的 `ExecStart` 被 drop-in
     `60-retry-reclaim.conf` 换成 `/usr/local/bin/qsee-app-loader-retry`：失败时
     自动 `drop_caches` + `compact_memory` 后**退避重试**，不再要求重启系统；
@@ -69,9 +69,9 @@
 
 ## 5. libfprint 会被 apt 覆盖
 
-- 自编译 libfprint 1.94.100（`wrobelda/libfprint` goodix-qsee + 日志补丁）会覆盖发行版 `libfprint-2-2`。
-- `apt upgrade` 升级 `libfprint-2-2` 后指纹设备消失 → 重新 `ninja -C build install && sudo ldconfig`，
-  然后 `systemctl restart fprintd`。
+- 自编译 libfprint 1.94.100（`wrobelda/libfprint` goodix-qsee 分支 `430e24e5` + 日志补丁）会覆盖发行版 `libfprint-2-2`。
+- **建议 `sudo apt-mark hold libfprint-2-2`**，防止 `apt upgrade` 自动覆盖；确需升级时 `apt-mark unhold`，
+  升级后重新 `ninja -C build install && sudo ldconfig`，然后 `systemctl restart fprintd`。
 - fprintd 的 systemd 沙箱默认 DeviceAllow 不含指纹/TEE 设备 → 必须保留
   `/etc/systemd/system/fprintd.service.d/60-goodix-qsee.conf`（`/dev/goodix_fp` + `/dev/tee0..3`）。
 
@@ -106,5 +106,5 @@
 - `gjs` 不要卸（GNOME 通知依赖）；`apt autoremove` 会带走。
 - `/etc/dpkg/dpkg.cfg.d/10-firmware-trim` 会让 `dpkg -V` 报大量 missing，属正常噪音。
 - 指纹模板在 `/var/lib/fprint/...`（用户私有），**不要**拷贝到别的机器/进安装包。
-- 升级影响（内核/固件/libfprint/PAM/fprintd）见合并包根目录 `docs/UPGRADE-IMPACT-ALL.md`
+- 升级影响（内核/固件/libfprint/PAM/fprintd）见合并包根目录 `../docs/UPGRADE-IMPACT-ALL.md`
   与 `../sensors/docs/UPGRADE-IMPACT.md`。

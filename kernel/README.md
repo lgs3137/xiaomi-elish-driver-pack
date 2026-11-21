@@ -1,4 +1,4 @@
-# 统一内核构建（传感器 + 指纹 + GNSS）
+# 统一内核构建（传感器 + 指纹 + GNSS + 相机）
 
 本目录是**多项目共用的内核资产**。目标：只编译/安装**一次**内核，同时满足：
 
@@ -6,10 +6,12 @@
 - 指纹：`/dev/tee0`、`/dev/teepriv0`、`/dev/goodix_fp`，QSEECOM/mdt_loader(qcom_scm) 可用，
   DTB 含 `/fingerprint` 节点（`firmware-name="gfenu"`）；
 - GNSS：DTB 含 QUP5 UART（`i2c@994000` → `qcom,geni-uart`）与 `/bcm4775` 电源节点；
-  `airoha_gps.ko` 是**独立模块**（无内核源码补丁），按 `gnss/kernel/README.md` 另行编译安装。
+  `airoha_gps.ko` 是**独立模块**（无内核源码补丁），按 `../gnss/kernel/README.md` 另行编译安装；
+- 相机：OV8856/OV13B10/CN3927V/Hi556 的驱动补丁与 DTS 节点（见 `../camera/README.md`）。
 
 > 基线：Linux **6.18.44** + Armbian sm8250 补丁（获取方式见 `ARMBIAN-BASELINE.md`）+ 指纹内核文件 +
-> 传感器 fastrpc 补丁。目标内核版本必须仍是 `6.18.44-current-sm8250`（ABI/模块依赖）。
+> 传感器/相机/充电补丁。目标内核版本必须仍是 `6.18.44-current-sm8250`（ABI/模块依赖）。
+> 当前已部署 release 构建 **#13**（2026-11-21，release 配置，无 PM_DEBUG / DPM_WATCHDOG 等诊断项）。
 
 ## 文件
 
@@ -25,11 +27,12 @@
 | `patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch` | LPASS pinctrl 时钟超时 defer（pogo 键盘/USB，独立于传感器/指纹） |
 | `patches/0003-qcom-mdt-loader-user-selectable.patch` | 让 QCOM_MDT_LOADER 用户可选（TEE_QSEECOM=y 依赖） |
 | `patches/0004-smb5-typec-legacy-reset-resume.patch` | SMB5 suspend/resume 后 Type-C legacy/100mA 卡死修复（见 `CHARGER-RESUME.md`） |
-| `patches/0005-ov8856-bggr-vflip.patch` | OV8856 2-lane 默认 BGGR + VFLIP（让 libcamera/Flatpak 相机 media pipeline 一致；见 `camera/README.md`） |
-| `patches/0006-ov13b10-of-supplies-reset.patch` | OV13B10 OF match + avdd/dovdd/dvdd 供电 + reset 脉冲（后摄 DTS 适配中；见 `camera/README.md`） |
-| `patches/0007-cn3927v.patch` | OV13B10 后摄 CN3927V VCM 驱动（focus sysfs + DTS node；见 `camera/README.md`） |
-| `patches/0008-hi556-of.patch` | Hi556 景深 OF match + 非 ACPI power/identify（DTS 已接，I2C 仍待查） |
-| `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener 线程 `PF_NOFREEZE`：s2idle 期间继续应答 DSP，修复唤醒后 sensor PD `frpc_dsp` 崩溃（睡眠死机根因；2026-11-21 实测 7 次睡眠 0 崩溃） |
+| `patches/0005-ov8856-bggr-vflip.patch` | OV8856 2-lane 默认 BGGR + VFLIP（见 `../camera/README.md`） |
+| `patches/0006-ov13b10-of-supplies-reset.patch` | OV13B10 OF match + avdd/dovdd/dvdd 供电 + reset 脉冲（节点已并入联合 DTB） |
+| `patches/0007-cn3927v.patch` | OV13B10 后摄 CN3927V VCM 驱动（focus sysfs + DTS node） |
+| `patches/0008-hi556-of.patch` | Hi556 景深 OF match + 非 ACPI power/identify（节点已并入联合 DTB，2026-11-20 实机 RAW 出流验证） |
+| `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener 线程 `PF_NOFREEZE`：s2idle 期间继续应答 DSP，修复唤醒后 sensor PD `frpc_dsp` 崩溃（睡眠死机根因；2026-11-21 实测 20 次 s2idle（含 10h47m 长睡）0 崩溃，release #13 当日 4 次 0 崩溃） |
+| `build-and-install.sh` | 一键：应用补丁/配置/编译/模块/DTB/initramfs hook/启动槽（调用 `update-boot-image.sh`） |
 | `update-boot-image.sh` | 推荐：预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（自动检测） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查 |
 | `PINCTRL-LPASS.md` | 该补丁的症状/部署/initramfs 注意事项 |
@@ -40,9 +43,8 @@
 | `boot/` | 系统 `zz-update-abl-kernel` 副本（参考）；统一用 `update-boot-image.sh` |
 | `integration/` | DTS vmids 片段（完整基线重建参考） |
 | `initramfs/` | 修复版 initramfs hook（防止 SLPI 固件被打进 initramfs）+ 安装脚本 |
-| `dtb/sm8250-xiaomi-elish-csot.dtb` | 已验证的联合 DTB（当前树 DTS 不完整，见 dtb/README.md） |
+| `dtb/sm8250-xiaomi-elish-csot.dtb` | 已验证的模型级联合 DTB（含传感器/指纹/GNSS/相机与 Hi556；不要用树内 DTS 重编，见 `dtb/README.md`） |
 | `patches/fastrpc.c.modified` | 已打补丁的完整 fastrpc.c（对照用） |
-| `install-new-kernel.sh` | 安装内核 + 重建 boot 镜像并写 Linux 启动槽（自动检测；历史参考） |
 | `dtb/` | 联合 DTB 说明、指纹节点参考、校验脚本 |
 
 ## 步骤 A：在现有 Armbian 构建树上增量构建（推荐）
@@ -63,7 +65,7 @@ cp -a <本包>/kernel/mdt_loader.c drivers/soc/qcom/mdt_loader.c
 cp -a <本包>/kernel/qcom_scm.c drivers/firmware/qcom/qcom_scm.c
 # 确认 drivers/tee/Kconfig 末尾有 source "drivers/tee/qseecom/Kconfig"
 # 确认 drivers/tee/Makefile 有 obj-$(CONFIG_TEE_QSEECOM) += qseecom/
-# 2) 传感器 fastrpc 补丁 + LPASS pinctrl defer 补丁（两个独立文件，互不影响）
+# 2) 传感器/相机/充电补丁（独立文件，互不影响）
 patch -p1 < <本包>/kernel/patches/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch
 patch -p1 < <本包>/kernel/patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch
 patch -p1 < <本包>/kernel/patches/0004-smb5-typec-legacy-reset-resume.patch
@@ -78,17 +80,16 @@ grep -q 'tristate "Qualcomm MDT firmware loader"' drivers/soc/qcom/Kconfig || \
 # 4) 配置
 cp <本包>/kernel/config-used-6.18.44 .config
 make ARCH=arm64 olddefconfig
-# 4) 必须恢复 q6v5_pas 的 auto_boot=true（见下）
-# 5) 编译
+# 5) 必须恢复 q6v5_pas 的 auto_boot=true（见下）
+# 6) 编译
 make ARCH=arm64 -j$(nproc) Image
 make ARCH=arm64 -j$(nproc) modules
 ```
 
 ### ⚠️ qcom_q6v5_pas 的 auto_boot
 
-原项目曾实验把 `sdm845_slpi_resource_init.auto_boot` 改成 `false` 并回滚了已安装模块，
-但 `/var/tmp/kbuild-src` 源码里可能仍留着 `false`。**全量 `make modules`/`modules_install` 前必须改回
-upstream `true`**（sm8250 SLPI 复用该结构）：
+早期实验曾把 `sdm845_slpi_resource_init.auto_boot` 改成 `false`，构建树里可能仍有残留。
+**全量 `make modules`/`modules_install` 前必须改回 upstream `true`**（sm8250 SLPI 复用该结构）：
 
 ```bash
 grep -n -A3 'sdm845_slpi_resource_init = {' drivers/remoteproc/qcom_q6v5_pas.c
@@ -97,17 +98,17 @@ sed -i '/sdm845_slpi_resource_init = {/,/};/ s/\.auto_boot = false/.auto_boot = 
   drivers/remoteproc/qcom_q6v5_pas.c
 ```
 
-原因：本方案靠"开机时固件路径悬空 → 内核不 auto_boot → 服务启动监听器后再放固件启动 SLPI"。
-`auto_boot=false` 只影响内核开机自动启动，用户态写 `state=start` 仍可启动 SLPI；但本机安装的 stock
-模块是 `true`，且实验性的 `false` 源码会与 stock 行为不一致、易混淆，所以**必须恢复 upstream `true`**。
-固件不变量保证开机时没有可加载固件即可。
+原因：本方案靠"开机时固件路径悬空 → 内核不 auto_boot → 服务先起监听器、再放固件启动 SLPI"，
+固件不变量保证开机时没有可加载固件。`auto_boot=false` 只影响内核开机自动启动（用户态写
+`state=start` 仍可启动 SLPI），但本机安装的 stock 模块是 `true`，实验性的 `false` 会与 stock
+行为不一致、易混淆，所以**必须恢复 upstream `true`**。
 
 ## 步骤 B：从零重建基线
 
 1. 下载 Linux 6.18.44 源码（sha256 参考 `../VERSIONS.md`）。
 2. 按 `ARMBIAN-BASELINE.md` 获取 Armbian sm8250 补丁集并应用到 6.18.44。
 3. 复制本目录 `config-used-6.18.44` 为 `.config`，`make ARCH=arm64 olddefconfig`。
-4. 按步骤 A 的 1、2 步加入指纹文件、传感器补丁与 LPASS pinctrl 补丁。
+4. 按步骤 A 的 0–3 步加入指纹文件与各补丁，并恢复 `auto_boot=true`。
 5. 编译 Image + modules。
 
 ## 配置检查（必须）
@@ -130,25 +131,19 @@ pahole -C module /sys/kernel/btf/vmlinux | grep 'size:'  # 运行内核同值才
 grep -E 'CONFIG_DEBUG_INFO_BTF=|CONFIG_MODULE_ALLOW_BTF_MISMATCH=' .config   # 都是 y
 ```
 
-## 安装模块
+## 模块安装（内核侧要点）
 
-```bash
-# fastrpc.ko（in-tree 模块）
-sudo cp -a /lib/modules/$(uname -r)/kernel/drivers/misc/fastrpc.ko /root/fastrpc.ko.bak-$(date +%s)
-sudo cp drivers/misc/fastrpc.ko /lib/modules/$(uname -r)/kernel/drivers/misc/fastrpc.ko
-# goodix_fp_spi.ko（out-of-tree）
-cd <本包>/kernel/goodix_fp_spi
-make -C /var/tmp/kbuild-src M=$PWD ARCH=arm64 modules
-sudo install -D -m 0644 goodix_fp_spi.ko /lib/modules/$(uname -r)/extra/goodix_fp_spi.ko
-echo goodix_fp_spi | sudo tee /etc/modules-load.d/goodix-fp.conf
-sudo depmod -a
-```
+模块、DTB、initramfs 与启动槽的安装步骤与根 `../INSTALL.md`（§3）配合；内核侧必须注意：
 
-> 若本补丁或 initramfs 内其它模块有更新，必须 `sudo update-initramfs -u -k $(uname -r)`，
-> 再用系统 hook 重建 boot 镜像（见 `PINCTRL-LPASS.md`；`install-new-kernel.sh` 复用旧 ramdisk，
-> 不适用于 initramfs 已更新的场景）。
+- `fastrpc.ko` 是 in-tree 模块，必须与运行内核同版本源码树编出（ABI 绑定）；替换前先备份
+  `/lib/modules/$(uname -r)/kernel/drivers/misc/fastrpc.ko`。
+- `goodix_fp_spi.ko` 是 out-of-tree 模块：在 `goodix_fp_spi/` 下
+  `make -C <源码树> M=$PWD ARCH=arm64 modules`，装到 `/lib/modules/$(uname -r)/extra/`，
+  写 `/etc/modules-load.d/goodix-fp.conf`，再 `sudo depmod -a`。
+- 若改动了 initramfs 内模块（如 `pinctrl-lpass-lpi`）或 initramfs hook，必须先
+  `sudo update-initramfs -u -k $(uname -r)`，再用 `update-boot-image.sh` 重建启动镜像。
 
-## 联合 DTB（传感器 vmids + 指纹节点）
+## 联合 DTB（传感器 vmids + 指纹节点 + GNSS + 相机）
 
 统一 DTB 必须同时具备：
 
@@ -157,23 +152,21 @@ sudo depmod -a
   （`gps-ldo`、PMIC `gps-clk-default`、`gps-enable-active/suspend`）；
 - 根节点 `/fingerprint`：`compatible = "goodix,gf3626"`、`firmware-name = "gfenu"`、
   `interrupts = <23 1>`、`reset-gpios = <&tlmm 125 GPIO_ACTIVE_LOW>`、`vdd-supply`（PM8150A L10A 3.008V）、
-  pinctrl（IRQ gpio23）。
+  pinctrl（IRQ gpio23）；
+- 相机：前摄 OV8856/PM8008、后摄 OV13B10/CN3927V、Hi556 景深节点（详见 `dtb/README.md`）。
 
-**本包附带一份已验证的联合 DTB**：`kernel/dtb/sm8250-xiaomi-elish-csot.dtb`
-（sha256 `14909d42d6a1935f6dd49ff8b4700e0adf4164024c6f0c25f6ba94b6ad3ee4a8`）：
+**本包附带一份已验证的模型级联合 DTB（已合并 Hi556）**：`kernel/dtb/sm8250-xiaomi-elish-csot.dtb`
+（sha256 `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8`，139,091 B）。只装 DTB（不重编内核）：
 
 ```bash
-sudo cp kernel/dtb/sm8250-xiaomi-elish-csot.dtb \
-  /usr/lib/linux-image-$(uname -r)/qcom/sm8250-xiaomi-elish-csot.dtb
-sudo mkdir -p /boot/dtb-$(uname -r)/qcom
-sudo cp kernel/dtb/sm8250-xiaomi-elish-csot.dtb \
-  /boot/dtb-$(uname -r)/qcom/sm8250-xiaomi-elish-csot.dtb
+sudo ./kernel/install-dtb.sh                # 更新 rootfs/boot 下的 DTB
+sudo ./kernel/install-dtb.sh --write-boot   # 另重建 Linux 启动槽（自动检测、备份、回读校验）
 ```
 
 **⚠️ 不要用 `/var/tmp/kbuild-src` 的 DTS 直接重编 DTB**：该树的 DTS 不是当前 DTB 的完整源，
 用树内 DTS 重编会丢 17 个节点/109 个属性（包括 `/reserved-memory/fastrpc` 的 32MB shared-dma-pool、
-fastrpc 的 memory-region、/gpio-keys 的 lid/tablet-mode、panel/ts pinctrl、uart16、haptics、
-regulator@88e7000 等），且树内只有 vmids、没有指纹节点。若必须从源码重建，先取得
+fastrpc 的 memory-region、`/gpio-keys` 的 lid/tablet-mode、panel/ts pinctrl、uart16、haptics、
+regulator@88e7000 等），且树内只有 vmids、没有指纹与相机节点。若必须从源码重建，先取得
 **Armbian db44df750 的完整 sm8250 源码**并补齐这些节点，再逐属性 `dtc` diff 验证。
 
 校验：
@@ -211,12 +204,8 @@ sudo ./kernel/update-boot-image.sh --dry-run   # 只预检/备份，不写盘（
 sudo ./kernel/update-boot-image.sh             # 预检 → 备份 → zz-update-abl-kernel → 回读校验
 ```
 
-等价的手工流程（封装脚本内部就是这么做的）：备份目标 Linux 启动槽 → `verify-combined-dtb.sh` 预检 →
-确认 initramfs 不含 slpi → `sudo /etc/kernel/postinst.d/zz-update-abl-kernel` → `sync` + 回读 `cmp`。
-
-`kernel/install-new-kernel.sh` 属**历史脚本**：它从旧启动镜像里提取 ramdisk、硬编码
-`slot_suffix=_b/splash quiet`，在 initramfs 已更新后会使用旧 ramdisk，不建议使用；
-如果要用，先确认它取的 ramdisk 与 `/boot/initrd.img-$(uname -r)` 一致。
+`kernel/install-new-kernel.sh` 属**历史脚本，不推荐使用**：它从旧启动镜像里提取 ramdisk、硬编码
+`slot_suffix=_b/splash quiet`，在 initramfs 已更新后会使用旧 ramdisk。
 
 ## 重启后验证（内核层）
 
@@ -234,4 +223,4 @@ lsmod | grep -E 'fastrpc|goodix_fp_spi'
 ## 升级警告
 
 任何 `apt` 内核/DTB 升级都会覆盖本目录的全部改动并重建 Linux 启动槽（`zz-update-abl-kernel` 用**包内 DTB**；槽位由 armbianEnv 决定）。
-升级后必须按本页重做内核 + 联合 DTB + boot 镜像，否则传感器/指纹同时失效。详见根 `docs/UPGRADE-IMPACT-ALL.md`。
+升级后必须按本页重做内核 + 联合 DTB + boot 镜像，否则传感器/指纹同时失效。详见根 `../docs/UPGRADE-IMPACT-ALL.md`。

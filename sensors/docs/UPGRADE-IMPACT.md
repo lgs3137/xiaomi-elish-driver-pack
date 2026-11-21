@@ -1,8 +1,9 @@
 # 升级影响评估（软件包 / 内核升级会破坏什么，哪些能修，哪些必须保持）
 
-> 结论基于 2026-11-11 本机实测状态（kernel 6.18.44-current-sm8250，armbian-firmware-full 26.8.3）。
+> 结论基于 2026-11-21 本机实测状态（kernel `6.18.44-current-sm8250` release #13，Armbian 26.8.14 noble，
+> armbian-firmware-full 已 hold）。
 > 原则：**升级前先读本文件；内核/固件/boot 镜像是高风险项。** 任何升级后都跑一遍
-> `install/check-upgrade.sh` 与 `install/verify.sh`。
+> `../install/check-upgrade.sh` 与 `../install/verify.sh`。
 
 > **boot 槽位**：本文以本机布局（Linux = `boot_b`、Android = `boot_a`）为例。若你的 Linux 在别的槽，
 > 把下文 `boot_b` 替换为 `/boot/armbianEnv.txt` 的 `abl_boot_partition_label`；本包脚本会自动跟随。
@@ -14,14 +15,14 @@
 | `linux-image-current-sm8250` | ✅ | **覆盖** `/usr/lib/linux-image-*/qcom/sm8250-xiaomi-elish-csot.dtb`（丢 vmids + 指纹 DTB 节点）、**覆盖 fastrpc.ko**（丢 VMID/SMMU 补丁）；postinst `zz-update-abl-kernel` 会用**包内 DTB**（不是我们改过的）重建 boot 镜像并 **dd 写 Linux 启动槽** | 传感器失效；指纹可能失效；严重时启动异常 | ⚠️ 可修补但**必须手动重做**：新内核源码重打补丁重编模块、重改 DTB、重建 boot 镜像；不能直接 apt 升级后不管 |
 | `linux-dtb-current-sm8250` | ✅ | 覆盖 `/boot/dtb-*/.../sm8250-xiaomi-elish-csot.dtb`（vmids/指纹节点丢失） | 同上（DTB 部分） | 可重做 |
 | `linux-headers-current-sm8250` | ✅ | 与内核同步升级；旧源码树/模块无法再编译 | 无法重编 fastrpc.ko（版本不匹配） | 需匹配版本源码树 |
-| `armbian-firmware-full` | ✅ | 覆盖 `/lib/firmware/.../elish/slpi.mbn`（把**悬空符号链接**换回普通文件）；可能恢复厂商拆份固件/数据；update-initramfs 可能把固件打进 initramfs | 中：普通文件若能被内核加载会触发 auto_boot → 本次开机传感器失效（确定性级联）；当前包的 8380B 拆份头缺段文件，通常不会 auto_boot，且启动脚本会在 +45s 自愈 | ✅ 可修补：升级后立刻恢复悬空符号链接 / 移走拆份固件；建议 hold 或加 dpkg hook |
+| `armbian-firmware-full` | ✅ | 覆盖 `/lib/firmware/.../elish/slpi.mbn`（把**悬空符号链接**换回普通文件）；可能恢复厂商拆份固件/数据；update-initramfs 可能把固件打进 initramfs | 中：普通文件若能被内核加载会触发 auto_boot → 本次开机传感器失效（确定性级联）；守卫服务能在 multi-user 前修正路径，但**不能挽回本次已发生的 auto_boot** | ✅ 可修补：升级后立刻恢复悬空符号链接 / 移走拆份固件；建议 hold 或加 dpkg hook |
 | `iio-sensor-proxy`（发行版包） | ❌ 未安装（我们用源码 ninja install） | apt upgrade **不会动**；但**一旦安装/重装发行版包**会覆盖 `/usr/libexec/iio-sensor-proxy` 与 unit/dbus 配置 | 传感器数据 0/undefined 或 iio 重启风暴 | ✅ 可修补：重打三处补丁、重编、恢复 D-Bus/drop-in |
 | `libssc` | ❌（/usr/local） | 只有手动升级才变；升级可能改 SONAME/API | 中：iio 链接失败（libssc.so.2） | ✅ 重编/回退 0.4.4 |
 | `hexagonrpcd`（/opt/hexrpc-032b） | ❌ | 只有手动升级才变；**0.5.x 与我们的内核/用法不兼容**（Unsupported handle） | 致命（attach 失败） | ❌ 不能直接升：必须保持 0.3.2 + warm-attach 补丁 |
 | `/usr/share/qcom-ssc-elish` 数据母本 | ❌ | apt 不碰 | 无（但不要手动用新 firmware 数据覆盖） | 保持已验证版本 |
 | `/etc` 自定义 unit/drop-in/udev/hook/调参 | ❌（非 dpkg 文件） | systemd/udev/dbus 升级保留 `/etc` | 无 | 若被误删，用包内 install 脚本重装 |
 | `gnome-shell`/`gsd-power` | ✅ | claim 时机/行为可能变化 | 低：通常不影响；极端时自动亮度/旋转异常 | ⚠️ 无法打 GNOME 补丁：重启 iio/重编 iio 适配；一般无需保持原样 |
-| 指纹/TEE、音频、桌面等无关包 | ✅ | 与传感器无关 | 无（指纹栈自身升级可能影响指纹，属另一个项目） | 与传感器无关 |
+| 指纹/TEE、音频、桌面等无关包 | ✅ | 与传感器无关 | 无（指纹栈自身升级可能影响指纹，属合并包指纹子包） | 与传感器无关 |
 
 ## 1. 最高危：内核 / DTB / boot 镜像
 
@@ -49,7 +50,7 @@
 
 **能否修补**：能，但属于"每次内核升级都必须手动重做"：
 
-1. 备份（升级前）：`sudo ../../install/backup-boot.sh`（自动检测槽位，备份槽镜像 + boot 镜像 + DTB）。
+1. 备份（升级前，在 `sensors/` 目录执行）：`sudo ../install/backup-boot.sh`（自动检测槽位，备份槽镜像 + boot 镜像 + DTB）。
 2. 准备**新内核版本**源码树（`apt-get source` 或 Armbian 源码 + 对应配置），
    重打 `../../kernel/patches/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch`（新版本可能需 re-port；
    若官方 SMMU 修复已合入，可只保留 VMID 候选补丁），`make drivers/misc/fastrpc.ko`，
@@ -58,7 +59,7 @@
    指纹 DTB 节点属于指纹项目，需同步重做（否则指纹失效）。
 4. 确认 `/usr/lib/linux-image-*/qcom/sm8250-xiaomi-elish-csot.dtb` 已是你改过的版本，
    再让内核 postinst 重建 boot 镜像（或手动 `mkbootimg` + `dd` 到 boot_b），并回读 `cmp` 校验。
-5. 检查 initramfs 不应包含可加载的 SLPI 固件（见 §2）。重启后跑 `install/verify.sh`。
+5. 检查 initramfs 不应包含可加载的 SLPI 固件（见 §2）。重启后跑 `../install/verify.sh`。
 
 **建议**：不追求新内核就 **hold 内核三件套**：
 
@@ -73,16 +74,18 @@ sudo apt-mark hold linux-image-current-sm8250 linux-dtb-current-sm8250 linux-hea
 升级会覆盖 `/lib/firmware/qcom/sm8250/xiaomi/elish/`：
 
 - 我们精心维护的 `/lib/firmware/.../slpi.mbn` **悬空符号链接**（→ `/run/sensor-fw/slpi.mbn`）
-  会被 dpkg 恢复成**普通文件**（包内是 8380B 的拆份头；本机包内没有 `slpi.b00..b20` 段文件）；
+  会被 dpkg 恢复成**普通文件**（armbian-firmware-full 里的拆份固件头）；
 - `sensors/`、`socinfo/` 等厂商数据会被更新（**但我们的运行时用的是自己的
   `/usr/share/qcom-ssc-elish` 副本，不受影响**）。
 
-**风险机制**：若该普通文件能被内核在开机早期加载（例如未来版本包同时提供拆份段文件，
+**风险机制**：若该普通文件能被内核在开机早期加载（例如固件包同时提供拆份段文件，
 或 initramfs 里带上了可加载固件）→ 内核 boot+5s 抢先 auto_boot SLPI →
-监听器来不及 → PD 看门狗崩溃 → 本次开机传感器永久失效（见 `NOTES.md` §1 的确定性级联）。
+监听器来不及 → PD 看门狗崩溃 → 本次开机传感器永久失效（见 `../NOTES.md` §1 的确定性级联）。
 
-**当前包的安全性**：包内仅 8380B 拆份头、缺少段文件 → 内核加载失败，通常**不会** auto_boot；
-而且启动脚本开头会检测"普通文件"并移走、重建符号链接，再从 `/run` 单文件固件启动（自愈）。
+**本包的兜底**：`slpi-fw-guard.service` 在 multi-user 之前检测"普通文件"→ 移出并恢复悬空符号链接，
+本 boot 已被 auto_boot 时写 `/run/sensor-boot-bad` 让启动脚本快速失败；`slpi-sensors-start.sh`
+开头也会做同样的路径修正。但**兜底只能防止下一次开机继续泄漏，不能挽回本次已发生的 auto_boot**
+——所以升级后仍应立刻按下面命令检查。
 
 **升级后立即检查/修复**（重启前！）：
 
@@ -107,8 +110,8 @@ sudo mv -f /lib/firmware/qcom/sm8250/xiaomi/elish/slpi.b* /lib/firmware/qcom/sm8
   `/opt/hexrpc-032b/`），`apt upgrade` **不会**碰它们。
 - 但注意：
   - **不要 `apt install iio-sensor-proxy`**：发行版包会覆盖补丁二进制和 unit/dbus 配置。
-    若误装：卸掉包 → 按 `userspace/iio-sensor-proxy/README.md` 重编安装 → 恢复
-    `systemd/dbus/net.hadess.SensorProxy.service`（必须含 `SystemdService=`）与 drop-in。
+    若误装：卸掉包 → 按 `../userspace/iio-sensor-proxy/README.md` 重编安装 → 恢复
+    `../systemd/dbus/net.hadess.SensorProxy.service`（必须含 `SystemdService=`）与 drop-in。
   - **不要把 hexrpc 升到 0.5.x**：0.5 会 `Unsupported handle`；保持 0.3.2 + warm-attach 补丁。
   - libssc 保持 **0.4.4**（`libssc.so.2`）；若要升级，需重编 iio 并重新验证。
 - 依赖库升级（`libglib/gio/gudev/polkit/libqmi-glib.so.5/libqrtr-glib.so.0`）：
@@ -121,7 +124,7 @@ sudo mv -f /lib/firmware/qcom/sm8250/xiaomi/elish/slpi.b* /lib/firmware/qcom/sm8
 - GNOME/gsd：一般无需处理；若升级后自动亮度/自动旋转异常，先 `sudo systemctl restart iio-sensor-proxy`，
   仍异常则按补丁版重编 iio；无法直接给 GNOME 打补丁。
 - 指纹/TEE（qsee-supplicant、qsee-app-loader、fprintd/libfprint）、音频、显卡、网络等：与传感器无关。
-  （注意：指纹栈自身升级可能影响指纹解锁，属另一个项目的风险。）
+  （注意：指纹栈自身升级可能影响指纹解锁；合并影响见顶层 `../../docs/UPGRADE-IMPACT-ALL.md`。）
 
 ## 5. "必须保持原样" vs "可以修补/重做"
 
@@ -140,16 +143,18 @@ sudo mv -f /lib/firmware/qcom/sm8250/xiaomi/elish/slpi.b* /lib/firmware/qcom/sm8
 2. `armbian-firmware-full` 升级 → 恢复符号链接/移走拆份固件（可自动化）。
 3. iio-sensor-proxy 被覆盖 → 重打三补丁、重编、恢复 D-Bus/drop-in。
 4. libssc/依赖库 SONAME 变化 → 重编 libssc 与 iio。
-5. 系统配置被误删 → 用包内 `install/install-system-files.sh` 重装。
+5. 系统配置被误删 → 用包内 `../install/install-system-files.sh` 重装。
 6. initramfs 含固件 → `sudo update-initramfs -u` 前先确保 `/lib/firmware/.../slpi.mbn` 是悬空链接，
    或加 initramfs hook 排除 `slpi.mbn`；用 `lsinitramfs /boot/initrd.img-$(uname -r) | grep slpi` 检查。
 
 ## 6. 升级操作清单（建议照做）
 
+> 下列命令在 `sensors/` 目录执行；`../install/` 指仓库根的 `install/`，`install/` 指本子包脚本。
+
 **升级前**
 ```bash
 # 1) 备份 Linux 启动槽 / boot 镜像 / DTB
-sudo ../../install/backup-boot.sh
+sudo ../install/backup-boot.sh
 # 2) 备份数据母本与配置
 sudo tar -czf /root/sensor-data-backup-$(date +%Y%m%d).tar.gz /usr/share/qcom-ssc-elish /etc/sensor-tuning.conf
 # 3) 记录基线

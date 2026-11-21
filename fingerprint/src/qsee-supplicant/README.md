@@ -1,5 +1,9 @@
 # Qualcomm Secure Execution Environment supplicant
 
+> Upstream project README (English source docs), packaged here for reference.
+> For this device's build/install/systemd wiring see `../../INSTALL.md`; the
+> package's unit files are in `../../system/systemd/`.
+
 [![Continuous integration](https://github.com/wrobelda/qsee-supplicant/actions/workflows/ci.yml/badge.svg)](https://github.com/wrobelda/qsee-supplicant/actions/workflows/ci.yml)
 
 A Trusted Execution Environment (TEE) is an isolated execution environment

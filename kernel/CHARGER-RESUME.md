@@ -30,9 +30,9 @@ Linux 侧是精简 SMB5 + 独立 TCPM，原驱动没有这个 legacy 复位，�
    调度 `status_change_work` 重跑 APSD/AICL。
 3. probe 也调用一次 legacy 复位。
 
-## 验证（2026-11-12，本机）
+## 验证（2026-11-12 实测）
 
-新内核 `6.18.44-current-sm8250 #7`，boot_b 内已含补丁。带充电器连续 3 轮
+验证时内核为 `6.18.44-current-sm8250`，boot 槽内已含补丁。带充电器连续 3 轮
 `suspend → 电源键唤醒`：
 
 - 每轮都打印
@@ -44,13 +44,13 @@ Linux 侧是精简 SMB5 + 独立 TCPM，原驱动没有这个 legacy 复位，�
 
 ## 部署
 
-按统一流程构建内核并写入 Linux 启动槽（`kernel/build-and-install.sh --write-boot` 或
-`kernel/update-boot-image.sh`）。本机部署/回滚记录已移出包（工作区历史归档）。
+按统一流程构建内核并写入 Linux 启动槽（`build-and-install.sh --write-boot` 或
+`update-boot-image.sh`）；`update-boot-image.sh` 会先备份目标启动槽，异常时用其备份回滚。
 
 ## 限制
 
 - `bq2597x` 快充泵仍可能 `present=0`；当前是 PMIC 基础充电（约 1.95A），
-  不等于原装 33W 快充。快充（第 2/3 步）见工作区 TODO。
+  不等于原装 33W 快充。快充泵/9V PD 未验证（无原装 PD 充电器）。
 - 该修复针对 **suspend/resume 后充电卡死**，不改变 TCPM 的 `power_role` 显示。
 - 不要把 `.config` 的 `CONFIG_LOCALVERSION` 去掉；模块 ABI 必须保持
   `6.18.44-current-sm8250`。

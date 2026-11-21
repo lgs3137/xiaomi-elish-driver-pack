@@ -21,7 +21,7 @@
 
 ## 版本与路径
 
-见 `../VERSIONS.md`。运行路径：
+版本/校验（BOM）见根 `../../VERSIONS.md`；本章节只列运行时路径。
 
 - `/opt/hexrpc-032b/bin/hexagonrpcd`（默认优先 `hexagonrpcd.writable-v1` → `hexagonrpcd.regver-v1` → 原厂；`LD_LIBRARY_PATH=/opt/hexrpc-032b/lib/aarch64-linux-gnu`）
 - `/usr/local/lib/aarch64-linux-gnu/libssc.so.2`

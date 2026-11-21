@@ -7,7 +7,8 @@ One undecorated fullscreen window owned by the calling user: a dark overlay
 covering the whole output with a centered authentication card (UAC /
 pkexec-agent style).  The window is a plain Wayland client: the compositor
 decides stacking, so this is *presentation* only, not a secure desktop.  See
-bioauth/uac-secure-screen-20261113.md for the honest threat-model discussion.
+the "Security boundary and audit conclusions" section of bioauth/README.md
+for the honest threat-model discussion.
 
 Why the overlay background is opaque near-black instead of a translucent dim:
 on this GNOME 46 / mutter 46.2 Wayland session a *fullscreen* GTK4 client

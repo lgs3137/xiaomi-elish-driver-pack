@@ -17,8 +17,14 @@ bioauthd (root)         state machine / lockout / password verify / cancel
 The GUI presentation is a single **fullscreen, undecorated, dark "secure screen"
 with a centered card** — the same interaction style as Windows UAC / pkexec
 prompts. One window, no multi-step dialogs, fingerprint armed immediately.
-See `uac-secure-screen-20261113.md` for what this can and cannot guarantee on
-Wayland (a real trusted "secure desktop" needs compositor/greeter cooperation).
+It is **presentation only, not a security boundary**: a real trusted "secure
+desktop" needs compositor/greeter cooperation — see
+[Security boundary and audit conclusions](#security-boundary-and-audit-conclusions-2026-11-13).
+
+> Documentation baseline: 2026-11-21. Behaviour below and the audit/verification
+> conclusions were measured **2026-11-13** on this device (Ubuntu 24.04 / GNOME 46
+> / Wayland) and have not changed since; chronological project history lives in
+> `../docs/HISTORY.md`.
 
 ## Current behaviour
 
@@ -130,8 +136,16 @@ toolkit-accessibility true` (the test enables it).
 3. If the helper is killed with "did not become ready", check the helper log for
    GTK/Wayland errors and that the PAM process runs as a user with a live
    `$XDG_RUNTIME_DIR` and a Wayland/X11 display.
-4. `bioauth/audit-pam-20261113.md` has a full PAM_TTY-vs-helper_start-vs-GTK
-   decision tree.
+4. PAM_TTY / helper-start decision table (the module already logs each step):
+
+   | observed | meaning | next check |
+   |---|---|---|
+   | no `enter user=…` line at all | module not loaded / old `.so` / wrong service file | installed module hash (`bioauth-doctor`), `pamtester` uses another service |
+   | `ui_kind=1`, `tty_open /dev/pts/N` | terminal caller selected the TTY UI **by design** — no GTK window expected | add `prefer=gui` to the PAM line if the overlay is wanted in a terminal |
+   | `ui_kind=2`, `helper started`, no `helper<- {"event":"ready"}` | helper failed before map / old helper | `BIOAUTH_UI_LOG`; `$WAYLAND_DISPLAY` / `$XDG_RUNTIME_DIR`; GDM before login has no `/run/user/$uid` — out of scope |
+   | `helper not ready within N ms` then `ui closed` | build skew (old helper) or slow map | install one build; `bioauth-doctor` |
+   | `daemon connect failed` / `daemon status failed` | daemon down / permissions | `systemctl status bioauthd`, `ls -l /run/bioauth.sock` |
+   | `ui_kind=0` | neither TTY nor GUI available | combine the tty errno and helper failure reason above |
 
 ## Enabling for sudo (after the test service passes)
 
@@ -173,6 +187,123 @@ package installation, time settings, ...), not only pkexec. All of them keep
 the common-auth password fallback. GDM is still untouched (stock
 `gdm-fingerprint` + `pam_fprintd`).
 
+## Security boundary and audit conclusions (2026-11-13)
+
+The former standalone audit / UAC-comparison / verification reports
+(`2026-11-13`) were folded into this section and removed; their measured
+conclusions are below.
+
+### Presentation, not a security boundary
+
+`bioauth-ui` is a normal Wayland client. It can look like UAC / pkexec and gives
+clear, single-window feedback, but it **cannot** provide a trusted input channel.
+
+What it does guarantee (measured with the helper driver + AT-SPI on the live
+GNOME 46 Wayland session, 1280×800@2x → 2560×1600 physical):
+
+- one fullscreen, near-black, undecorated window covering the whole output
+  (including the GNOME top bar); card 460 logical px = 916 physical px, centered
+  within ±0.5 px; every previously-bright desktop/panel pixel covered;
+- explicit persistent states (fingerprint / password / locked / unavailable /
+  success) and no second toplevel;
+- interaction semantics: switch fingerprint↔password, cancel, and "success
+  dwell ~1 s then guaranteed exit" (1.15–1.19 s measured; EOF exits in
+  0.06–0.12 s); duplicate submit prevented (entry/buttons insensitive until the
+  next prompt; `attempt` ids echoed); `ready` emitted exactly once after the
+  window maps, with `proto:2`.
+
+What it **cannot** guarantee — do not advertise otherwise:
+
+- **no input isolation**: no compositor-level grab; GNOME Shell shortcuts
+  (Alt+Tab, Super, Overview, notifications, lock screen) still work, and other
+  same-user processes can raise windows on top, steal focus, or spoof an
+  identical "password" window; there is no secure attention sequence;
+- **same-user processes can read the keyboard**: if the user is in the `input`
+  group (true on this device during the 2026-11-13 audit — check with
+  `getent group input`), any same-user process can read `/dev/input/event*`;
+  a password typed into *any* GTK window is observable — this is a system
+  permission issue, not something this UI can fix (hardening: remove the user
+  from `input` if evdev access is not needed);
+- keyboard input path is user-controlled (GTK → helper → PAM → daemon), and the
+  helper can be debugged/replaced by the same user; the trust anchor remains
+  PAM + the root daemon;
+- the screen can be captured/recorded, fullscreen is the compositor's decision,
+  and only the current output is covered on multi-monitor setups (single
+  1280×800 output on this device);
+- approaching UAC requires **compositor/greeter cooperation**: a GNOME Shell
+  extension using `Main.pushModal(SYSTEM_MODAL)`-style shell chrome, or a
+  GDM-level separate session for authentication. Plain Wayland clients cannot
+  reach that level.
+
+### Independent audit findings that shaped the design
+
+The audit confirmed these as requirements and they are covered by
+`bioauth-doctor` / the install script:
+
+- **Deployment consistency is the #1 "no popup" cause.** The module requires the
+  helper's `ready` handshake and the daemon's req-scoped cancel. Install
+  module+daemon+helper+doctor from **one** build; the doctor compares sha256 and
+  protocol tokens and tests the live `ready` event.
+- **No secrets in logs.** Debug logs record event/op names only, open
+  `/run/bioauth/pam.log` with mode 0600 / `O_NOFOLLOW`, and never contain
+  password values. Never put `debug` on a real `/etc/pam.d/sudo` line; use
+  `BIOAUTH_PAM_DEBUG=1` for testing.
+- **Fallback must never fail closed.** User cancel / closed window / helper
+  death / unavailable daemon → `PAM_IGNORE` → `@include common-auth`; only
+  exhausted or genuinely failed attempts return `PAM_AUTH_ERR` (so
+  `default=die` cannot lock the user out of the terminal).
+- **A no-touch scan timeout is not a mismatch**: it must not advance the
+  lockout counter (`未检测到手指`, not `指纹不匹配`).
+- **Lockout state is root-owned, 0600 and fsync'd**; a corrupt state file must
+  not silently reset to "unlocked".
+- **TTY vs GUI is explicit**: the module defaults to the TTY UI when the caller
+  has a terminal; a terminal `sudo` therefore shows the P/Q TTY prompt by
+  design. The overlay in a terminal requires adding `prefer=gui` (the install
+  script does **not** add it to `/etc/pam.d/sudo`).
+- **GDM is out of scope**: before login there is no `/run/user/$uid` and the
+  helper cannot start; GDM keeps the stock `gdm-fingerprint` + `pam_fprintd`.
+
+### Independent verification: PASS
+
+The frozen single-build tree passed an independent verification (2026-11-13):
+
+- `make check` 8/8 unit tests; `e2e_tty.py` 4/4; `e2e_gui.py` 10/10 twice in a
+  row (no flakiness, no leftover helper/daemon processes);
+- 14/14 independent security/behaviour spot checks: passwords absent from all
+  logs (`testpass`/`wrongpass`/base64 forms), log mode 0600, cancel →
+  `rc=25` PAM_IGNORE → password rescue succeeds, no-touch timeout leaves
+  `fail_count=0` / `locked=false`;
+- `bioauth-doctor` on a fresh install prefix: 0 failures / 0 warnings.
+  On the *then-installed old artifacts* it reported the expected 7 build-skew
+  failures — exactly the gap a single-build install closes. **Do not enable
+  sudo until the doctor on the real system reports 0 failures.**
+
+### Residual risks (documented, not blockers)
+
+1. TTY raw mode can be left enabled if the PAM process is SIGKILLed/crashes
+   while a scan is armed (normal paths restore it).
+2. A legacy/no-`req` cancel can still abort whichever fingerprint scan is
+   active (local DoS); the module always sends `req`, so the normal path is
+   scoped.
+3. The daemon socket is 0666, thread-per-connection, and the fingerprint op is
+   allowed for the owning local user: a local DoS / sensor-contention surface
+   (no authentication bypass).
+4. Multi-monitor overlay behaviour is not covered (single output on this
+   device).
+5. `prefer=gui` is not installed on the default `sudo` line (terminal `sudo`
+   uses the TTY UI; the overlay is verified through the private-conf GUI suite).
+6. pkexec/polkit is opt-in and always keeps the password fallback; GDM is not
+   modified.
+
+### Verdict — safe to enable for sudo?
+
+**Yes, conditionally.** Install one consistent build, require
+`bioauth-doctor` to report 0 failures on the real system, then enable sudo with
+the automatic PAM backup, do one supervised `sudo -k; sudo true` (TTY prompt,
+`P` password, `Q`/cancel → password fallback), and keep
+`/root/bioauth-sudo-backup-*` + `--rollback` (or pkexec) until the first real
+sudo session is confirmed. Do not touch pkexec/GDM before that.
+
 ## Security notes
 
 - Lockout state is root-owned (`/var/lib/bioauth/state.json`, 0600, fsync'd).
@@ -182,9 +313,8 @@ the common-auth password fallback. GDM is still untouched (stock
 - Password verification in the MVP uses shadow(5) from the root daemon; it is
   isolated so it can be replaced by a nested PAM helper later.
 - The GUI is a fullscreen user-session window, not a trusted secure desktop:
-  same-user processes can still read input devices (the test user is in group
-  `input`) or draw windows. UAC's secure desktop requires compositor/greeter
-  cooperation — see `uac-secure-screen-20261113.md`.
+  same-user processes can still read input devices or draw windows. See
+  [Security boundary and audit conclusions](#security-boundary-and-audit-conclusions-2026-11-13).
 - Debug logging must stay off in production PAM configs; it is enabled via the
   environment (`BIOAUTH_PAM_DEBUG`) and writes only event names, never secrets.
 - No device-specific code: no `/dev/goodix_fp`, no TA/QSEE/`gfenu`, no
@@ -194,6 +324,7 @@ the common-auth password fallback. GDM is still untouched (stock
 ## Files
 
 ```
+README.md / INSTALL.md       component + install/rollback/security-boundary docs
 daemon/bioauthd.py          root daemon (state machine + backends + cancel)
 pam/pam_bioauth.c           PAM client (TTY + GUI, session/seq scoped requests)
 gui/bioauth-ui              fullscreen GTK4 secure-screen helper (fd3 JSON protocol)
@@ -205,6 +336,4 @@ config/bioauth.json         default config
 systemd/bioauthd.service    systemd unit
 pam.d/bioauth-test          standalone PAM test service
 tests/                      unit + TTY + GUI end-to-end tests (no root)
-audit-pam-20261113.md       independent code audit + no-popup diagnostics
-uac-secure-screen-20261113.md  UAC/pkexec comparison + Wayland limits
 ```

@@ -57,7 +57,8 @@ sudo ./install/check-all.sh
 sensor-status
 ```
 
-预期（M2 可写 registry 后）：**开机 ~22s 传感器可用、桌面 ~38s、休眠唤醒 ~10s**。
+预期（2026-11-21 release #13 实测）：**开机 ~21s 传感器可用、桌面 ~21s、休眠唤醒 3–6s**；
+s2idle 唤醒不再崩 sensor PD（0009 已修）。
 
 ## 仍需手动的事（很少）
 

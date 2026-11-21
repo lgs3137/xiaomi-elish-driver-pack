@@ -1,10 +1,12 @@
 # GNSS 子包安装文档
 
+> 文档基线：2026-11-21。协议/实测结论见 `README.md`（2026-11-13 室外定位）与 `docs/PROTOCOL.md`。
+
 前置：本包 `../kernel/dtb/sm8250-xiaomi-elish-csot.dtb`（含 GNSS 节点）已按
 `../kernel/update-boot-image.sh` 写进 boot_b 并重启；内核模块已编译安装。
 **不要写 boot_a / Android 分区。**
 
-> **一键安装器**：`../install.sh` 会自动调用 `gnss/install/install.sh` 完成用户态 + gpsd 集成；
+> **一键安装器**：`../install.sh` 会自动调用 `install/install.sh` 完成用户态 + gpsd 集成；
 > `airoha_gps.ko` 由 `--with-kernel`（或手动 `../kernel/build-and-install.sh`）一并编译安装。
 
 ## 0. 部署 DTB 与内核模块
@@ -17,7 +19,7 @@ sudo install -D -m 644 ../kernel/dtb/sm8250-xiaomi-elish-csot.dtb \
   "/usr/lib/linux-image-$(uname -r)/qcom/sm8250-xiaomi-elish-csot.dtb"
 sudo install -D -m 644 ../kernel/dtb/sm8250-xiaomi-elish-csot.dtb \
   "/boot/dtb-$(uname -r)/qcom/sm8250-xiaomi-elish-csot.dtb"
-# 2) 校验 + 备份并重建 Linux 启动槽（自动检测；绝不写 Android 槽；详见 kernel/update-boot-image.sh）
+# 2) 校验 + 备份并重建 Linux 启动槽（自动检测；绝不写 Android 槽；详见 ../kernel/update-boot-image.sh）
 ../kernel/dtb/verify-combined-dtb.sh "/usr/lib/linux-image-$(uname -r)/qcom/sm8250-xiaomi-elish-csot.dtb"
 sudo ../kernel/update-boot-image.sh
 sudo reboot
@@ -67,7 +69,7 @@ sudo ./install/install.sh
 ## 2. 验证
 
 安装脚本同时会配置 GeoClue2 标准位置 API（`gps-nmea-share` → `/run/gps-share.sock`）；
-GNOME Maps 等标准地图应用通过 GeoClue 取位置。`verify.sh` 会检查 bridge、socket、
+GNOME Maps 等标准地图应用通过 GeoClue 取位置。`install/verify.sh` 会检查 bridge、socket、
 geoclue 配置与服务状态。
 
 ```bash
@@ -86,8 +88,9 @@ monitor-sensor           # 罗盘 heading（与 GNSS 互不影响）
 
 ## 3. 开机自启
 
-`airoha-gnssd.service` 已 enable；`gpsd` 通过 drop-in 排在其后。开机约 1 秒内
-启动并进入 1 Hz 输出，与传感器栈（M2 后约 22 秒才可用）互不依赖。
+`airoha-gnssd.service` 已 enable；`gpsd` 通过 drop-in 排在其后。服务启动后约 1 秒内
+完成上电/`$PAIR002` 并进入 1 Hz 输出；与传感器栈互不依赖（传感器约 20.9 s 可用，
+见 `../VERSIONS.md` 与 `../sensors/README.md`）。
 
 ## 4. 回退
 

@@ -1,8 +1,8 @@
 # AG3335 主机协议（从 Android `anld` 逆向 + 实机验证）
 
 > 结论级资料，供后续维护/扩展参考。来源：`/vendor/bin/hw/airoha.hardware.anld`
-> 反汇编（`.gnu_debugdata` 可还原 2579 个符号）与本机实测。详细报告见开发工作区
-> `gnss-notes/`（RE-handshake / RE-brom / RE-image / research-web-*）。
+> 反汇编（`.gnu_debugdata` 可还原符号）与本机实测。文档基线 2026-11-21；
+> 本机实测日期见各节（握手/初始化 2026-11-12，运行时初始化与室外定位 2026-11-13）。
 
 ## 1. 硬件与电源
 
@@ -34,8 +34,8 @@
  → 等待主机在 ~1 s 内发 $PAIR002（否则静默，需重新上下电）
 ```
 
-> 旧文档的“停在 BROM / 需要运行时加载固件”是因为在 **115200** 监听：921600 的
-> bootloader/firmware 输出被 115200 采样成乱码。芯片一直是从 flash 正常启动的。
+> 注：如果在 **115200** 监听会看到乱码，容易误判为"停在 BROM/需要运行时加载固件"；
+> bootloader/firmware 只在 921600 输出。芯片一直是从 flash 正常启动的。
 
 ## 3. PAIR ASCII 协议
 
@@ -67,8 +67,7 @@
 
 ```
 openTTY("/dev/ttyHS1", O_RDWR|O_NONBLOCK, B115200)
-→ handShake()          # BROM：A0→5F, 0A→F5, 50→AF, 05→FA
-                       # 对应日志 HDL_START_CMD1..4（不是运行时启动命令！）
+→ handShake()          # BROM：A0→5F, 0A→F5, 50→AF, 05→FA（Android 日志记为 HDL_START_CMD1..4）
 → disableWDT()         # D2, A2 08 00 00, 00 00 00 01, …
 → sendDA()             # D7, addr=0x04204000, size, 1024B/块, 16-bit XOR 校验
 → jumpToDA()           # 00 D5, addr, 状态

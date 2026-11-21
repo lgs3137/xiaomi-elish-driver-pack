@@ -31,7 +31,7 @@ iio 被 GNOME 通过 D-Bus 激活的时机早于 SSC 设备出现。上游在启
 上游只有在 `find_sensors()` 成功时才 `g_signal_connect(client, "uevent", ...)`。
 配合修改 2（启动时无传感器仍常驻），必须把 uevent 订阅提前到 `find_sensors()` 之前，
 并初始化 `sensor_startup_dbus_invocations_delayed[]`，否则设备热插后永远不会被注册
-（本次实测：热插失败 → 启动脚本 warm-restart iio 兜底）。
+（启动脚本会在 IIO_DELAY 后拉起 iio 并轮询健康检查；补丁版 iio 常驻等待热插）。
 
 ## 编译
 
@@ -57,11 +57,13 @@ polkit policy 等。
 - `systemd/iio-dropin/after-ssc.conf` → `/etc/systemd/system/iio-sensor-proxy.service.d/after-ssc.conf`
   ```
   [Unit]
-  After=multi-user.target
+  #After=multi-user.target   # 加速改造后不再等待桌面（可提前启动）
+
   [Service]
   ExecStartPre=/bin/sleep 2
   Restart=on-failure
   RestartSec=5
+  TimeoutStopSec=3
   ```
   注意：**不能用 `Restart=always`**（上游 clean exit 会触发风暴）；用 `Restart=on-failure`。
 - `systemd/dbus/net.hadess.SensorProxy.service` 必须包含
@@ -77,3 +79,6 @@ gdbus call --system --dest net.hadess.SensorProxy --object-path /net/hadess/Sens
   --method org.freedesktop.DBus.Properties.GetAll net.hadess.SensorProxy
 # 期望 HasAmbientLight true、LightLevel 有数值、AccelerometerOrientation 非 undefined
 ```
+
+2026-11-21 release #13 复核：active、单实例、`NRestarts=0`；s2idle 唤醒后由
+`elish-sensors-resume` worker 拉起，传感器恢复 3.3–6.0 s。

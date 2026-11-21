@@ -38,12 +38,13 @@ SSC 传感器（libssc + iio-sensor-proxy）在 GNOME 下有两个典型故障�
 
    ```ini
    [Unit]
-   After=multi-user.target
+   #After=multi-user.target   # 加速改造后不再等待桌面（可提前启动）
 
    [Service]
    ExecStartPre=/bin/sleep 2
    Restart=on-failure
    RestartSec=5
+   TimeoutStopSec=3
    ```
 
    **不能用 `Restart=always`**：iio 的"无传感器"路径是 clean exit(0)，always 会导致风暴。
@@ -61,6 +62,7 @@ gdbus call --system --dest net.hadess.SensorProxy --object-path /net/hadess/Sens
 ```
 
 实测：LightLevel 随遮光变化（如 59.9→26.8 lux），orientation 随转动变化（right-up 等），
-`iio NRestarts=0`、无 claim 失败日志。启动脚本的 warm-restart 兜底日志
-（`iio has no SSC sensors after device appeared (hotplug missed); doing one warm restart`）
-属于已知的正常兜底路径，不影响功能。
+`iio NRestarts=0`、无 claim 失败日志（2026-11-21 release #13 复核仍为 active/单实例/NRestarts=0）。
+启动脚本在 `IIO_DELAY` 后拉起 iio 并轮询数据（最长 150s）；若 iio 早于 SSC 设备被激活，
+补丁版会打印 `No sensors found at startup; staying alive waiting for hotplug (patched)` 并常驻，
+设备热插后即注册——不再需要“盲重启”兜底。

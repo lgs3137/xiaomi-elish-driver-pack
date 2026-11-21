@@ -3,6 +3,10 @@
 在 Armbian Linux（kernel `6.18.44-current-sm8250`）上启用侧边电容指纹：
 **录入、验证、GDM 锁屏/登录解锁、sudo 指纹认证、TA 拒服务自动恢复**（均已实测）。
 
+> 文档基线：2026-11-21。自检复核 **OK=19 / WARN=1 / FAIL=0**（`install/verify-fingerprint.sh`；
+> WARN 为旧 `--pam` sudo 指纹栈未启用，当前 sudo 认证走 bioauth）；
+> 功能实测与 ABI 校验基准见 `../VERSIONS.md`。历史项目记录见 `../docs/HISTORY.md`。
+
 本子包是合并安装包的一部分：内核/DTB/boot 镜像与传感器项目**共用一次构建**，见 `../kernel/README.md`。
 本包只含源码、补丁、系统配置与脚本；**不含 TA 固件、编译产物、日志、指纹模板、PAM/sudoers 备份**。
 
@@ -15,6 +19,7 @@
 | GDM 锁屏/登录指纹图标与解锁 | ✅ |
 | sudo 指纹（弹窗提示、8s 超时回退密码） | ✅ |
 | TA "拒服务" 自动恢复（看门狗重载 loader） | ✅ |
+| 安装自检 `install/verify-fingerprint.sh` | ✅ OK=19 / WARN=1 / FAIL=0（2026-11-21 复核；WARN=旧 `--pam` 栈未启用） |
 
 ## 硬件与版本
 
@@ -48,10 +53,9 @@ fp-ta-watchdog（日志检测 TA 拒服务 → 重启 loader）
 README.md / INSTALL.md / NOTES.md / MANIFEST.md
 src/qsee-supplicant/      supplicant + app-loader 源码（0.1.1，无二进制）
 src/libfprint/            goodixqsee 驱动 + 日志补丁（相对上游 430e24e5）
-system/                   pam.d、systemd、udev、脚本（安装到系统）
+system/                   pam.d、systemd、udev、bin、user-bin（安装到系统）
 extract/                  gfenu TA 提取脚本与校验表（TA 不随包）
 install/                  安装/自检/卸载脚本
-docs/                     指纹交接文档、DT 对比、调研报告等（已去用户化）
 ```
 
 ## 安装顺序（详见 `INSTALL.md`）
@@ -76,9 +80,10 @@ docs/                     指纹交接文档、DT 对比、调研报告等（已
 ```bash
 systemctl is-active qsee-supplicant 'qsee-app-loader@gfenu' fprintd fp-ta-watchdog
 cat /sys/devices/platform/fingerprint/firmware_name   # gfenu
+./install/verify-fingerprint.sh "$USER"               # 期望 OK=19 WARN≤1 FAIL=0
 fprintd-list "$USER"                                  # 至少一个手指
 fprintd-verify "$USER"                                # 按压 → verify-match
 sudo true                                             # 弹窗 → 按指纹（或 8s 后回退密码）
 ```
 
-故障排查见 `INSTALL.md` 与 `NOTES.md`；历史调研/交接文档已移出包（工作区历史归档）。
+故障排查见 `INSTALL.md` 与 `NOTES.md`；历史调研/交接文档已移出包（工作区历史归档，不在包内）。

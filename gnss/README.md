@@ -1,7 +1,8 @@
 # GNSS 子包 — Airoha AG3335（elish / SM8250）
 
 本子包让 Xiaomi Mi Pad 5 Pro（elish）上的 Airoha **AG3335** GNSS 在 Armbian Linux
-下工作，并把 NMEA 交给 `gpsd`。**2026-11-12 已在实机打通并验证。**
+下工作，并把 NMEA 交给 `gpsd`。**2026-11-12 打通；2026-11-13 完成室外真实定位验证**
+（文档基线 2026-11-21；历史记录见 `../docs/HISTORY.md`）。
 
 - 硬件：AG3335（Airoha；Android 侧 `android.hardware.gnss@2.1-service-airoha`），
   QUP5 UART `0x994000` → `/dev/ttyHS1`
@@ -22,6 +23,7 @@ gpsd  ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 921600 ← AG3335
 
 | 命令 | 校验和 | 作用 |
 |---|---|---|
+| `$PAIR021*39` | `*39` | 查询固件版本（日志确认 `AG3335M_V1.3.0...`） |
 | `$PAIR066,1,1,1,1,0,0` | `*3A` | 启用 GPS+GLONASS+Galileo+BDS |
 | `$PAIR062,0,1` … `$PAIR062,6,1` | 见源码 | 使能 GGA/GLL/GSA/GSV/RMC/VTG/ZDA |
 | `$PAIR086,0` | `*28` | 关闭二进制调试日志 |
@@ -32,9 +34,10 @@ gpsd  ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 921600 ← AG3335
 
 ## 关键事实（不要再走弯路）
 
-1. **芯片自己从 flash 启动**：BROM（115200）→ `ag3335_bootloader.bin`@`0x08003000`
-   → 切 **921600**、打印 `Jump to addr 0x8013000` → 运行 `gnss_demo.bin` 固件。
-   旧文档的“停在 BROM”是**波特率看错**：bootloader/firmware 只在 921600 说话。
+1. **芯片自己从 flash 启动**：上电 → BROM（115200 仅用于下载）→ 从 SPI flash
+   `0x08003000` 加载 `ag3335_bootloader.bin` → 切 **921600**、打印
+   `Jump to addr 0x8013000` → 运行 `gnss_demo.bin` 固件。
+   bootloader/firmware 只在 921600 说话（115200 采样会把输出当乱码）。
 2. **上电后 ~1 秒内必须发 `$PAIR002*38`**（打开 DSP），否则固件保持静默，
    只能重新上下电（vendor 配置 `wake_duration=1000`）。
    **但只发 `$PAIR002` 不够**：还要发 `$PAIR066`（星座/NMEA 配置）+ `$PAIR062`
@@ -43,11 +46,9 @@ gpsd  ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 921600 ← AG3335
    但室外 5 分钟无 fix；补发该序列后室外 **2 分钟内 mode=3、12 星、GGA quality=1**。
 3. **不需要、也不要重刷 GNSS flash**。`partition_table` / bootloader / demo / config
    已在设备 flash 中且能正常启动。刷写流程只用于修复 flash（见 `extract/README.md`）。
-4. 旧文档说的 `HDL_START_CMD1–4` 就是 BROM 下载握手四步
-   `A0→5F / 0A→F5 / 50→AF / 05→FA`，**不是**运行时启动命令。
-5. 串口上除 NMEA 外还有大量固件调试句（`$DACFOC_info/$TCFOC/$dopa…`），
+4. 串口上除 NMEA 外还有大量固件调试句（`$DACFOC_info/$TCFOC/$dopa…`），
    `airoha-gnssd` 会过滤，只把校验正确的 `$G*` 语句转给 gpsd。
-6. 指南针（罗盘）与 GNSS 互不冲突：GNSS 用 QUP5 UART + PMIC GPIO3 + GPIO46/158；
+5. 指南针（罗盘）与 GNSS 互不冲突：GNSS 用 QUP5 UART + PMIC GPIO3 + GPIO46/158；
    传感器走 SLPI/`fastrpc`，两者可同时工作（实机已验证 GPS NMEA 与
    `/net/hadess/SensorProxy/Compass` 航向同时输出）。
 
@@ -91,7 +92,7 @@ iio-sensor-proxy(Compass) → GeoClue2 compass source（可选）
 
 - `gps-nmea-share`（本包新增）从 gpsd TCP 订阅 NMEA，按行发布到 `/run/gps-share.sock`；
   GeoClue 2.7 的 `[network-nmea]` 源直接读取该 socket（只解析 GGA/RMC）。
-- `install.sh` 会自动：安装 bridge + systemd 服务、把 `/etc/geoclue/geoclue.conf` 的
+- `install/install.sh` 会自动：安装 bridge + systemd 服务、把 `/etc/geoclue/geoclue.conf` 的
   `nmea-socket` 指到 `/run/gps-share.sock`、并加 `geoclue` 的排序 drop-in。
 - 实测：GeoClue 能连接并收到 NMEA；用合成 fix 验证 `Geoclue.Simple` 返回
   lat/lon（`description=GPS GGA`）。**室内无 fix 时 GeoClue 不会给位置，属正常**，
@@ -103,7 +104,7 @@ iio-sensor-proxy(Compass) → GeoClue2 compass source（可选）
   `polkit/49-iio-sensor-proxy-geoclue.rules` 只放行 `geoclue` 用户对该 action 的
   claim。**修复后实测（合成定位）：GeoClue `Location` 同时返回位置与
   `heading≈177°`，iio NRestarts=0；100 次 claim/release + 并发压力测试无崩溃。**
-  早前观察到的单次 iio SEGV 未复现，若再出现按 `gnss/NOTES.md` 收集 core 再分析。
+  若再出现 iio SEGV，按 `NOTES.md` 收集 core 再分析。
 - 验证：
   ```bash
   systemctl status gps-nmea-share geoclue
@@ -122,14 +123,17 @@ iio-sensor-proxy(Compass) → GeoClue2 compass source（可选）
 
 安装 Pure Maps：`sudo flatpak install flathub io.github.rinigus.PureMaps`。
 
-## 已验证结果（2026-11-12）
+## 已验证结果（2026-11-12 打通；2026-11-13 室外定位补测）
 
 | 项 | 结果 |
 |---|---|
 | 芯片启动 | `Jump to addr 0x8013000`、`$PAIR021,AG3335M_V1.3.0...` |
 | 初始化 | `$PAIR002*38` 发出后约 0.35–0.45 s 收到 `$PAIR001,002,0*39` |
+| 运行时初始化 | PAIR021/066/062/086/004 全部 ACK；日志 `runtime init sent` |
 | NMEA | `$GNGGA/$GNGLL/$GNGSA/$GPxGSV` 持续 1 Hz（室内无星时字段为空，属正常） |
 | gpsd | 识别 `/dev/ttyGNSS0`，driver `NMEA0183`，TPV 正常解码 |
+| 室外定位（2026-11-13） | 补发运行初始化序列后 2 分钟内 **mode=3、12 星、GGA quality=1** |
+| GeoClue2 / 地图 | 位置经 `/run/gps-share.sock` 可用；Pure Maps 3.5.1（Flathub）已验证 |
 | 与传感器共存 | 同时输出 NMEA 与罗盘 heading（约 176°） |
 
 ## 参考（公开资料）

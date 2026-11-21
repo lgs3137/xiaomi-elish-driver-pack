@@ -12,8 +12,9 @@ kernel/include/uapi/linux/tee.h                   # TEE_IMPL_ID_QSEECOM=5（core
 ## 两种做法
 
 - **推荐（完整可复现）**：直接应用权威系列补丁
-  `kernel/patches/fingerprint/qseecom-tee-series.patch`（14 文件，含 drivers/tee/Kconfig/Makefile、
-  drivers/soc/qcom/Kconfig、3 个头文件、Documentation、MAINTAINERS）；再应用 `0001/0002/0003`。
+  `patches/fingerprint/qseecom-tee-series.patch`（14 文件，含 drivers/tee/Kconfig/Makefile、
+  drivers/soc/qcom/Kconfig、3 个头文件、Documentation、MAINTAINERS）；再按 `README.md` 步骤 A
+  应用 `0001/0002/0003` 等补丁。
 - **手工（使用本包已导出的文件）**：按下面步骤。
 
 ## 手工步骤

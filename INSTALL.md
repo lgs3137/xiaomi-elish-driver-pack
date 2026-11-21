@@ -46,7 +46,7 @@ sudo apt install -y build-essential gcc make git meson ninja-build pkg-config \
 # 若提取稀疏 Android 镜像： sudo apt install -y android-sdk-libsparse-utils
 ```
 
-- 内核源码：与运行内核同版本（`6.18.44-current-sm8250`）的源码树；本机历史路径 `/var/tmp/kbuild-src`。
+- 内核源码：与运行内核同版本（`6.18.44-current-sm8250`）的 Armbian sm8250 源码树（如 `/var/tmp/kbuild-src`）。
 - BTF 编译需 ≥4GB swap。
 
 ## 2. 提取设备数据/固件（本包不附带）
@@ -98,9 +98,13 @@ grep -q 'CONFIG_TEE_QSEECOM' drivers/tee/Makefile || printf 'obj-$(CONFIG_TEE_QS
 cp -a <包>/kernel/qseecom drivers/tee/qseecom
 cp -a <包>/kernel/mdt_loader.c drivers/soc/qcom/mdt_loader.c
 cp -a <包>/kernel/qcom_scm.c drivers/firmware/qcom/qcom_scm.c
-# 传感器 fastrpc 补丁 + LPASS pinctrl defer 补丁
-patch -p1 < <包>/kernel/patches/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch
-patch -p1 < <包>/kernel/patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch
+# 内核补丁：0001 fastrpc（传感器）、0002 LPASS pinctrl、0004 SMB5 充电、
+#           0005–0008 相机、0009 睡眠修复（清单与说明见 kernel/README.md、PATCHES.md）
+for p in 0001-fastrpc-sdsp-vmid-and-sensors-pd 0002-pinctrl-lpass-lpi-defer-on-clock-timeout \
+         0004-smb5-typec-legacy-reset-resume 0005-ov8856-bggr-vflip 0006-ov13b10-of-supplies-reset \
+         0007-cn3927v 0008-hi556-of 0009-fastrpc-listener-unfreezable; do
+  patch -p1 < <包>/kernel/patches/$p.patch
+done
 # 配置 + 恢复 q6v5_pas auto_boot=true + 编译
 cp <包>/kernel/config-used-6.18.44 .config
 make ARCH=arm64 olddefconfig
@@ -179,7 +183,7 @@ cd sensors
 cd ..
 ```
 
-传感器开机链路约 **22 秒**（M2 可写 registry 后；改造前 ~79s）；`sensor-status` 可随时诊断。延迟参数在 `/etc/sensor-tuning.conf`（默认 0/8）。
+传感器开机链路约 **21 秒**（2026-11-21 实测；改造前 ~79s）；`sensor-status` 可随时诊断。延迟参数在 `/etc/sensor-tuning.conf`（默认 0/8）。
 
 ## 6. 指纹用户态
 

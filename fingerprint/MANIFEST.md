@@ -7,10 +7,11 @@ README.md / INSTALL.md / NOTES.md / MANIFEST.md
 src/qsee-supplicant/      supplicant + app-loader 完整源码（0.1.1，无编译二进制、无 .git）
 src/libfprint/            goodixqsee 驱动源码 + meson 选项 + 日志补丁（相对 430e24e5）
 system/pam.d/             sudo（指纹优先栈，可选安装）、gdm-fingerprint（对照）
-system/systemd/           qsee-supplicant.service、qsee-app-loader@.service、
-                          fp-ta-watchdog.service、fprintd drop-in、用户会话 watcher unit
+system/systemd/           qsee-supplicant.service、qsee-app-loader@.service（含 restart-limit /
+                          retry-reclaim drop-in）、fp-ta-watchdog.service、fprintd drop-in、
+                          用户会话 watcher unit
 system/udev/60-goodix-qsee.rules
-system/bin/               fp-sudo-prompt、fp-sudo-prompt-done、fp-ta-watchdog
+system/bin/               fp-sudo-prompt、fp-sudo-prompt-done、fp-ta-watchdog、qsee-app-loader-retry
 system/user-bin/          fp-sudo-prompt-watch
 extract/                  extract-gfenu-ta.sh + README（TA 提取与 sha256 校验）
 install/                  install-fingerprint-files.sh、verify-fingerprint.sh、uninstall-fingerprint.sh
@@ -31,10 +32,7 @@ install/                  install-fingerprint-files.sh、verify-fingerprint.sh�
 
 ## 版本/来源
 
-| 组件 | 来源 | 版本 |
-|---|---|---|
-| libfprint | https://github.com/wrobelda/libfprint `goodix-qsee` | `430e24e5`（1.94.100）+ 本包日志补丁 |
-| qsee-supplicant | https://github.com/wrobelda/qsee-supplicant | 0.1.1 |
-| goodix-tools（未含） | https://github.com/wrobelda/goodix-fp-spi-linux | `4663eb9` |
-| TA | 自己设备的 Android `/vendor/firmware_mnt/image/gfenu.*` | 9 文件，sha256 见 `extract/README.md` |
-| 内核 | 6.18.44 + Armbian sm8250 基线（获取见 `../kernel/ARMBIAN-BASELINE.md`）+ 指纹文件 + 传感器 fastrpc 补丁 | `6.18.44-current-sm8250` |
+统一见合并包根 `../VERSIONS.md`（内核、libfprint、qsee-supplicant、fprintd 版本与安装后 sha256）；
+内核构建链见 `../kernel/README.md` 与 `../kernel/ARMBIAN-BASELINE.md`。
+子包特有：TA `gfenu` 从**自己设备**的 Android `/vendor/firmware_mnt/image/` 提取（9 文件），
+sha256 校验表见 `extract/README.md`（TA 不随包）。

@@ -1,5 +1,9 @@
 # Goodix QSEE match-on-chip driver
 
+> Upstream driver README (English source docs), packaged here for reference.
+> For this device's build, build-time patch, install and rollback steps see
+> `../../../INSTALL.md` and `../../../NOTES.md`.
+
 This driver implements version 1 of the Goodix trusted-application protocol
 recovered on the `goodix,gf3626` reference platform.  It binds the
 `goodix_fp` misc device only when that firmware compatible is present.  The TA
