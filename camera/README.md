@@ -1,6 +1,6 @@
 # 相机（前摄 OV8856 / 后摄 OV13B10 / 景深 Hi556）— 当前状态与用法
 
-> 适用：包版本 **2026.11.21**，内核 `6.18.44-current-sm8250`（release #13）。
+> 适用：包版本 **2026.11.21**，内核 `6.18.44-current-sm8250`（release #15）。
 > 本文件只保留当前状态、安装、用法与限制；构建/CLI/方向配置见
 > [`elish-camera/README.md`](elish-camera/README.md)，架构与实测事实见
 > [`elish-camera/docs/architecture.md`](elish-camera/docs/architecture.md)，

@@ -2,7 +2,7 @@
 
 > **文档更新**：2026-11-21。结论基于 2026-11-13 的实测数据（GitHub 提交 churn + 把包内补丁对
 > `armbian/linux@linux-6.18.y` HEAD 与 mainline `v6.19` 做 `patch --dry-run`）；churn/dry-run 为
-> 该日快照。2026-11-21 新增的 `0009`（fastrpc listener `PF_NOFREEZE`，睡眠死机修复）尚未纳入该次
+> 该日快照。2026-11-21 新增的 `0009`（fastrpc listener `PF_NOFREEZE`，睡眠死机修复）与 `0010`（SMB5 PD 快充）尚未纳入该次
 > dry-run，升级时与 `0001` 同文件一并复核（见 §2）。
 > 工具：`kernel/compat-check.sh`（只读，见文末）。
 
@@ -55,6 +55,7 @@
 | 0007 cn3927v | ✅ | ✅（offset 10 行） |
 | 0008 hi556 | ✅ | ✅ |
 | 0009 fastrpc listener（2026-11-21 新增） | 未纳入 2026-11-13 dry-run；与 0001 同文件，升级时一并复核 | 同左 |
+| 0010 smb5 快充（2026-11-21 新增） | 未纳入 dry-run；改 `qcom_pm8150b_charger.c`（Armbian 补丁集新增文件，非 mainline），升级时要确认该文件仍存在且补丁能打 | 同左 |
 
 另外：`sdm845_slpi_resource_init` 在 6.18.y 与 v6.19 中都存在，
 所以 `auto_boot` 的 sed 逻辑跨版本风险低。

@@ -1,0 +1,168 @@
+--- a/drivers/power/supply/qcom_pm8150b_charger.c
++++ b/drivers/power/supply/qcom_pm8150b_charger.c
+@@ -262,6 +262,14 @@
+ 
+ /* pmi8150b registers represent current in increments of 1/40th of an amp */
+ #define CURRENT_SCALE_FACTOR		50000
++
++/* Fast-charge current (battery side) programmed by this driver.
++ * The PMIC power-on default is only 1.5 A; when a USB-PD charger negotiates
++ * 9 V we can safely raise the battery charge current.  Step is 50 mA.
++ */
++#define DEFAULT_FAST_CHARGE_CURRENT_UA		1500000
++#define HIGH_VOLTAGE_FAST_CHARGE_CURRENT_UA	6000000
++#define HIGH_VOLTAGE_THRESHOLD_UV		6500000
+ /* clang-format on */
+ 
+ enum charger_status {
+@@ -303,6 +311,7 @@
+ 	struct power_supply_battery_info *batt_info;
+ 
+ 	struct delayed_work status_change_work;
++	struct delayed_work fcc_work;
+ 	int cable_irq;
+ 	bool wakeup_enabled;
+ 
+@@ -310,6 +319,8 @@
+ 	struct iio_channel *usb_in_v_chan;
+ 
+ 	struct power_supply *chg_psy;
++
++	unsigned int fcc_ua;
+ };
+ 
+ static enum power_supply_property smb5_properties[] = {
+@@ -465,6 +476,11 @@
+ 		val_raw);
+ }
+ 
++static int smb5_set_fast_charge_current(struct smb5_chip *chip,
++					unsigned int current_ua);
++static void smb5_update_fast_charge_current(struct smb5_chip *chip);
++static void smb5_fcc_work(struct work_struct *work);
++
+ static void smb5_status_change_work(struct work_struct *work)
+ {
+ 	unsigned int charger_type, current_ua;
+@@ -475,8 +491,14 @@
+ 	chip = container_of(work, struct smb5_chip, status_change_work.work);
+ 
+ 	smb5_get_prop_usb_online(chip, &usb_online);
+-	if (!usb_online)
++	if (!usb_online) {
++		if (chip->fcc_ua != DEFAULT_FAST_CHARGE_CURRENT_UA) {
++			smb5_set_fast_charge_current(chip,
++						     DEFAULT_FAST_CHARGE_CURRENT_UA);
++			chip->fcc_ua = DEFAULT_FAST_CHARGE_CURRENT_UA;
++		}
+ 		return;
++	}
+ 
+ 	for (count = 0; count < 3; count++) {
+ 		dev_dbg(chip->dev, "get charger type retry %d\n", count);
+@@ -514,6 +536,7 @@
+ 	}
+ 
+ 	smb5_set_current_limit(chip, current_ua);
++	smb5_update_fast_charge_current(chip);
+ 	power_supply_changed(chip->chg_psy);
+ }
+ 
+@@ -538,6 +561,64 @@
+ 	return iio_read_channel_processed(chan, val);
+ }
+ 
++static int smb5_set_fast_charge_current(struct smb5_chip *chip,
++					unsigned int current_ua)
++{
++	unsigned int val = current_ua / CURRENT_SCALE_FACTOR;
++	int rc;
++
++	rc = regmap_write(chip->regmap, chip->base + FAST_CHARGE_CURRENT_CFG,
++			  val);
++	if (rc < 0)
++		dev_err(chip->dev,
++			"Couldn't set fast-charge current %u uA rc=%d\n",
++			current_ua, rc);
++	return rc;
++}
++
++static void smb5_update_fast_charge_current(struct smb5_chip *chip)
++{
++	unsigned int fcc_ua = DEFAULT_FAST_CHARGE_CURRENT_UA;
++	int usb_uv = 0;
++	int rc;
++
++	/*
++	 * Read VBUS directly instead of going through smb5_get_iio_chan():
++	 * that helper reports 0 while the charger state machine is not in
++	 * CHARGING state (transient during APSD/PD re-negotiation), which
++	 * would make us drop back to the 1.5 A default right after raising it.
++	 */
++	if (IS_ERR(chip->usb_in_v_chan))
++		return;
++
++	rc = iio_read_channel_processed(chip->usb_in_v_chan, &usb_uv);
++	if (rc < 0 || usb_uv == 0)
++		return;
++
++	if (usb_uv >= HIGH_VOLTAGE_THRESHOLD_UV)
++		fcc_ua = HIGH_VOLTAGE_FAST_CHARGE_CURRENT_UA;
++
++	if (fcc_ua == chip->fcc_ua)
++		return;
++
++	rc = smb5_set_fast_charge_current(chip, fcc_ua);
++	if (rc < 0)
++		return;
++
++	chip->fcc_ua = fcc_ua;
++	dev_info(chip->dev,
++		 "fast-charge current set to %u uA (usb %u uV)\n",
++		 fcc_ua, usb_uv);
++}
++
++static void smb5_fcc_work(struct work_struct *work)
++{
++	struct smb5_chip *chip = container_of(work, struct smb5_chip,
++					      fcc_work.work);
++
++	smb5_update_fast_charge_current(chip);
++}
++
+ static int smb5_get_prop_health(struct smb5_chip *chip, int *val)
+ {
+ 	int rc;
+@@ -661,6 +742,8 @@
+ 
+ 	schedule_delayed_work(&chip->status_change_work,
+ 			      msecs_to_jiffies(1500));
++	/* PD negotiation (5V -> 9V) happens shortly after VBUS is valid */
++	schedule_delayed_work(&chip->fcc_work, msecs_to_jiffies(3000));
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -670,6 +753,7 @@
+ 	struct smb5_chip *chip = data;
+ 
+ 	power_supply_changed(chip->chg_psy);
++	schedule_delayed_work(&chip->fcc_work, msecs_to_jiffies(500));
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -919,6 +1003,15 @@
+ 	if (rc < 0)
+ 		return rc;
+ 
++	rc = devm_delayed_work_autocancel(chip->dev, &chip->fcc_work,
++					  smb5_fcc_work);
++	if (rc)
++		return dev_err_probe(chip->dev, rc,
++				     "Failed to init fcc work\n");
++
++	smb5_set_fast_charge_current(chip, DEFAULT_FAST_CHARGE_CURRENT_UA);
++	chip->fcc_ua = DEFAULT_FAST_CHARGE_CURRENT_UA;
++
+ 	rc = smb5_configure_typec(chip);
+ 	if (rc < 0)
+ 		return rc;

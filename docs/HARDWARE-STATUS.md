@@ -2,8 +2,8 @@
 
 - **设备**：Xiaomi Mi Pad 5 Pro（SM8250 / elish，**WiFi 版**，CSOT 面板）
 - **系统**：Armbian 26.8.14 noble（Ubuntu 24.04 用户态），GNOME 46（Wayland）
-- **内核**：`6.18.44-current-sm8250`，release 构建 #13（`SMP Sat Nov 21 10:38:33 CST 2026`；release 配置，**无** PM_DEBUG / DPM_WATCHDOG 等诊断项）
-- **包版本 / 更新日期**：**2026.11.21**（本文件按 2026-11-21 release #13 实测刷新）
+- **内核**：`6.18.44-current-sm8250`，release 构建 #15（`SMP Sat Nov 21 14:10:40 CST 2026`；release 配置，**无** PM_DEBUG / DPM_WATCHDOG 等诊断项；含 0009 睡眠修复与 0010 PD 快充）
+- **包版本 / 更新日期**：**2026.11.21**（本文件按 2026-11-21 release #15 实测刷新）
 - **用途**：后续会话/安装/排查**以本文件为准**；历史里程碑见 [`HISTORY.md`](HISTORY.md)，未完成项见 [`TODO.md`](TODO.md)。
 - **判定标准**：✅ 已驱动且当前可用；⚠️ 部分驱动/有已知功能缺陷；❌ 有硬件但 Linux 未驱动；— 本机不存在。
 
@@ -26,7 +26,7 @@
 | 已驱动 | 指纹 Goodix GF3626 | ✅ fprintd 录入/验证、GDM 解锁、sudo 认证（当前走 bioauth）、`fp-ta-watchdog` 自动恢复；自检 OK=19 / WARN=1 / FAIL=0 |
 | 已驱动 | 音频 | ✅（PA/WirePlumber 争用唯一 PCM 已修复：用户级 `51-disable-alsa.lua`；相机 PipeWire 不受影响） |
 | 已驱动 | 闪光灯 / 手电筒 | ✅ `white:flash`；开机误闪已修复（默认组件 `flash-led/`）；手电筒可选（`torch/`，默认不装） |
-| 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电当前约 1.95 A 基础（快充未验证） |
+| 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电：5V 基础 + **PD 9V 快充已打通**（0010，电池侧 ~15W）；bq2597x 泵 / 27W 档未接 |
 | 功能缺陷 | 睡眠唤醒后 pogo 键盘可能失效/反复重枚举 | ⚠️ host USB PHY resume 内核问题；重启/重插恢复，用户态不改（历史危险复位已禁用） |
 | 本机不存在 | 5G 版本（本机 WiFi 版；5G 变体不在本包测试范围） | — |
 
@@ -55,7 +55,7 @@
 | 已工作 | 加速度计、环境光、旋转矢量方向；**指南针 heading 已可用**（来自 rotv 融合，D-Bus `/net/hadess/SensorProxy/Compass` 属性 `CompassHeading`） |
 | 未暴露 | 原始陀螺、原始磁力计三轴（μT）、接近/SAR（`HasProximity=false`） |
 | 硬件 | LSM6DSO（加速度+陀螺）、AK991x（磁力计）、TCS3701/BU27030（环境光）、SX932x（SAR/接近） |
-| 启动时间 | `PRE_DELAY=0`、`IIO_DELAY=8`：开机到传感器可用 **20.9 s**（release #13：kernel 3.155 s + userspace 18.263 s；`hexrpc-boot.log` `[start] up=20.92 sensors OK`；SLPI start up=12.74 s → PD registry 初始化约 8.2 s）；`iio-sensor-proxy` active、单实例、NRestarts=0 |
+| 启动时间 | `PRE_DELAY=0`、`IIO_DELAY=8`：开机到传感器可用 **20.9 s**（release #15：kernel 3.13 s + userspace 18.64 s；`hexrpc-boot.log` `[start] up=20.96 sensors OK`；SLPI start up=12.85 s → PD registry 初始化约 8.1 s）；`iio-sensor-proxy` active、单实例、NRestarts=0 |
 | 可靠性 | 干净启动成功率约 **13/14**；残留为 PD 初始化偶发静默卡死（attach 只读 `hw_platform` 后停住、无崩溃/无 assign -22/registry timeout），与延迟无关，干净重启恢复；同 boot 内重启服务无效 |
 | 休眠/唤醒 | **PD `frpc_dsp` resume 崩溃已修复**（`kernel/patches/0009-fastrpc-listener-unfreezable.patch`）：打补丁内核自 2026-11-19 至 11-21 共 **20 次 s2idle**（含 10h47m、5h50m、5h43m、3h33m 等长睡）**0 次** PDM/fatal/crash；release #13 当日 **4 次 s2idle**（最长 25.8 分钟）0 崩溃，`/sys/power/suspend_stats` success=4 fail=0；唤醒后传感器恢复 **3.3 s / 6.0 s**（`journalctl -t elish-sensors-resume`；iio 未运行时 worker 会拉起它） |
 | iio 启动方式 | 启动脚本在 `IIO_DELAY` 后拉起；补丁版 iio 常驻等待热插（`staying alive ... (patched)`），健康检查最长 150 s；单实例、NRestarts=0 |
@@ -95,7 +95,7 @@
 | 显示 | CSOT 面板 + DPU/DSI；背光 KTZ8866（i2c 11-0011） |
 | 触摸/笔 | NT36523：`NVTCapacitiveTouchScreen`、`NVTCapacitivePen`（基础笔输入已驱动） |
 | 霍尔/按键 | `gpio-keys`：`switch-lid`/`switch-tablet-mode`（SW=3），电源键/resin |
-| 电池/充电 | 双 `bq27z561`、`pm8150b`、`bq2597x` master/slave、USB-C TCPM/UCSI；suspend/resume 后 Type-C legacy/100mA 卡死已修复（`kernel/patches/0004`，带充电器 3 轮 suspend/resume 验证）；`bq2597x` 快充泵仍可能 present=0，当前约 1.95 A 基础充电 |
+| 电池/充电 | 双 `bq27z561`、`pm8150b`、`bq2597x` master/slave、USB-C TCPM/UCSI；suspend/resume 后 Type-C legacy/100mA 卡死已修复（`kernel/patches/0004`）；**PD 9V 快充已打通**（`kernel/patches/0010`：VBUS≥6.5V 时 SMB5 电池充电电流 1.5A→6A，实测 64–66% 电量时电池侧 3.7–3.8A ≈ **15W**，VBUS 8.73–8.75V、AICL 3.3A、电池温度 ≤40°C；5V 档保持 1.5A）；`bq2597x` 电荷泵仍 present=0（并联/27W 档待后续） |
 | 音频 | `Xiaomi Mi Pad 5 Pro` 声卡；8×CS35L41 外放、耳机、录音。无输出已修复：根因是 PipeWire/WirePlumber ALSA monitor 与 PulseAudio 争用唯一 PCM（`hw:Pro,0`），用户级 `~/.config/wireplumber/main.lua.d/51-disable-alsa.lua`（`alsa_monitor.enabled=false`）解决，相机 PipeWire 不受影响；遗留 `Enable(0) failed: -110` 为功放下电 hibernate 超时（播放上电正常、无 `PUP-done` 超时，不影响外放） |
 | WiFi/BT | QCA6390（ath11k + btqca/hci_uart）；`wlp1s0`/`hci0` 正常 |
 | 键盘/鼠标 | USB HID：`Xiaomi Pad Keyboard`、`Xiaomi Pad Mouse`、`Xiaomi Pad`，外接蓝牙鼠标 |
@@ -129,13 +129,19 @@ sudo ./install/check-all.sh
 
 # 开机与传感器时序
 systemd-analyze                                # kernel / userspace / graphical.target
-cat /var/log/hexrpc-boot.log | grep 'up='      # 传感器可用时刻（release #13: up=20.92）
+cat /var/log/hexrpc-boot.log | grep 'up='      # 传感器可用时刻（release #15: up=20.96）
 systemctl status iio-sensor-proxy --no-pager   # active、单实例、NRestarts=0
 journalctl -t elish-sensors-resume -b --no-pager | tail   # 唤醒恢复耗时（3.3–6.0 s）
 
 # 休眠/唤醒（睡眠死机修复）
 cat /sys/power/suspend_stats                   # success / fail
 dmesg | grep -iE 'frpc_dsp|PDM|crash detected' # 应为空
+
+# 充电 / PD 快充
+dmesg | grep -i 'fast-charge current'          # PD 9V 时应为 set to 6000000 uA
+cat /sys/class/power_supply/pm8150b-charger/{voltage_now,current_max,usb_type}
+cat /sys/class/power_supply/bq27z561-0/current_now   # 9V 快充时电池侧约 1.8–2.0A（两 gauge 合计 ~3.8A）
+cat /sys/class/power_supply/bq2597x-master/present   # 0 = 电荷泵未接
 
 # 相机 / 虚拟相机 / PipeWire 节点
 elish-camera-ctl status                        # /dev/video2,20 + consumers + PipeWire 节点数

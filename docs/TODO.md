@@ -15,34 +15,34 @@
   `DXVK_HUD=1` 确认 GPU 加速、调度器 `conservative`→`schedutil`、
   armhf 库缺失导致 box86 回退解释执行、cnc-ddraw renderer 选择。
 
-## 2. Linux 充电栈加固 + 基础快充（第 2 步，中）
+## 2. Linux 充电栈：从 15W 到 27W（第 2 步，中）
 
-目标：**不移植完整 Android SMB5 栈**，保留现有 mainline SMB5 + TCPM + 独立 bq2597x，
-只补关键状态机，做到支持基础快充（15–27 W 档）。
+目标：**不移植完整 Android SMB5 栈**，在已打通的 SMB5 单路快充基础上继续加档。
 
-- **已完成（不在第 2 步范围）**：suspend/resume 后 Type-C legacy / 100mA 卡死已由
-  `kernel/patches/0004-smb5-typec-legacy-reset-resume.patch` 修复（probe/resume 的 legacy 复位 +
-  重跑 APSD/AICL + 恢复 current_max；带充电器 3 轮 suspend/resume 验证）。修复记录见
-  `kernel/CHARGER-RESUME.md`。
-- **剩余范围（第 2 步）**：把 PD/QC 固定档（5V/9V）的 ICL/FCC 接到 TCPM 协商结果；
-  目标 **15–27 W** 基础快充 + 基本 JEITA/温控。
-- **不做（第 3 步）**：电荷泵 2:1、双电芯、PPS、33W+ 原厂级快充——目前没有原装充电器，暂不考虑。
-- **架构差异（设计依据）**：Android 用 `qpnp-smb5.c` + `smb5-lib.c` 整合栈（SMB5 内部管 CC/角色/APSD、
-  充电类型/温控/电流投票同一状态机）；Linux 是精简 SMB5（`qcom_pm8150b_charger.c`）+ 独立 TCPM
-  （`qcom_pmic_typec.c`/`tcpm.c`，负责 CC/角色）+ 独立 `bq25970_charger.c`（依赖 TCPM 的 online 事件
-  设置 `usb_present`，Type-C 状态卡住时快充泵一直 `present=0`）。TCPM 有 PD 能力，但未与 SMB5 的
-  ICL/FCC 完整联动——第 2 步就是把两者接起来。
-- **参考**：Android `qpnp-smb5.c` 的 `smb5_configure_typec()`（legacy reset）、`smb5-lib.c` 的
+- **已完成（2026-11-21，`kernel/patches/0010-smb5-fast-charge-current-vbus.patch`）**：
+  PD 9V 协商成功后，SMB5 电池充电电流从 PMIC 默认 1.5A 提到 6A（`FAST_CHARGE_CURRENT_CFG`），
+  实测 64–66% 电量时电池侧 **3.7–3.8A ≈ 15W**（修复前 1.36A ≈ 5.4W），VBUS 8.73–8.75V、
+  AICL 3.3A、电池温度 ≤40°C、无抖动；5V 档保持 1.5A。旧问题（suspend/resume 后 Type-C legacy/100mA
+  卡死）由 `0004` 修复，`bq2597x present=0` 是并联储能路径未接，不影响 9V 单路快充。
+- **剩余范围（第 2 步继续）**：
+  1. 接上 `bq2597x` 电荷泵并联路径（目标 20–27W 档）：驱动目前 `present=0`，需处理与 TCPM 的
+     notifier 联动、2:1 泵使能/电流分配与终止条件；
+  2. 基本 JEITA/温控与降流策略（现在电池温度 40°C 左右，长时间高功率需要限流曲线）；
+  3. 5V/3A DCP 档的电流上限（目前保守 1.5A）与 PD 固定 9V PDO 的细化（本机 DTB 当前是
+     5V/3A + `PDO_VAR(5000,9000,3000)`，PPS 已可用但未细调）。
+- **不做（第 3 步）**：双电芯/PPS 细粒度调压、33W+ 原厂级快充（需要原厂协议/充电器配合，暂缓）。
+- **架构差异（设计依据）**：Android 用 `qpnp-smb5.c` + `smb5-lib.c` 整合栈；Linux 是精简 SMB5
+  （`qcom_pm8150b_charger.c`）+ 独立 TCPM（`qcom_pmic_typec.c`/`tcpm.c`）+ 独立 `bq25970_charger.c`
+  （依赖 TCPM 的 online 事件设置 `usb_present`；其 notifier 名字写死为
+  `tcpm-source-psy-c440000.spmi:pmic@2:typec@1500`，若 probe 早于 TCPM 注册则永远拿不到事件，
+  这是 `present=0` 的可能原因之一）。
+- **参考**：Android `qpnp-smb5.c` 的 `smb5_configure_typec()`、`smb5-lib.c` 的
   `smblib_rerun_apsd_if_required()` / `smblib_set_usb_suspend()`。
-- **前置条件**：当前充电器**不支持 PD**（`port0-partner/supports_usb_power_delivery=no`，仅 5V DCP，
-  `tcpm-source voltage_max=5V`，`pm8150b current_max≈1.95A`）。要验证 9V/15–27W，必须换
-  **USB-C PD 9V/3A（或 QC 9V）充电器**；否则只能维持 5V 基础充电。
-- **DTS 方向**：`sm8250-xiaomi-elish-common.dtsi` 当前 `sink-pdos` 为 5V + `PDO_VAR(5000,12000,5000)`；
-  Armbian `0044` 将其改为 `PDO_VAR(5000,9000,3000)`。拿到 PD 充电器后优先加 **9V 固定 PDO**
-  并验证 TCPM 请求 9V/3A；SMB5 驱动已有 DCP 3.3A 限流路径，再看 AICL 实际值。
-- **验收**：反复 suspend/resume、插拔、不同充电器；不再出现 `power_role=source`/100mA 卡死；
-  电池温升/限流正常；基础快充电流/电压符合充电器档位。
-- **估时**：2–4 周（仅第 2 步；完整电荷泵/第 3 步另算 4–8 周，暂缓）。
+- **前置条件**：需要 **USB-C PD 9V/3A（或 PPS）充电器 + C-to-C 线**；多口充电器要留出功率
+  （实测多口分配不足时只给 5V DCP，PD 协商不起来）。
+- **验收**：反复 suspend/resume、插拔、不同充电器；PD 9V 时电池侧 ≥15W 稳定、温度受控；
+  接上泵后目标 20–27W；不再出现 `power_role=source`/100mA 卡死。
+- **估时**：15W 档已完成；并联泵/27W + 温控曲线约 1–3 周。
 
 ## 3. Hi556 景深用户态（RAW 已打通；待 3A/彩色/深度，中）
 

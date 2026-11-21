@@ -62,7 +62,7 @@
 | 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已修复**（2026-11-13，PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
 | 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；依赖保护套霍尔 |
 | 系统 | 睡眠唤醒后 pogo 键盘 | ⚠️ | 已知内核 USB PHY resume 问题；重启/重插恢复，用户态不改（防死锁） |
-| 系统 | 充电 | ⚠️ | 基础 ~1.95 A；快充泵/PD 9V 未验证（缺原装 PD 充电器） |
+| 系统 | 充电 | ⚠️ | 5V 基础 + **PD 9V 快充已打通**（0010，电池侧 ~15W）；bq2597x 泵/27W 档未接 |
 | — | 5G 版本 | — | 本机为 WiFi 版（5G 变体不在本包测试范围；其余杂项硬件所有型号均无） |
 
 完整硬件基线见 [`docs/HARDWARE-STATUS.md`](docs/HARDWARE-STATUS.md)。
@@ -149,6 +149,16 @@
 | 开机 Plymouth 阶段后摄闪光灯误闪 | ✅ 已修复：LED 状态恢复不再写 `white:flash`（修复前后 LED 事件 **2 → 0**） |
 | 手电筒 | ✅ `torch` CLI（logind `SetBrightness`，普通用户可用）；可选 GNOME 46 控制中心开关（headless Shell 实测 ACTIVE，注销/登录后生效） |
 | 拍照闪光灯（`flash_strobe`） | 🚫 无软件支持（内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`；需内核/相机后端开发） |
+
+### 充电 / 快充（2026-11-21）
+
+| 指标 | 实测 |
+|---|---|
+| 充电器识别 | USB-C PD 3.0 + PPS（`port0/power_operation_mode=usb_power_delivery`，TCPM 契约 9V/3A） |
+| 修复前 | 电池侧 1.36A ≈ **5.4W**（PMIC 默认 FCC 1.5A，驱动从未设置） |
+| 修复后（`0010`） | 电池侧 **3.7–3.8A ≈ 15W**（64–66% 电量），VBUS 8.73–8.75V、AICL 3.3A、温度 ≤40°C |
+| 5V 档 | 保持 1.5A 保守充电；拔线恢复默认 |
+| 剩余 | bq2597x 电荷泵并联 / 27W 档、JEITA 限流曲线（`docs/TODO.md` §2） |
 
 ### 合并自检（`install/check-all.sh`，2026-11-21）
 
@@ -289,7 +299,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
 - 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件；
-- 充电为 5V 基础 ~1.95 A，快充泵/9V PD 未验证（缺原装 PD 充电器）；
+- 充电：5V 基础 + PD 9V 快充（约 15W）已打通；bq2597x 电荷泵并联 / 27W 档尚未接入（`docs/TODO.md` §2）；
 - Firefox 原生 Wayland **长睡唤醒后触屏失效**属上游 Firefox bug（mozilla 2032822 / 2026258），与本驱动包无关。
 
 ---

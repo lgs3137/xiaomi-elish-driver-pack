@@ -11,7 +11,7 @@
 
 > 基线：Linux **6.18.44** + Armbian sm8250 补丁（获取方式见 `ARMBIAN-BASELINE.md`）+ 指纹内核文件 +
 > 传感器/相机/充电补丁。目标内核版本必须仍是 `6.18.44-current-sm8250`（ABI/模块依赖）。
-> 当前已部署 release 构建 **#13**（2026-11-21，release 配置，无 PM_DEBUG / DPM_WATCHDOG 等诊断项）。
+> 当前已部署 release 构建 **#15**（2026-11-21，release 配置，无 PM_DEBUG / DPM_WATCHDOG 等诊断项；含 0009 睡眠修复与 0010 PD 快充）。
 
 ## 文件
 
@@ -32,6 +32,7 @@
 | `patches/0007-cn3927v.patch` | OV13B10 后摄 CN3927V VCM 驱动（focus sysfs + DTS node） |
 | `patches/0008-hi556-of.patch` | Hi556 景深 OF match + 非 ACPI power/identify（节点已并入联合 DTB，2026-11-20 实机 RAW 出流验证） |
 | `patches/0009-fastrpc-listener-unfreezable.patch` | FastRPC listener 线程 `PF_NOFREEZE`：s2idle 期间继续应答 DSP，修复唤醒后 sensor PD `frpc_dsp` 崩溃（睡眠死机根因；2026-11-21 实测 20 次 s2idle（含 10h47m 长睡）0 崩溃，release #13 当日 4 次 0 崩溃） |
+| `patches/0010-smb5-fast-charge-current-vbus.patch` | SMB5 快充电流：PD 9V（VBUS≥6.5V）时把 PMIC 默认 1.5A 的电池充电电流提高到 6A，5V 档保持 1.5A；实测 9V 输入下电池侧 ~3.8A ≈ 15W（2026-11-21） |
 | `build-and-install.sh` | 一键：应用补丁/配置/编译/模块/DTB/initramfs hook/启动槽（调用 `update-boot-image.sh`） |
 | `update-boot-image.sh` | 推荐：预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（自动检测） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查 |
@@ -74,6 +75,7 @@ patch -p1 < <本包>/kernel/patches/0006-ov13b10-of-supplies-reset.patch
 patch -p1 < <本包>/kernel/patches/0007-cn3927v.patch
 patch -p1 < <本包>/kernel/patches/0008-hi556-of.patch
 patch -p1 < <本包>/kernel/patches/0009-fastrpc-listener-unfreezable.patch
+patch -p1 < <本包>/kernel/patches/0010-smb5-fast-charge-current-vbus.patch
 # 3) 让 QCOM_MDT_LOADER 用户可选（若树内 Kconfig 仍是裸 tristate）
 grep -q 'tristate "Qualcomm MDT firmware loader"' drivers/soc/qcom/Kconfig || \
   patch -p1 < <本包>/kernel/patches/0003-qcom-mdt-loader-user-selectable.patch

@@ -1,6 +1,6 @@
 # 合并升级影响评估（传感器 + 指纹 + GNSS + 相机/闪光灯）
 
-> **更新**：2026-11-21（按 release #13 状态复核）。
+> **更新**：2026-11-21（按 release #15 状态复核；内核补丁含 0004/0009/0010）。
 > 针对"多套功能共用一次内核/DTB/boot 镜像"的合并包。传感器侧详细频率分析见
 > `../sensors/docs/UPGRADE-IMPACT.md`；本文件补充指纹与合并影响。
 >
@@ -102,6 +102,8 @@ lsinitramfs /boot/initrd.img-$(uname -r) | grep 'elish/slpi' && echo 'ERROR: 需
 - 内核升级后 Armbian 补丁集可能随版本变化，`kernel/ARMBIAN-BASELINE.md` 说明如何获取 6.18.44 基线；
   新内核需要对应版本补丁（可能需 re-port）。
 - 睡眠死机修复（`0009`，fastrpc listener `PF_NOFREEZE`）编在 `fastrpc.ko` 内，与内核一起被覆盖；
+- 快充补丁（`0010`）编在 `qcom_pm8150b_charger.o`（内建驱动）里，重建内核时随 Image 一起被覆盖；
+  重做内核后 PD 9V 的电池电流会退回 PMIC 默认 1.5A，需确认补丁仍被应用；
   重做内核时务必一并应用，否则 s2idle 睡眠死机问题会回归。
 - 闪光灯/手电筒：`flash-led/` 修复在 `/usr/local` + systemd drop-in，与 Armbian 包解耦，
   `armbian-bsp-cli-*`/内核升级不会覆盖；若上游 `armbian-led-state-restore.sh` 接口变化，

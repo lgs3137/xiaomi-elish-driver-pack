@@ -69,7 +69,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | System | Display/touch/pen/hall/battery/audio/Wi-Fi/BT/USB HID/GPU/UFS/PCIe/Venus | ⚠️ | Platform baseline; **audio fixed on 2026-11-13** (PulseAudio/WirePlumber PCM contention; see `docs/HARDWARE-STATUS.md`) |
 | System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; depends on the cover hall switch |
 | System | Pogo keyboard after suspend/resume | ⚠️ | Known kernel USB PHY resume issue; reboot/re-plug recovers; userspace deliberately does not touch it |
-| System | Charging | ⚠️ | Baseline ~1.95 A; quick-charge pump / PD 9 V not validated (no original PD charger) |
+| System | Charging | ⚠️ | 5 V baseline + **PD 9 V fast charge working** (patch 0010, ~15 W at the battery); bq2597x pump / 27 W not wired yet |
 | — | 5G variant | — | This unit is Wi-Fi only (5G variant is outside this package's test scope; other misc hardware is absent on all variants) |
 
 The authoritative hardware baseline is [`docs/HARDWARE-STATUS.md`](docs/HARDWARE-STATUS.md).
@@ -157,6 +157,16 @@ clean boot; sleep tests include 10-hour-class sleeps.
 | Rear flash blink during boot logo | ✅ Fixed: LED state restore no longer writes `white:flash` (LED events **2 → 0**) |
 | Torch | ✅ `torch` CLI (logind `SetBrightness`, works as a normal user); optional GNOME 46 Quick Settings toggle (ACTIVE in headless Shell test; needs logout/login) |
 | Photo flash (`flash_strobe`) | 🚫 no software support (`CONFIG_V4L2_FLASH_LED_CLASS` not enabled; needs kernel/camera backend work) |
+
+### Charging / fast charge (2026-11-21)
+
+| Metric | Measured |
+|---|---|
+| Charger | USB-C PD 3.0 + PPS (`port0/power_operation_mode=usb_power_delivery`, TCPM contract 9 V / 3 A) |
+| Before the fix | 1.36 A at the battery ≈ **5.4 W** (PMIC default FCC 1.5 A, never programmed by the driver) |
+| After the fix (`0010`) | **3.7–3.8 A ≈ 15 W** at the battery (64–66 % SoC), VBUS 8.73–8.75 V, AICL 3.3 A, temp ≤40 °C |
+| 5 V mode | keeps the conservative 1.5 A; restored on unplug |
+| Remaining | bq2597x charge-pump parallel path / 27 W tier and JEITA current limiting (`docs/TODO.md` §2) |
 
 ### Combined self-check (`install/check-all.sh`, 2026-11-21)
 
@@ -311,7 +321,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - The GNOME torch extension needs logout/login (GNOME 46 cannot hot-load new extensions);
 - Photo flash (`flash_strobe`) is unsupported: `CONFIG_V4L2_FLASH_LED_CLASS` is not enabled and the camera
   software has no flash control;
-- Charging is 5 V baseline ~1.95 A; quick-charge pump / 9 V PD not validated (no original PD charger);
+- Charging: 5 V baseline + PD 9 V fast charge (~15 W) working; bq2597x charge-pump parallel path / 27 W tier not wired yet (`docs/TODO.md` §2);
 - Firefox on native Wayland **loses touch input after long sleep** — an upstream Firefox bug
   (mozilla 2032822 / 2026258), unrelated to this driver package.
 

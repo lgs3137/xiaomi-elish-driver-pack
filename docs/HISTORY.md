@@ -4,7 +4,7 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
-## 2026-11-21 — s2idle 睡眠死机修复（0009）+ release #13
+## 2026-11-21 — s2idle 睡眠死机修复（0009）+ PD 9V 快充（0010）
 
 - **现象**：设备偶发“睡死”——s2idle 唤醒后全系统卡死，需长按电源。
 - **根因**：hexagonrpcd 阻塞在 fastrpc listener（handle=3）的 ioctl 等待；suspend 时内核 freezer 冻住该线程，
@@ -17,6 +17,17 @@
   s2idle 0 崩溃，唤醒后传感器 3.3 s / 6.0 s 恢复，开机传感器可用 20.92 s。
 - **本轮 release 同步更新**：联合 DTB（已含 Hi556 节点）与 release 内核模块的安装后 sha256
   基线（见 `VERSIONS.md`）。
+
+### PD 9V 快充（0010，同日）
+
+- **根因**：PM8150B 的 `FAST_CHARGE_CURRENT_CFG` 从未被驱动写入，PMIC 上电默认只有 **1.5A**，
+  所以 PD 9V 协商成功后电池侧也只有 1.36A ≈ 5.4W。
+- **修复**：`kernel/patches/0010-smb5-fast-charge-current-vbus.patch`——USB 插入 / PD 协商 / AICL
+  变化时读取 VBUS：≥6.5V（9V 档）设电池充电电流 6A，5V 档保持 1.5A，拔线恢复；VBUS 读数为 0
+  时保持不变，避免 APSD/PD 重协商瞬态误降档（第一版内核 #14 踩过这个坑）。
+- **实测**（release #15，PD 9V/PPS 充电器，64–66% 电量）：电池侧 **3.7–3.8A ≈ 15W**（修复前
+  1.36A ≈ 5.4W），VBUS 8.73–8.75V、AICL 3.3A、电池温度 ≤40°C、无抖动。
+- **剩余**：`bq2597x` 电荷泵并联（20–27W 档）与 JEITA 限流曲线见 `TODO.md` §2。
 
 ## 2026-11-20 — 闪光灯误闪修复 / 可选手电筒 / Hi556 RAW 打通
 

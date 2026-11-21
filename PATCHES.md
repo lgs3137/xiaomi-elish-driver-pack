@@ -63,14 +63,26 @@ pristine 6.18.44 的 `QCOM_MDT_LOADER` 是裸 `tristate`（无 prompt），会�
 验证：打补丁内核自 2026-11-19 起共 **20 次 s2idle**（含 10h47m、5h50m 长睡）**0 次** PDM/fatal/crash；
 release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail=0。详见 `docs/HISTORY.md`。
 
-### 8. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
+### 8. SMB5 快充电流（`kernel/patches/0010-smb5-fast-charge-current-vbus.patch`，2026-11-21）
+
+`qcom_pm8150b_charger.c`：PMIC 上电默认的 `FAST_CHARGE_CURRENT_CFG` 只有 1.5A，Linux 驱动从未设置它，
+导致 PD 9V 也只按 5V 档慢充。补丁在 USB 插入 / PD 协商 / AICL 变化时读取 VBUS：
+
+- VBUS ≥ 6.5V（PD 9V 档）→ 电池充电电流设 6A；5V 档保持 1.5A；拔线恢复默认；
+- VBUS 读数为 0 时保持不变（避免 APSD/PD 重协商瞬态误降档）。
+
+实测（2026-11-21，release #15，PD 9V/PPS 充电器，64–66% 电量）：电池侧 3.7–3.8A ≈ **15W**
+（修复前 1.36A ≈ 5.4W），VBUS 8.73–8.75V，AICL 3.3A，电池温度 ≤40°C，无回退/抖动。
+更高档位（bq2597x 电荷泵并联、27W）仍待后续。
+
+### 9. 内核集成与 initramfs hook（不是驱动补丁，但缺了会编译失败/破坏不变量）
 
 - `kernel/include/` 3 个头文件 + `kernel/INTEGRATION.md`：qcom_scm.h / mdt_loader.h / tee.h，
   以及 drivers/tee Kconfig/Makefile 集成点、QCOM_MDT_LOADER 依赖；
 - `kernel/initramfs/hooks/xiaomi-elish-firmware`：修复版 hook，跳过 `slpi.mbn` 符号链接/`.disabled`，
   防止真固件被打进 initramfs。
 
-### 9. DTB（非补丁，配置改动）
+### 10. DTB（非补丁，配置改动）
 
 - 传感器：`qcom,vmids = <3 15 5 6>`（SLPI fastrpc 节点）+ fastrpc reserved-memory/remote heap；
 - 指纹：`/fingerprint` 节点（`compatible="goodix,gf3626"`、`firmware-name="gfenu"`、
