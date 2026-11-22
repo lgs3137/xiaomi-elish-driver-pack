@@ -161,7 +161,7 @@
 | bq2597x 双泵并联（`0014–0015`） | 修 probe 时序后 master/slave **present=1**、9V 下参与充电；低电量电池侧 **~18–20W**（比 SMB5 单路 +3–5W）；满电 ≥96% 自动关闭泵（防过充） |
 | PPS keep-alive（`pps-charger/`，可选） | sink PDO 已加 PPS APDO（DTB `d7840b30…`）；本机充电头 PPS 有 **~13s 看门狗**会 hard reset，服务每 **8s** 重发请求即可稳定保持；11V 分档后 50–56% 电量电池侧 **~20.5W**（固定 9V 约 18.9W，+8%）；**≥88% 或 SMB5 报 `Full` 但未满时退出 PPS**，回 9V 由 SMB5 涓流/分段曲线充到 100%；温度 ≥41.5°C 同样回退 |
 | 满电拔线状态（`0016`） | 电流方向优先于 `FC` 满电标志：100% 拔线立即显示放电，不再误报“已充满/充电中”；充电到 100% 仍正常显示 FULL |
-| 剩余 | 66W 需原厂 11V/6A 私有协议 + 泵协同；JEITA 限流曲线（`docs/TODO.md` §2） |
+| 剩余 | 66W 需原厂 11V/6A 私有协议 + 泵协同；JEITA 限流曲线（`docs/TODO.md` §1） |
 
 ### 合并自检（`install/check-all.sh`，2026-11-21）
 
@@ -310,7 +310,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
 - 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件；
-- 充电：5V 基础 + PD 9V 快充 + bq2597x 双泵并联（低电量 ~18–20W）已打通；可选 PPS 服务用 11V keep-alive（~20.5W，+8%，温度 40°C 左右）；66W 需原厂私有协议（`docs/TODO.md` §2）；
+- 充电：5V 基础 + PD 9V 快充 + bq2597x 双泵并联（低电量 ~18–20W）已打通；可选 PPS 服务用 11V keep-alive（~20.5W，+8%，温度 40°C 左右）；66W 需原厂私有协议（`docs/TODO.md` §1）；
 - Firefox 原生 Wayland **长睡唤醒后触屏失效**属上游 Firefox bug（mozilla 2032822 / 2026258），与本驱动包无关。
 
 ---

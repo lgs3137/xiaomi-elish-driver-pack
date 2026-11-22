@@ -7,14 +7,7 @@
 
 ---
 
-## 1. box86/box64 下红警 2 极慢（难）
-
-- 目录 `~/Red Alert 2`，dxvk 2.6.1 + cnc-ddraw + box86/64。
-- 排查方向：dynarec 参数（`BOX64_DYNAREC_BIGBLOCK`/`STRONGMEM`）、wine+dxvk vs cnc-ddraw 的 GDI 路径、
-  `DXVK_HUD=1` 确认 GPU 加速、调度器 `conservative`→`schedutil`、
-  armhf 库缺失导致 box86 回退解释执行、cnc-ddraw renderer 选择。
-
-## 2. Linux 充电栈：继续提高持续功率（中）
+## 1. Linux 充电栈：继续提高持续功率（中）
 
 现状（2026-11-22）：PD 9V + bq2597x 双泵；低电量电池侧 **~18–20W**；可选
 `pps-charger/` 用 11V keep-alive，50–56% 电量电池侧 ~20.5W（温度 ≥41.5°C 回退）；
@@ -30,22 +23,14 @@
 验收：反复 suspend/resume、插拔、不同充电器；PD 9V 电池侧 ≥15W 稳定、温度受控；
 PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 
-## 3. Hi556 景深用户态（RAW 已打通；待 3A/彩色/深度，中）
-
-- 现状：stage1/stage2 probe 完成，CSIPHY0→CSID0→VFE0 RDI2 抓 2592×1944 RAW10 ~30fps、
-  checker 通过；节点已并入单一联合 DTB。
-- 下一步：Hi556 3A/曝光、彩色 debayer、深度算法（Android 侧为闭源 CAMX/CHI）并接入
-  `elish-camera`；当前手动抓 RAW 需先 `elish-camera-ctl stop`。
-- 验收：`/dev/media*` 出现 Hi556 链路、可抓 raw/彩色帧。
-
-## 4. 原始陀螺 / 磁力计三轴 / 接近/SAR 用户态暴露（中）
+## 2. 原始陀螺 / 磁力计三轴 / 接近/SAR 用户态暴露（中）
 
 - 现状：加速度/环境光/旋转矢量方向/指南针 heading 已可用；原始陀螺、磁力计三轴（μT）、
   接近/SAR 未通过 libssc/udev 暴露（`HasProximity=false`）。
 - 下一步：在 libssc/udev 层补 sensor type/scale/units（非硬件驱动问题）。
 - 验收：`gdbus`/iio-sensor-proxy 能读到 gyro、mag 三轴、proximity。
 
-## 5. pogo 键盘 s2idle 唤醒内核修复（难）
+## 3. pogo 键盘 s2idle 唤醒内核修复（难）
 
 - 现状：s2idle 唤醒后键盘可能失效/USB 反复重枚举；用户态复位已证明风险高
   （曾触发 USB/看门狗死锁），**不要再用 authorized/USBDEVFS_RESET/重绑控制器**。
@@ -60,6 +45,8 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 
 - **GNSS 按需启动/懒连接**：不做。`airoha-gnssd` 常开成本约 50–70 mW（≈电池 3–5%/天，实际休眠更低），
   懒连接方案约 100 行 C + 4 个 unit，收益上限仅此，且 GeoClue/gnome-shell 是否常连不确定。
+- **Hi556 深度/彩色/3A 用户态**：驱动与 RAW10 已验证（2592×1944@~30fps、节点并入 DTB）；
+  继续做彩色/深度需要 Android 闭源 CAMX/CHI 栈，暂不投入。
 - **硬件/上游限制**（详见 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2/§4）：前摄固定焦点；
   前后摄不能同时出流；PMIC RTC 无后备电池；额外霍尔不可用；5G 版本不存在；
   dmesg 噪音（DPU frame event overflow / GPU cooling）；传感器 PD 偶发静默卡死（约 1/14 开机，

@@ -169,7 +169,7 @@ clean boot; sleep tests include 10-hour-class sleeps.
 | 5 V mode | keeps the conservative 1.5 A; restored on unplug |
 | bq2597x dual pumps (`0014–0015`) | probe/notifier fix makes master/slave **present=1** and they charge in parallel at 9 V; battery **~18–20 W** at low SoC; pumps are disabled when SoC ≥96 % to avoid overcharge |
 | PPS keep-alive (`pps-charger/`, optional) | PPS APDO added to the sink caps (DTB `d7840b30…`); the local charger has a **~13 s PPS watchdog** and sends a hard reset unless the request is refreshed, so the service re-sends it every **8 s** (11 V held 2 min without a reset); ~20.5 W at the battery at 50–56 % (fixed 9 V ≈ 18.9 W, +8 %), short test 11 V/4 A reached 23.5 W+; reverts to 9 V at ≥41.5 °C |
-| Remaining | 66 W would need the vendor 11 V/6 A proprietary handshake + pump coordination; JEITA current limiting (`docs/TODO.md` §2) |
+| Remaining | 66 W would need the vendor 11 V/6 A proprietary handshake + pump coordination; JEITA current limiting (`docs/TODO.md` §1) |
 
 ### Combined self-check (`install/check-all.sh`, 2026-11-21)
 
@@ -332,7 +332,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - The GNOME torch extension needs logout/login (GNOME 46 cannot hot-load new extensions);
 - Photo flash (`flash_strobe`) is unsupported: `CONFIG_V4L2_FLASH_LED_CLASS` is not enabled and the camera
   software has no flash control;
-- Charging: 5 V baseline + PD 9 V fast charge (~15 W at low SoC) working with a step-charging curve near full; bq2597x charge-pump parallel path / 27 W and 11 V tiers not wired yet (`docs/TODO.md` §2);
+- Charging: 5 V baseline + PD 9 V fast charge + bq2597x dual pumps (~18–20 W at low SoC); optional `pps-charger/` 11 V keep-alive reaches ~20.5 W (exits at 88 %/premature Full for trickle to 100 %); 66 W still needs the vendor proprietary protocol (`docs/TODO.md` §1);
 - Firefox on native Wayland **loses touch input after long sleep** — an upstream Firefox bug
   (mozilla 2032822 / 2026258), unrelated to this driver package.
 
