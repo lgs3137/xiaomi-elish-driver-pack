@@ -45,8 +45,8 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 
 - **GNSS 按需启动/懒连接**：不做。`airoha-gnssd` 常开成本约 50–70 mW（≈电池 3–5%/天，实际休眠更低），
   懒连接方案约 100 行 C + 4 个 unit，收益上限仅此，且 GeoClue/gnome-shell 是否常连不确定。
-- **Hi556 深度/彩色/3A 用户态**：驱动与 RAW10 已验证（2592×1944@~30fps、节点并入 DTB）；
-  继续做彩色/深度需要 Android 闭源 CAMX/CHI 栈，暂不投入。
+- **Hi556 深度/3A 用户态**：驱动与 RAW10 已验证（2592×1944@~30fps、节点并入 DTB）；
+  Android 侧仅作 depth 使用（是否彩色未验证），继续做深度/3A 需要闭源 CAMX/CHI 栈，暂不投入。
 - **硬件/上游限制**（详见 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2/§4）：前摄固定焦点；
   前后摄不能同时出流；PMIC RTC 无后备电池；额外霍尔不可用；5G 版本不存在；
   dmesg 噪音（DPU frame event overflow / GPU cooling）；传感器 PD 偶发静默卡死（约 1/14 开机，
