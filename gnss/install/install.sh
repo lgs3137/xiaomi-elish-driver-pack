@@ -19,6 +19,10 @@ install -D -m 755 "$GDIR/userspace/airoha-gnssd" "$BIN"
 install -D -m 755 "$GDIR/userspace/gps-nmea-share" /usr/local/sbin/gps-nmea-share
 install -D -m 644 "$GDIR/systemd/airoha-gnssd.service" "$UNIT"
 install -D -m 644 "$GDIR/systemd/gps-nmea-share.service" /etc/systemd/system/gps-nmea-share.service
+install -D -m 644 "$GDIR/systemd/gps-nmea-share.socket" /etc/systemd/system/gps-nmea-share.socket
+install -D -m 644 "$GDIR/systemd/gnss-idle.service" /etc/systemd/system/gnss-idle.service
+install -D -m 644 "$GDIR/systemd/gnss-idle.timer" /etc/systemd/system/gnss-idle.timer
+install -D -m 755 "$GDIR/systemd/gnss-idle-check.sh" /usr/local/sbin/gnss-idle-check
 install -D -m 644 "$GDIR/README.md" /usr/local/share/doc/airoha-gnssd/README.md
 install -D -m 644 "$GDIR/polkit/49-iio-sensor-proxy-geoclue.rules" \
     /etc/polkit-1/rules.d/49-iio-sensor-proxy-geoclue.rules
@@ -70,18 +74,19 @@ else
     echo "  WARN 未安装 geoclue-2.0；地图类应用的标准 API 不可用（sudo apt install geoclue-2.0）"
 fi
 
-echo "== 启用服务"
+echo "== 切换为按需启动（socket 激活 + 空闲停止）"
 systemctl daemon-reload
-systemctl enable airoha-gnssd.service >/dev/null
-systemctl restart airoha-gnssd.service
-if systemctl cat gpsd.service >/dev/null 2>&1; then
-    systemctl enable gpsd.service >/dev/null 2>&1 || true
-    systemctl restart gpsd.service
-fi
-if [ -x /usr/local/sbin/gps-nmea-share ] && systemctl cat gpsd.service >/dev/null 2>&1; then
-    systemctl enable gps-nmea-share.service >/dev/null
-    systemctl restart gps-nmea-share.service
-fi
+# 旧版本是常驻服务；先停掉并禁止开机启动，改由 socket 触发。
+systemctl stop gps-nmea-share.service gpsd.service airoha-gnssd.service 2>/dev/null || true
+systemctl disable airoha-gnssd.service gps-nmea-share.service 2>/dev/null || true
+systemctl disable gpsd.service 2>/dev/null || true
+# gpsd.socket 由发行版提供；GeoClue 走 gps-nmea-share.socket
+systemctl enable gpsd.socket >/dev/null 2>&1 || true
+systemctl enable gps-nmea-share.socket >/dev/null
+systemctl enable gnss-idle.timer >/dev/null
+systemctl start gpsd.socket gps-nmea-share.socket gnss-idle.timer
+echo "  已启用：gpsd.socket / gps-nmea-share.socket / gnss-idle.timer"
+echo "  GNSS 不会开机常驻；gpsd 客户端或 GeoClue 请求时自动启动，空闲后自动停止。"
 if systemctl cat geoclue.service >/dev/null 2>&1; then
     # 让 polkit 重新读取规则（rules.d 一般会自动 reload，重启最稳）
     systemctl restart polkit 2>/dev/null || true

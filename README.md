@@ -47,7 +47,7 @@
 | 传感器 | 原始陀螺 / 磁力计三轴 / 接近（SAR） | 🚫 | 用户态 libssc/udev 未暴露；属软件缺口，非硬件驱动 |
 | **指纹** | Goodix GF3626（fprintd 录入/验证、GDM 锁屏/登录、sudo 指纹） | ✅ | TA 需自提；TA 拒服务看门狗自动恢复 |
 | **生物认证（可选）** | bioauth：通用 PAM 生物认证栈（指纹/密码，单窗口全屏 UI，sudo/pkexec 可选接入） | ✅ | **默认不装**；`--with-bioauth` 安装；回滚/救援见 `bioauth/INSTALL.md` |
-| **GNSS** | Airoha AG3335（QUP5 UART + PAIR + gpsd + GeoClue2） | ✅ | 室外真实定位已验证（mode=3、12 星）；GeoClue 位置与指南针 heading；Pure Maps 已验证 |
+| **GNSS** | Airoha AG3335（QUP5 UART + PAIR + gpsd + GeoClue2） | ✅ | 室外真实定位已验证（mode=3、12 星）；GeoClue 位置与指南针 heading；Pure Maps 已验证；**按需启停**（socket 触发/空闲停止，s2idle 后 cold start） |
 | **相机** | 前摄 OV8856 3280×2464 / 后摄 OV13B10 4208×3120 全分辨率拍照/录像 | ✅ | GPU debayer + Venus HEVC/H.264，~30 fps；两个 V4L2 虚拟相机 |
 | 相机 | 后摄 AF/AE/AWB、CN3927V VCM、EEPROM 24c64 | ✅ | 软件 AF 扫焦写 focus sysfs |
 | 相机 | PipeWire / xdg-desktop-portal / Snapshot | ✅ | 两个 `media.role=Camera` 节点，portal 取流已实测 |

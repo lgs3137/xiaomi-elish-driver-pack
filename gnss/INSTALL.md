@@ -58,11 +58,13 @@ sudo ./install/install.sh
 
 脚本会：
 
-1. `make -C userspace` 编译 `airoha-gnssd`；
-2. 安装到 `/usr/local/sbin/airoha-gnssd` 与 `/etc/systemd/system/airoha-gnssd.service`；
+1. `make -C userspace` 编译 `airoha-gnssd` / `gps-nmea-share`；
+2. 安装到 `/usr/local/sbin/` 与 systemd 单元（含按需 socket/timer）；
 3. 备份 `/etc/default/gpsd` 并改为 `DEVICES="/dev/ttyGNSS0"`（`USBAUTO=false`、`-n`）；
 4. 安装 gpsd 的 `After/Requires/PartOf=airoha-gnssd.service` drop-in；
-5. `systemctl daemon-reload && enable --now airoha-gnssd`，并重启 gpsd。
+5. **切换为按需启停**：停止并 disable 旧常驻服务，启用
+   `gpsd.socket` / `gps-nmea-share.socket` / `gnss-idle.timer`，不启动 GNSS；
+   首次 gpsd 客户端或 GeoClue 请求时自动 cold start，空闲 180 s 后自动停止。
 
 依赖：`gpsd`（`sudo apt install gpsd gpsd-clients`），编译只需 `gcc`/`make`。
 
@@ -86,11 +88,14 @@ monitor-sensor           # 罗盘 heading（与 GNSS 互不影响）
 `mode:2/3` 和经纬度。GNSS 时间在未定位前可能是 2019 默认日期（无 RTC 电池），
 属正常。
 
-## 3. 开机自启
+## 3. 按需启停（不再开机常驻）
 
-`airoha-gnssd.service` 已 enable；`gpsd` 通过 drop-in 排在其后。服务启动后约 1 秒内
-完成上电/`$PAIR002` 并进入 1 Hz 输出；与传感器栈互不依赖（传感器约 20.9 s 可用，
-见 `../VERSIONS.md` 与 `../sensors/README.md`）。
+- `gpsd.socket` / `gps-nmea-share.socket` 负责按需拉起；
+- `gnss-idle.timer` 每分钟检查，无外部 gpsd/GeoClue 客户端超过 180 s 后停止
+  `gps-nmea-share` / `gpsd` / `airoha-gnssd`；
+- 每次启动执行 cold start（`$PAIR003`），首次定位比 hot start 慢，但 s2idle 后可靠；
+- 需要常开时：`sudo systemctl start airoha-gnssd gpsd` 并 `sudo systemctl stop gnss-idle.timer`
+  （或设置 `GNSS_IDLE_SECS` 环境并加 timer drop-in）。
 
 ## 4. 回退
 

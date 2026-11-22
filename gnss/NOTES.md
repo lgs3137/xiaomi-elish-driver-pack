@@ -15,8 +15,12 @@
 
 ## 已知限制
 
-- `airoha-gnssd` 做：上电 + `$PAIR002` + **运行时初始化（PAIR021/066/062/086/004）**
+- `airoha-gnssd` 做：上电 + `$PAIR002` + **运行时初始化（PAIR021/066/062/086/003-cold）**
   + NMEA 转发 + 15 s 无数据自愈。AGPS/EPO、原始测量尚未接入。
+- 2026-11-23 起按需启停：无 gpsd/GeoClue 客户端 180 s 后停服务；下次请求 cold start，
+  首次定位会变慢（室外约数十秒，室内可能更久）。需要常开可 `sudo systemctl start airoha-gnssd gpsd`
+  或把 `gnss-idle.timer` 停掉。
+- s2idle 后 hot start（`$PAIR004`）可能 ACK result=2；必须 cold start，已改用 `$PAIR003`。
 - 2026-11-13 实测：只发 PAIR002 时室外 5 分钟无 fix（有星/SNR 但无定位）；
   补发 PAIR066/062/086/004 后室外 2 分钟内 fix（mode=3、12 星、GGA quality=1）。
 - 若更新 daemon 后仍无 fix：确认串口命令为 runtime-only（不写 flash），并检查天线/RF。

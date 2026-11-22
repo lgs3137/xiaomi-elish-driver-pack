@@ -14,7 +14,7 @@
 | 类别 | 硬件 | 状态 |
 |---|---|---|
 | **相机** | 前 **OV8856 8MP**（固定焦点）+ 后 **OV13B10 13MP**（CN3927V VCM + EEPROM 24c64）+ 景深 **Hi556** | ⚠️ 前后摄全分辨率彩色拍照/录像已可用（前 3280×2464 / 后 4208×3120，GPU debayer + Venus HEVC/H.264 ~30fps；`/dev/video2`/`/dev/video20`；两个原生 PipeWire `media.role=Camera` 节点；portal/Snapshot 实测）；后摄 AF/AE/AWB；**Hi556 RAW10 2592×1944@~30fps 已验证**（checker test pattern，已并入单一联合 DTB）；Hi556 为彩色 Bayer（SGRBG10），Android 侧作 depth；仅验证 RAW10 出流，无 3A/彩色/深度用户态（暂不投入）；前后摄不能同时出流；前摄固定焦点 |
-| 已驱动 | **GNSS（Airoha AG3335，QUP5 UART + PAIR 协议）** | ✅ 室外真实定位 mode=3、12 星、GGA quality=1；GeoClue2 + Pure Maps 3.5.1 已验证（见 §3） |
+| 已驱动 | **GNSS（Airoha AG3335，QUP5 UART + PAIR 协议）** | ✅ 室外真实定位 mode=3、12 星、GGA quality=1；GeoClue2 + Pure Maps 3.5.1 已验证；按需启停（socket 触发/空闲停止；s2idle 后 cold start） |
 | 已驱动 | 传感器：加速度、环境光、旋转矢量方向、指南针 heading | ✅ |
 | 部分驱动 | 原始陀螺、原始磁力计三轴、接近/SAR | ⚠️ 用户态（libssc/udev）未暴露，非硬件驱动缺口 |
 | 已驱动 | 传感器启动：`PRE_DELAY=0`、`IIO_DELAY=8`，M2 可写 registry | ✅ 开机到传感器可用 **20.9 s**（改造前 79s）；PD registry 初始化 **8.2 s**；`iio-sensor-proxy` 单实例 NRestarts=0 |
@@ -124,7 +124,7 @@
 | WiFi/BT | QCA6390（ath11k + btqca/hci_uart）；`wlp1s0`/`hci0` 正常 |
 | 键盘/鼠标 | USB HID：`Xiaomi Pad Keyboard`、`Xiaomi Pad Mouse`、`Xiaomi Pad`，外接蓝牙鼠标；唤醒后键盘 HID 假死由默认组件 `pogo/` 自动复位（见 §2.2） |
 | 传感器 | 加速度/环境光/方向/指南针 heading（见 §2.1） |
-| **GNSS** | **Airoha AG3335**：`/dev/ttyHS1`（QUP5 UART，921600）+ `airoha_gps.ko`（供电/时钟/pinctrl）+ `airoha-gnssd`（PAIR002 + PAIR 运行时初始化 + NMEA→pty）+ `gpsd`（`/dev/ttyGNSS0`，NMEA0183）+ `gps-nmea-share` → GeoClue2（`/run/gps-share.sock`）；实机 NMEA 1 Hz，与传感器/罗盘可同时工作；室外真实 fix 验证 mode=3、12 星、GGA quality=1。地图应用：GNOME Maps 仅位置（不读传感器）；**Pure Maps 3.5.1（Flathub）已验证**；朝向：本包 polkit 规则放行 geoclue 的 `ClaimCompass`，实测 GeoClue Location 同时返回位置与 heading，Pure Maps 罗盘在跟随/导航且速度<10km/h 时激活 |
+| **GNSS** | **Airoha AG3335**：`/dev/ttyHS1`（QUP5 UART，921600）+ `airoha_gps.ko`（供电/时钟/pinctrl）+ `airoha-gnssd`（PAIR002 + PAIR 运行时初始化/cold start + NMEA→pty）+ `gpsd`（`/dev/ttyGNSS0`，NMEA0183）+ `gps-nmea-share` → GeoClue2（`/run/gps-share.sock`）；**按需启停**：`gpsd.socket`/`gps-nmea-share.socket` 触发，`gnss-idle.timer` 空闲停止；实机 NMEA 1 Hz，与传感器/罗盘可同时工作；室外真实 fix 验证 mode=3、12 星、GGA quality=1。地图应用：GNOME Maps 仅位置（不读传感器）；**Pure Maps 3.5.1（Flathub）已验证**；朝向：本包 polkit 规则放行 geoclue 的 `ClaimCompass`，实测 GeoClue Location 同时返回位置与 heading，Pure Maps 罗盘在跟随/导航且速度<10km/h 时激活 |
 | 指纹 | Goodix GF3626：fprintd 录入/验证、GDM 解锁、sudo 认证（当前接入 bioauth；旧 `pam_fprintd` 栈可选；NOPASSWD 未停用则被绕过）、`fp-ta-watchdog` 自动恢复 |
 | 相机闪光灯 | `/sys/class/leds/white:flash`（v4l2 flash LED）；开机误闪修复（`flash-led/`，默认）；可选手电筒（`torch/`：GNOME 46 控制中心开关 + `torch` CLI，默认不装） |
 | 视频编解码 | Venus V4L2 stateful：`vainfo` → H.264/HEVC 解码/编码；Firefox VA-API |

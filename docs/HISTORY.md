@@ -105,6 +105,16 @@
 - **Hi556 stage2**：RAW10 2592×1944 SGRBG10 @ ~30fps，checker test pattern 通过；随后合并进单一联合
   DTB（模型级，含 Hi556 节点）。原“PM8150A L1/L2 被 USB 占用”纠正为 **DTS 缺 `ldoc2` 节点**。
 
+## 2026-11-23 — GNSS 按需启停 + cold start 修复
+
+- **根因**：s2idle 唤醒后芯片备份星历失效，`$PAIR004`（hot start）返回
+  `$PAIR001,004,2`（失败），导航引擎未启动；旧 daemon 只检查 PAIR002 ACK。
+- **修复**：改用 `$PAIR003*39`（cold start，ACK 0）；实机卫星数据恢复。
+- **按需启停**：新增 `gpsd.socket` 依赖链、`gps-nmea-share.socket`（GeoClue 触发）、
+  `gnss-idle.timer`（180 s 无客户端停止）；GNSS 不再开机常驻，节省待机功耗并避免
+  长期挂着后进入坏状态。gps-nmea-share 支持 systemd socket activation（继承 fd）。
+- 地铁/室内无信号时 GSV=0、无 fix 属正常。
+
 ## 2026-11-23 — GNSS s2idle 后无 fix 修复（cold start）
 
 - **现象**：s2idle 唤醒后 NMEA 正常、GSV 有 8–10 颗星/SNR，但仰角/方位为空、GGA 无 fix。

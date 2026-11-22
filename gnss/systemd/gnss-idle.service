@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop idle on-demand GNSS chain (gps-nmea-share/gpsd/airoha-gnssd)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gnss-idle-check

@@ -12,9 +12,11 @@
 - 架构（与 Android `anld` 同构，但数据交给 gpsd）：
 
 ```
-gpsd  ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 921600 ← AG3335
-                                    ↕
-                            /dev/airoha_gps（OPEN/CLOSE/DF/DI）
+gpsd.socket ──按需──┐
+                   ├─→ gpsd ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 ← AG3335
+GeoClue ──/run/gps-share.sock──→ gps-nmea-share ──→ gpsd            ↕
+                                                          /dev/airoha_gps (OPEN/CLOSE/DF/DI)
+空闲 timer ──→ 无客户端时停止 gps-nmea-share / gpsd / airoha-gnssd
 ```
 
 ## 运行时初始化序列（2026-11-13 实测）
@@ -69,16 +71,36 @@ install/                安装 / 校验 / 卸载脚本
 extract/                仅在 GNSS flash 损坏需要重刷时的厂商文件提取说明
 ```
 
+## 按需启停（2026-11-23）
+
+GNSS 不再开机常驻，改为 **socket 激活 + 空闲停止**：
+
+- `gpsd.socket`：有 gpsd 客户端（xgps/gpspipe 等）时启动 `gpsd`，并由
+  gpsd 的 drop-in `Requires=airoha-gnssd.service` 拉起 GNSS；
+- `gps-nmea-share.socket`（`/run/gps-share.sock`，0666）：GeoClue 请求位置时启动
+  `gps-nmea-share` → 拉起 `gpsd` → `airoha-gnssd`；
+- `gnss-idle.timer`（每分钟检查）：无外部 gpsd/GeoClue 客户端超过 180 s 后停止
+  三个服务；gps-nmea-share 到 gpsd 的内部连接不算客户端。
+- 每次启动执行 **cold start**（`$PAIR003`）；首次定位会比 hot start 慢，但
+  s2idle 后更可靠（hot start 在备份星历失效时会 ACK result=2）。
+- 开关/手工验证：
+  ```bash
+  systemctl status gpsd.socket gps-nmea-share.socket gnss-idle.timer
+  timeout 5 gpspipe -w -n 1          # 触发 gpsd 链
+  python3 -c 'import socket;s=socket.socket(socket.AF_UNIX);s.connect("/run/gps-share.sock")' # 触发 GeoClue 链
+  sudo GNSS_IDLE_SECS=5 /usr/local/sbin/gnss-idle-check   # 测试空闲停止
+  ```
+
 ## 快速使用
 
 ```bash
 # 0) 前提：联合 DTB 已含 GNSS 节点（本包 kernel/dtb 已包含），内核模块已编译安装
 sudo modprobe airoha_gps
 
-# 1) 编译 + 安装守护进程和 systemd 服务，并配置 gpsd
+# 1) 编译 + 安装守护进程/按需 socket/timer，并配置 gpsd
 sudo ./install/install.sh
 
-# 2) 校验
+# 2) 校验（verify 会触发一次按需启动）
 sudo ./install/verify.sh
 gpspipe -w -n 5        # 或 cgps / monitor-sensor（罗盘）
 ```

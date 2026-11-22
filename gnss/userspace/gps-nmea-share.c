@@ -78,6 +78,20 @@ static int connect_gpsd(const char *host, int port)
 	return fd;
 }
 
+/* systemd socket activation: if gps-nmea-share.socket passed a listening fd,
+ * use it instead of creating/unlinking the socket ourselves.  This lets
+ * GeoClue's first connection to /run/gps-share.sock start the whole on-demand
+ * GNSS chain (gps-nmea-share -> gpsd -> airoha-gnssd). */
+static int inherited_listener(void)
+{
+	const char *pid = getenv("LISTEN_PID");
+	const char *nfds = getenv("LISTEN_FDS");
+
+	if (!pid || !nfds || atoi(pid) != (int)getpid() || atoi(nfds) < 1)
+		return -1;
+	return 3;
+}
+
 static int open_listener(const char *path)
 {
 	struct sockaddr_un sa = { .sun_family = AF_UNIX };
@@ -153,6 +167,7 @@ int main(int argc, char **argv)
 	const char *gpsd_host = "127.0.0.1";
 	int gpsd_port = 2947;
 	int listen_fd, gpsd_fd = -1;
+	int inherited = 0;
 	int clients[MAX_CLIENTS];
 	int nclients = 0;
 	char buf[8192];
@@ -190,10 +205,16 @@ int main(int argc, char **argv)
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
 
-	listen_fd = open_listener(sock_path);
-	if (listen_fd < 0)
-		return 1;
-	logmsg("listening on %s -> gpsd %s:%d", sock_path, gpsd_host, gpsd_port);
+	listen_fd = inherited_listener();
+	if (listen_fd >= 0) {
+		inherited = 1;
+	} else {
+		listen_fd = open_listener(sock_path);
+		if (listen_fd < 0)
+			return 1;
+	}
+	logmsg("listening on %s%s -> gpsd %s:%d", sock_path,
+	       inherited ? " (systemd socket)" : "", gpsd_host, gpsd_port);
 
 	while (!g_stop) {
 		struct pollfd pfd[2 + MAX_CLIENTS];
@@ -304,7 +325,8 @@ int main(int argc, char **argv)
 	for (int k = 0; k < nclients; k++)
 		close(clients[k]);
 	close(listen_fd);
-	unlink(sock_path);
+	if (!inherited)
+		unlink(sock_path);
 	logmsg("stopped");
 	return 0;
 }

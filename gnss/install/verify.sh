@@ -24,10 +24,22 @@ lsmod | grep -q '^airoha_gps' && ok "airoha_gps 模块已加载" || wk "airoha_g
 [ -c /dev/airoha_gps ] && ok "/dev/airoha_gps 存在" || bad "/dev/airoha_gps 不存在"
 [ -c /dev/ttyHS1 ] && ok "/dev/ttyHS1 存在" || bad "/dev/ttyHS1 不存在（检查 DTB）"
 
-# 3. 服务
-systemctl is-active --quiet airoha-gnssd && ok "airoha-gnssd active" || bad "airoha-gnssd 未运行"
+# 3. 按需服务（socket 激活 + 空闲停止）
+systemctl is-active --quiet gpsd.socket && ok "gpsd.socket active（按需触发）" || bad "gpsd.socket 未运行"
+systemctl is-active --quiet gps-nmea-share.socket && ok "gps-nmea-share.socket active（GeoClue 按需触发）" || bad "gps-nmea-share.socket 未运行"
+systemctl is-active --quiet gnss-idle.timer && ok "gnss-idle.timer active（空闲停止）" || bad "gnss-idle.timer 未运行"
+if ! systemctl is-active --quiet airoha-gnssd; then
+    echo "  触发一次 gpsd 客户端以启动按需链…"
+    timeout 12 gpspipe -w -n 3 >/dev/null 2>&1 || true
+    sleep 2
+fi
+systemctl is-active --quiet airoha-gnssd && ok "airoha-gnssd active（按需启动成功）" || bad "airoha-gnssd 未能按需启动"
 if journalctl -u airoha-gnssd -b --no-pager 2>/dev/null | grep -q 'runtime init sent'; then
-    ok "运行时初始化已发送（PAIR066/062/086/004）"
+    if journalctl -u airoha-gnssd -b --no-pager 2>/dev/null | grep -q '003-cold'; then
+        ok "运行时初始化已发送（PAIR021/066/062/086/003-cold）"
+    else
+        wk "运行时初始化日志不是 cold start（daemon 可能是旧版）"
+    fi
 else
     wk "未看到 runtime init 日志（daemon 可能是旧版；见 gnss/README.md）"
 fi
@@ -39,8 +51,8 @@ fi
 
 # 3b. GeoClue 标准 API 桥
 if systemctl cat gps-nmea-share.service >/dev/null 2>&1; then
-    systemctl is-active --quiet gps-nmea-share && ok "gps-nmea-share active" || bad "gps-nmea-share 未运行"
     [ -S /run/gps-share.sock ] && ok "NMEA socket /run/gps-share.sock 存在" || bad "缺少 /run/gps-share.sock"
+    systemctl is-active --quiet gps-nmea-share && ok "gps-nmea-share active（GeoClue 已触发）" || wk "gps-nmea-share 尚未被 GeoClue 触发（按需正常）"
     grep -q '^nmea-socket=/run/gps-share.sock' /etc/geoclue/geoclue.conf 2>/dev/null && ok "geoclue 已配置 network-nmea socket" || wk "geoclue 未配置 nmea-socket（地图应用拿不到位置）"
     systemctl is-active --quiet geoclue && ok "geoclue active" || wk "geoclue 未运行（装 geoclue-2.0 后重试）"
     if [ -r /etc/polkit-1/rules.d/49-iio-sensor-proxy-geoclue.rules ]; then
@@ -56,7 +68,7 @@ fi
 
 # 4. gpsd
 if command -v gpsd >/dev/null 2>&1; then
-    systemctl is-active --quiet gpsd && ok "gpsd active" || bad "gpsd 未运行"
+    systemctl is-active --quiet gpsd && ok "gpsd active（按需启动成功）" || bad "gpsd 未运行"
     if command -v gpspipe >/dev/null 2>&1; then
         out=$(timeout 8 gpspipe -w -n 12 2>/dev/null || true)
         echo "$out" | grep -q '"/dev/ttyGNSS0"' && ok "gpsd 已识别 /dev/ttyGNSS0" || wk "gpsd 暂未报告 /dev/ttyGNSS0"
