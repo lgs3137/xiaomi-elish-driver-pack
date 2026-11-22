@@ -18,7 +18,7 @@
 | PipeWire 原生相机节点 / portal Camera | ✅ `Elish Front/Rear Camera`（`media.role=Camera`），`IsCameraPresent=true`，GNOME Snapshot 实测可用 |
 | 后摄 AF/AE/AWB（CN3927V VCM） | ✅ 软件扫焦（实测最佳 focus=640）+ AE/AWB；前摄固定焦点（硬件无 AF） |
 | LSC/CCM 画质调校（Android Chromatix 逆向数据） | ✅ 默认启用；后摄暗角 4.4×→~1×，`ELISH_LSC/ELISH_CCM=0` 可关；调校数据不随包 |
-| Hi556 景深 | ✅ RAW10 2592×1944 SGRBG10 @ ~30 fps，checker test pattern 通过（2026-11-20）；无 3A/深度用户态（Android 侧仅作 depth 使用，是否彩色未验证） |
+| Hi556 景深 | ✅ RAW10 2592×1944 SGRBG10 @ ~30 fps，checker test pattern 通过（2026-11-20）；5MP **彩色 Bayer** 传感器（SGRBG10 + RGB WB 增益），Android 侧作 depth 使用；当前仅验证 RAW10 出流，无 3A/彩色/深度用户态（分辨率/用途不适合彩色，暂不投入） |
 | 前后摄同时出流 | ❌ CAMSS/DTB 共享资源限制，一次一路 |
 | 拍照闪光灯（`flash_strobe`） | ❌ 内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`（手电筒模式见 [`torch/`](../torch/README.md)） |
 
@@ -76,7 +76,7 @@ elish-camera-ctl rotate front|rear <0|90|180|270|auto>
 
 ## 已知限制
 
-- Hi556 景深：只有 RAW 出流，无 3A/深度用户态（Android 侧仅作 depth 使用）；前后摄不能同时出流；前摄固定焦点无 AF。
+- Hi556 景深：彩色 Bayer 但 Android 作 depth、分辨率不适合彩色；仅验证 RAW10 出流，无 3A/彩色/深度用户态，暂不投入；前后摄不能同时出流；前摄固定焦点无 AF。
 - 高负载下后摄 25–29 fps；分辨率/帧率需在生产者侧配置。
 - v4l2loopback 经 WirePlumber 发布的节点不暴露 EnumFormat，旧 portal/GStreamer App 可能不识别；
   本包用自研原生 PipeWire 节点解决（Snapshot 已验证）。

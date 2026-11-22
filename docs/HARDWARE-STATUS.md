@@ -13,7 +13,7 @@
 
 | 类别 | 硬件 | 状态 |
 |---|---|---|
-| **相机** | 前 **OV8856 8MP**（固定焦点）+ 后 **OV13B10 13MP**（CN3927V VCM + EEPROM 24c64）+ 景深 **Hi556** | ⚠️ 前后摄全分辨率彩色拍照/录像已可用（前 3280×2464 / 后 4208×3120，GPU debayer + Venus HEVC/H.264 ~30fps；`/dev/video2`/`/dev/video20`；两个原生 PipeWire `media.role=Camera` 节点；portal/Snapshot 实测）；后摄 AF/AE/AWB；**Hi556 RAW10 2592×1944@~30fps 已验证**（checker test pattern，已并入单一联合 DTB）；无 Hi556 用户态 3A/深度（Android 侧仅作 depth 使用）；前后摄不能同时出流；前摄固定焦点 |
+| **相机** | 前 **OV8856 8MP**（固定焦点）+ 后 **OV13B10 13MP**（CN3927V VCM + EEPROM 24c64）+ 景深 **Hi556** | ⚠️ 前后摄全分辨率彩色拍照/录像已可用（前 3280×2464 / 后 4208×3120，GPU debayer + Venus HEVC/H.264 ~30fps；`/dev/video2`/`/dev/video20`；两个原生 PipeWire `media.role=Camera` 节点；portal/Snapshot 实测）；后摄 AF/AE/AWB；**Hi556 RAW10 2592×1944@~30fps 已验证**（checker test pattern，已并入单一联合 DTB）；Hi556 为彩色 Bayer（SGRBG10），Android 侧作 depth；仅验证 RAW10 出流，无 3A/彩色/深度用户态（暂不投入）；前后摄不能同时出流；前摄固定焦点 |
 | 已驱动 | **GNSS（Airoha AG3335，QUP5 UART + PAIR 协议）** | ✅ 室外真实定位 mode=3、12 星、GGA quality=1；GeoClue2 + Pure Maps 3.5.1 已验证（见 §3） |
 | 已驱动 | 传感器：加速度、环境光、旋转矢量方向、指南针 heading | ✅ |
 | 部分驱动 | 原始陀螺、原始磁力计三轴、接近/SAR | ⚠️ 用户态（libssc/udev）未暴露，非硬件驱动缺口 |
@@ -39,7 +39,7 @@
 | 硬件 | 前摄 **OV8856 8MP**（2-lane，固定焦点）+ 后摄 **OV13B10 13MP**（4-lane，CN3927V VCM，EEPROM 24c64）+ 景深 **Hi556 5MP** |
 | 当前能力 | 前 3280×2464 / 后 4208×3120 全分辨率彩色拍照/录像；GPU debayer（FD650 EGL/GLES）+ Venus HEVC/H.264 硬编，实测约 30fps；虚拟相机 `/dev/video2`（前）/`/dev/video20`（后）标准 V4L2 NV12；两个原生 PipeWire `media.role=Camera` 节点（带 `api.libcamera.location`）；portal/Snapshot 实测；后摄软件 AF/AE/AWB |
 | 关键事实 | Bayer：前摄 **BGGR**、后摄 **GRBG**；前摄必须 `vertical_flip=0`（vflip=1 时 3280×2464 无帧）；Venus encoder/decoder 的 video 节点号不跨启动稳定，需按 sysfs 名发现 |
-| Hi556 景深 | media graph `hi556 21-0020` → CSIPHY0 → CSID0 → VFE0 RDI2；RAW10 2592×1944 SGRBG10 @ ~30fps，checker test pattern 通过；上电顺序 3 路供电 → MCLK → 最后释放 reset（与 OV 相反）；已合并进单一联合 DTB；**尚无 3A/深度用户态（Android 侧仅作 depth 使用，是否彩色未验证）** |
+| Hi556 景深 | media graph `hi556 21-0020` → CSIPHY0 → CSID0 → VFE0 RDI2；RAW10 2592×1944 SGRBG10 @ ~30fps，checker test pattern 通过；上电顺序 3 路供电 → MCLK → 最后释放 reset（与 OV 相反）；已合并进单一联合 DTB；**5MP 彩色 Bayer（SGRBG10 + RGB WB 增益），Android 侧作 depth；仅验证 RAW10 出流，无 3A/彩色/深度用户态（分辨率/用途不适合彩色，暂不投入）** |
 | 限制 | 前后摄不能同时出流（CAMSS/DTB 限制）；前摄固定焦点；Flatpak/COSMIC 的 portal backend 受限；拍照闪光 `flash_strobe` 不支持（内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`） |
 | 实现/文档 | `camera/elish-camera/`（源码 + `install.sh` + `verify.sh`）；架构/接口见 `camera/elish-camera/docs/` |
 | 备注 | VCM sysfs 需 video 组可写（`camera/99-elish-vcm.rules`）；闪光灯开机误闪修复见 `flash-led/`；通用手电筒见 `torch/`（默认不装） |
