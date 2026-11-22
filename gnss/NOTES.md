@@ -41,5 +41,6 @@
 | `cannot configure /dev/ttyHS1` | QUP5 UART 节点未启用（DTB 未使用本包版本） |
 | `init attempt N/4: no NMEA` | 上电窗口错过/供电/时钟异常；`journalctl -u airoha-gnssd -b` |
 | 有 NMEA 无定位 | 天线/室内；看 `$GPGSV` 星数 |
+| s2idle 后 GSV 仰角/方位为空、无 fix | 芯片备份星历失效，`$PAIR004` hot start 返回 result=2；用 `$PAIR003` cold start（2026-11-23 已修） |
 | gpsd 不认设备 | `/etc/default/gpsd` 应为 `/dev/ttyGNSS0`，先起 airoha-gnssd |
 | 重启后服务报错 | 确认 `/dev/ttyHS1` 存在、模块自动加载（`/etc/modules-load.d/airoha-gps.conf`） |

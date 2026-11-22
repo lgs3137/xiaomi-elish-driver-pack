@@ -27,10 +27,12 @@ gpsd  ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 921600 ← AG3335
 | `$PAIR066,1,1,1,1,0,0` | `*3A` | 启用 GPS+GLONASS+Galileo+BDS |
 | `$PAIR062,0,1` … `$PAIR062,6,1` | 见源码 | 使能 GGA/GLL/GSA/GSV/RMC/VTG/ZDA |
 | `$PAIR086,0` | `*28` | 关闭二进制调试日志 |
-| `$PAIR004` | `*3E` | hot start（PAIR066 后必须重启导航） |
+| `$PAIR003` | `*39` | cold start（PAIR066 后重启导航；s2idle 后 hot start 可能失败） |
 
 > 只发 `$PAIR002` 的旧版本会出现"有 NMEA、有卫星 SNR、但永远没有 fix、GSV 仰角/方位为空"。
-> 如遇此现象，确认 daemon 日志里有 `runtime init sent: PAIR021/066/062/086/004`。
+> 如遇此现象，确认 daemon 日志里有 `runtime init sent: PAIR021/066/062/086/003-cold`；
+> 若是 s2idle 后出现且日志仍是 `.../004`，说明 hot start 失败（芯片收 `$PAIR001,004,2`），
+> 需用 cold start。
 
 ## 关键事实（不要再走弯路）
 
@@ -41,9 +43,12 @@ gpsd  ← /dev/ttyGNSS0 (pty) ← airoha-gnssd ← /dev/ttyHS1 921600 ← AG3335
 2. **上电后 ~1 秒内必须发 `$PAIR002*38`**（打开 DSP），否则固件保持静默，
    只能重新上下电（vendor 配置 `wake_duration=1000`）。
    **但只发 `$PAIR002` 不够**：还要发 `$PAIR066`（星座/NMEA 配置）+ `$PAIR062`
-   （NMEA 语句使能）+ `$PAIR086,0`（关二进制调试日志）+ `$PAIR004`（hot start），
-   导航才会真正开始。2026-11-13 实机验证：只发 PAIR002 时 16 颗星/SNR 20–40
-   但室外 5 分钟无 fix；补发该序列后室外 **2 分钟内 mode=3、12 星、GGA quality=1**。
+   （NMEA 语句使能）+ `$PAIR086,0`（关二进制调试日志）+ 启动导航。
+   2026-11-13 实机验证：只发 PAIR002 时 16 颗星/SNR 20–40 但室外 5 分钟无 fix；
+   补发该序列后室外 **2 分钟内 mode=3、12 星、GGA quality=1**。
+   2026-11-23 修正：s2idle 唤醒后芯片的备份星历可能失效，`$PAIR004`（hot start）
+   会返回 `$PAIR001,004,2`（失败），表现为“有 NMEA/SNR、GSV 仰角方位为空、永无 fix”。
+   已改用 `$PAIR003*39`（cold start，ACK 0）重新搜星/下载星历。
 3. **不需要、也不要重刷 GNSS flash**。`partition_table` / bootloader / demo / config
    已在设备 flash 中且能正常启动。刷写流程只用于修复 flash（见 `extract/README.md`）。
 4. 串口上除 NMEA 外还有大量固件调试句（`$DACFOC_info/$TCFOC/$dopa…`），

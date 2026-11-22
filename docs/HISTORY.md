@@ -105,6 +105,14 @@
 - **Hi556 stage2**：RAW10 2592×1944 SGRBG10 @ ~30fps，checker test pattern 通过；随后合并进单一联合
   DTB（模型级，含 Hi556 节点）。原“PM8150A L1/L2 被 USB 占用”纠正为 **DTS 缺 `ldoc2` 节点**。
 
+## 2026-11-23 — GNSS s2idle 后无 fix 修复（cold start）
+
+- **现象**：s2idle 唤醒后 NMEA 正常、GSV 有 8–10 颗星/SNR，但仰角/方位为空、GGA 无 fix。
+- **根因**：芯片备份星历在 suspend 后失效，daemon 发的 `$PAIR004`（hot start）返回
+  `$PAIR001,004,2`（失败），导航引擎未启动；daemon 只检查 PAIR002 ACK，未发现 004 失败。
+- **修复**：`airoha-gnssd` 在 PAIR066/062/086 后改发 `$PAIR003*39`（cold start，实测 ACK 0），
+  重新搜星/下载星历；已安装并重启服务。地铁/室内无信号时 GSV=0 属正常。
+
 ## 2026-11-13 — 音频修复 / 传感器启动加速 / 安全加固 / GNSS 真实定位 / 打包自动化
 
 - **音频无输出修复**：根因是 PipeWire/WirePlumber 的 ALSA monitor 与 PulseAudio 争用唯一 PCM

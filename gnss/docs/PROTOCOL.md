@@ -49,7 +49,8 @@
 | `$PAIR066,1,1,1,1,0,0*3A` | 启用 GPS+GLONASS+Galileo+BDS | ACK; 必须后跟 `$PAIR004` 才切换星座 |
 | `$PAIR062,<n>,1*cs` | 使能标准 NMEA 语句（0=GGA…6=ZDA） | ACK |
 | `$PAIR086,0*28` | 关闭二进制调试日志 | ACK |
-| `$PAIR004*3E` | hot start（重启导航） | ACK；随后重新搜星/等星历 |
+| `$PAIR003*39` | cold start（重启导航并重新下载星历） | ACK `$PAIR001,003,0*38`；2026-11-23 实测 |
+| `$PAIR004*3E` | hot start（重启导航） | 有有效备份星历才 ACK 0；s2idle 后实测 `$PAIR001,004,2`（失败），此时必须 cold start |
 | `$PAIR021*39` | 查询版本 | `$PAIR021,AG3335M_V1.3.0….tms_1_20210628,…` |
 | `$PAIR050,1000*12` | 定位间隔 1000 ms | ACK 0（默认已是 1 Hz） |
 | `$PAIR062,…` | NMEA 语句/频率配置 | 本机实测 ACK 0；具体参数组合需查 Airoha PAIR 文档 |

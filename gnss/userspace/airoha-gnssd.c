@@ -74,7 +74,12 @@
 #define PAIR_NMEA_VTG_ON     "$PAIR062,5,1*3A\r\n"
 #define PAIR_NMEA_ZDA_ON     "$PAIR062,6,1*39\r\n"
 #define PAIR_DEBUG_OFF       "$PAIR086,0*28\r\n"
-#define PAIR_HOT_START       "$PAIR004*3E\r\n"
+/* Cold start.  The old code used $PAIR004 (hot start), but after s2idle /
+ * long suspend the chip's backup ephemeris/almanac can be invalid: PAIR004
+ * then ACKs with result 2 and navigation never starts (NMEA still streams,
+ * GSV elevation/azimuth empty, no fix).  PAIR003 cold start ACKs 0 and
+ * re-acquires from scratch.  Runtime-only, never writes flash. */
+#define PAIR_COLD_START      "$PAIR003*39\r\n"
 
 /* Init window: the firmware only answers commands sent < ~1 s after power-on. */
 #define INIT_WINDOW_MS        900
@@ -563,8 +568,8 @@ static int chip_bringup(struct probe_ctx *ctx)
 		sleep_ms(50);
 		pair_send(PAIR_DEBUG_OFF);
 		sleep_ms(50);
-		pair_send(PAIR_HOT_START);
-		logmsg("runtime init sent: PAIR021/066/062/086/004 (runtime-only)");
+		pair_send(PAIR_COLD_START);
+		logmsg("runtime init sent: PAIR021/066/062/086/003-cold (runtime-only)");
 		return 0;
 	}
 	return -1;
