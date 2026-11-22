@@ -182,5 +182,5 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 
 ## 统计
 
-**330 个文件；体积约 2.4 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（330 条，`sha256sum -c` 通过）。
+**331 个文件；体积约 2.4 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（331 条，`sha256sum -c` 通过）。
