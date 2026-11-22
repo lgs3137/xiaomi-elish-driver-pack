@@ -309,7 +309,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - 传感器 PD 偶发静默卡死（约 **1/14** 次干净启动）：固件侧问题，干净重启恢复，非本包可修；
 - 原始陀螺/磁力计三轴/接近未暴露（libssc/udev 层待补）；
 - 相机：Hi556 景深无深度/彩色用户态；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
-- pogo 键盘唤醒后可能 HID 假死：默认组件 `pogo/` 会在唤醒后 +3s 自动脉冲键盘 reset GPIO 恢复（每次唤醒重枚举 ~1–1.5s，3s 内打字可能丢键）；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器；
+- pogo 键盘唤醒后可能 HID 假死：默认组件 `pogo/` 会在唤醒后 +3s 自动脉冲键盘 reset GPIO 恢复（每次唤醒重枚举 ~1–1.5s，3s 内打字可能丢键；长睡+Firefox 的 touch-fix 二次 freeze 场景未覆盖，见 `pogo/README.md`）；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器；
 - 指纹 TA 需自提；`libfprint-2-2` 升级会覆盖自编译库（建议 hold）；内核/固件升级后需按 `docs/UPGRADE-IMPACT-ALL.md` 重做；
 - sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；

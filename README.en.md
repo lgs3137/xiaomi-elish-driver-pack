@@ -327,7 +327,8 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - Camera: Hi556 has no depth/colour userland; front+rear cannot stream simultaneously; front camera has
   fixed focus; Flatpak/COSMIC portal backend limitations;
 - Pogo keyboard may HID-hang after resume; the default `pogo/` component pulses the keyboard reset
-  GPIO 3 s after each wake (re-enumeration ~1–1.5 s; keys typed within 3 s may be lost). **Do not** use
+  GPIO 3 s after each wake (re-enumeration ~1–1.5 s; keys typed within 3 s may be lost; the long-sleep
+  `touch-fix` second-freeze case is not covered yet, see `pogo/README.md`). **Do not** use
   `authorized`/`USBDEVFS_RESET`/controller rebind;
 - Fingerprint TA must be extracted from your own device; `libfprint-2-2` upgrades overwrite the
   self-built library (hold it); kernel/firmware upgrades require redoing the steps in

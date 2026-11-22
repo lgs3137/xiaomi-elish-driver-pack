@@ -83,7 +83,9 @@
   脉冲 TLMM 141（低 150ms 再拉高）→ 键盘静默重枚举、输入恢复。3s 延迟是为了等 USB/xHCI
   resume 完成（历史上 sleep-post 内 1s 直接操作曾导致硬死机）；3s 已多轮实测安全。
 - **代价/限制**：每次唤醒键盘重枚举约 1–1.5s（Device 号递增，唤醒后 3s 内打字可能丢键）；
-  未接 pogo 键盘时 hook 直接跳过。配置 `/etc/default/elish-pogo-kb`
+  未接 pogo 键盘时 hook 直接跳过。**未覆盖**：长睡 + Firefox 时 `68-touch-fix` 会在唤醒 +5s
+  再 freeze 一次，本 hook 复位在 +3s，若那次 freeze 再次弄死键盘，本次唤醒不会二次复位；
+  使用中假死也不覆盖。配置 `/etc/default/elish-pogo-kb`
   （`ENABLED`/`DELAY_SEC`/`RST_GPIO`/`PULSE_MS`），日志 `/var/log/elish-pogo-kb.log`，
   自检 `sudo ./pogo/verify.sh`，卸载 `sudo ./pogo/uninstall.sh`。
 - **不要尝试**：`authorized` 0→1、`USBDEVFS_RESET`、重绑控制器（曾导致

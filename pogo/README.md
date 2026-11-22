@@ -95,6 +95,16 @@ sudo ./pogo/uninstall.sh --purge    # 同时删除日志
 
 卸载会尝试释放已导出的 GPIO；建议重启一次让 GPIO/复用状态干净。
 
+## 已知未覆盖场景
+
+- **长睡 + Firefox 的 `68-touch-fix` 二次 freeze**：`68-touch-fix` 在长睡唤醒的 post 阶段
+  +5 秒再执行一次 `rtcwake -m freeze`；本组件复位在 +3 秒（先于它）。如果那次 freeze 又让
+  键盘假死，本次唤醒内不会二次复位，要等下一次唤醒。历史 10:06/17:13 的 touch-fix 后键盘
+  当时可用，但该场景未经专门验证；如需覆盖，可评估加一次延时复位或调整 `DELAY_SEC`。
+- **假死无法可靠检测**：坏的时候 `GET_DESCRIPTOR` 仍正常、写 LED 不报错、HID 接口被 usbhid
+  占用无法发 `GET_REPORT`，所以每次唤醒都无条件复位（靠“没坏也复位”换确定性）。
+- **使用中假死**：本组件只在系统唤醒后动作；若在使用过程中出现同类 MCU 假死，不覆盖。
+
 ## 注意
 
 - **不要**再用 `authorized`/`USBDEVFS_RESET`/重绑控制器来“修”这个假死：历史上重绑

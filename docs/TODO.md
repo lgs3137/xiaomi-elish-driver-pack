@@ -30,9 +30,20 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 - 下一步：在 libssc/udev 层补 sensor type/scale/units（非硬件驱动问题）。
 - 验收：`gdbus`/iio-sensor-proxy 能读到 gyro、mag 三轴、proximity。
 
-> pogo 键盘唤醒假死已于 2026-11-22 用用户态自动复位解决（默认组件 `pogo/`，
-> 每次唤醒后 +3s 脉冲键盘 reset GPIO）；根因与实测证据见
-> [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2.2 与 [`HISTORY.md`](HISTORY.md)。
+## 3. pogo 键盘唤醒假死：内核侧根治（暂缓 / 待评估）
+
+- 现状：默认组件 `pogo/` 已用**用户态自动复位**兜底（唤醒后 +3s 脉冲键盘 reset GPIO）；
+  根因与实测证据见 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2.2 与 [`HISTORY.md`](HISTORY.md)。
+- **当前方案的代价（接受后再评估是否需要内核侧）**：每次唤醒键盘重枚举 ~1–1.5s、USB Device
+  号递增、input/event 节点重建；唤醒后 ~3s 内打字可能丢键；无条件复位（假死无法可靠检测）；
+  长睡 + Firefox 时 `68-touch-fix` 会在唤醒 +5s 再 `rtcwake -m freeze` 一次，本 hook 的
+  复位在 +3s，若那次 freeze 再次弄死键盘，本次唤醒内不会二次复位（该场景未覆盖）。
+- 已知排除：卡点在**键盘 MCU/HID 侧**；关闭 host wakeup 强制
+  `dwc3_core_exit()`+`dwc3_core_init_for_resume()`（实验 A）无效，`authorized`/`USBDEVFS_RESET`
+  也无效；“重初始化 DWC3/PHY”方向基本排除。
+- 若推进：内核在 xHCI resume 完成后按序脉冲 reset（需先评审时序/死锁风险），或进一步做
+  USB 协议/电源级定位（MCU 假死原因）；成本是内核构建安装 + 多轮睡眠验证，且根因修复不确定。
+- 状态：**暂缓，不在当前排期**；推进前先评审代价、收益与验证计划。
 
 ---
 
@@ -42,9 +53,6 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
   懒连接方案约 100 行 C + 4 个 unit，收益上限仅此，且 GeoClue/gnome-shell 是否常连不确定。
 - **Hi556 彩色/深度/3A 用户态**：5MP 彩色 Bayer（SGRBG10），Android 侧作 depth；分辨率/用途不适合彩色，
   驱动/RAW10 已验证（2592×1944@~30fps、节点并入 DTB），继续做需要闭源 CAMX/CHI 栈，暂不投入。
-- **pogo 键盘内核修复**：不做。实测确认卡住的是键盘 MCU/HID 侧（不是 DWC3/USB2 PHY fast-resume；
-  实验 A 强制控制器重初始化也无效），用户态自动复位（默认组件 `pogo/`）已解决；不再改
-  `qcom_snps_hsphy`/DWC3 resume 路径或做用户态 USB 控制器复位。
 - **硬件/上游限制**（详见 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2/§4）：前摄固定焦点；
   前后摄不能同时出流；PMIC RTC 无后备电池；额外霍尔不可用；5G 版本不存在；
   dmesg 噪音（DPU frame event overflow / GPU cooling）；传感器 PD 偶发静默卡死（约 1/14 开机，
