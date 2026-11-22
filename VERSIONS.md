@@ -1,7 +1,7 @@
 # 版本与校验值（合并包 BOM）
 
 > 本包不含编译产物/固件；下列 sha256/md5 用于安装后交叉核对。
-> **本版基线：2026-11-22**（release 内核构建 #22 + 0009 睡眠修复 + 0010–0016 PD 快充/分段充电/bq2597x 并联泵/满电状态 + 0017 唤醒电源键抑制；联合 DTB 含 Hi556 与 PPS APDO）。
+> **本版基线：2026-11-22**（release 内核构建 #22 + 0009 睡眠修复 + 0010–0016 PD 快充/分段充电/bq2597x 并联泵/满电状态 + 0017 唤醒电源键抑制；联合 DTB 含 Hi556 与 PPS APDO；用户态默认组件新增 `pogo/` pogo 键盘唤醒自动复位）。
 > 历史版本记录见 `docs/HISTORY.md`。
 
 ## 内核
@@ -55,6 +55,18 @@
 | 安装路径 | `/usr/local/lib/elish/elish-led-state-restore-flash-safe.sh`；`/etc/systemd/system/armbian-led-state.service.d/50-elish-skip-flash.conf` |
 | 验证 | `./flash-led/verify.sh`；`--live`（root）重启恢复服务并抓 udev，应为 0 条 `white:flash` 事件 |
 | 回滚 | `sudo ./flash-led/uninstall.sh` |
+
+## pogo（默认组件，用户态）
+
+| 项 | 值 |
+|---|---|
+| 组件 | pogo 键盘唤醒自动复位（修复唤醒后键盘 HID 假死；不改内核） |
+| 文件 | `pogo/`（复位脚本 + systemd sleep hook + 默认配置 + install/uninstall/verify + README） |
+| 安装 | 默认安装（turnkey 系统集成阶段；`--no-pogo` 跳过）；单独：`sudo ./pogo/install.sh` |
+| 安装路径 | `/usr/local/sbin/elish-pogo-kb-reset`；`/usr/lib/systemd/system-sleep/69-elish-pogo-kb.sh`；`/etc/default/elish-pogo-kb`；日志 `/var/log/elish-pogo-kb.log` |
+| 行为 | 唤醒后 +3s（systemd-run 延迟）检测到键盘则脉冲 TLMM 141（低 150ms 再高），键盘重枚举 ~1–1.5s 后恢复；每次唤醒 Device 号递增 |
+| 验证 | `sudo ./pogo/verify.sh`；实机：手动睡/醒 + 3 轮 `systemctl suspend`+RTC 自动唤醒，hook 均按 +3s 触发、无死机 |
+| 回滚 | `sudo ./pogo/uninstall.sh`（`--purge` 连日志删除；建议重启一次） |
 
 ## torch（可选组件，默认不装）
 
@@ -133,6 +145,9 @@ md5 `51c3b3bef20a76d386a516dfbcc72b68`（7,633,828 B）。
 - 快充（0010+0012–0015）：PD 9V/PPS 充电器下，低电量（55–66%）电池侧 **~18–20W**（SMB5 单路 ~15W + bq2597x 双泵并联）；可选 `pps-charger/` 用 11V keep-alive 到 **~20.5W（+8%）**（50–56% 电量，41.5°C 回退）；
   高电量按分段曲线降档（90% 时约 1.5A→0.75A），**不再在 83% 提前报 Full**，可继续充到高电量；
   充电中电池温度 ≤40°C。11V/27W 档（bq2597x 泵）仍未接。
+- pogo 键盘（2026-11-22）：`pogo/` 默认组件；唤醒后 +3s 脉冲 TLMM 141 复位键盘，实测手动 2 次恢复
+  （Device 002→003、003→004）+ 3 轮 `systemctl suspend`/RTC 自动唤醒 hook 全部按 +3s 触发、无死机；
+  每次唤醒键盘重枚举 ~1–1.5s。
 
 ## 数据/固件校验（安装后）
 

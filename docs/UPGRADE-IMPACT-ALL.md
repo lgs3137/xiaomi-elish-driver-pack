@@ -109,6 +109,10 @@ lsinitramfs /boot/initrd.img-$(uname -r) | grep 'elish/slpi' && echo 'ERROR: 需
   `armbian-bsp-cli-*`/内核升级不会覆盖；若上游 `armbian-led-state-restore.sh` 接口变化，
   重跑 `sudo ./flash-led/install.sh`（`flash-led/verify.sh` 会提示）。`torch/` 是可选组件，
   GNOME Shell 大版本升级后需更新扩展 `metadata.json` 的 `shell-version` 并重装。
+- pogo 键盘唤醒复位（`pogo/`）：纯用户态（`/usr/local/sbin/elish-pogo-kb-reset` +
+  `/usr/lib/systemd/system-sleep/69-elish-pogo-kb.sh` + `/etc/default/elish-pogo-kb`），
+  内核/DTB/`armbian-*` 升级不会覆盖；若系统重装或 `/etc/default` 被清理，
+  重跑 `sudo ./pogo/install.sh` 并用 `sudo ./pogo/verify.sh` 确认。
 
 ## 7. GNSS（Airoha AG3335）
 

@@ -30,14 +30,9 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 - 下一步：在 libssc/udev 层补 sensor type/scale/units（非硬件驱动问题）。
 - 验收：`gdbus`/iio-sensor-proxy 能读到 gyro、mag 三轴、proximity。
 
-## 3. pogo 键盘 s2idle 唤醒内核修复（难）
-
-- 现状：s2idle 唤醒后键盘可能失效/USB 反复重枚举；用户态复位已证明风险高
-  （曾触发 USB/看门狗死锁），**不要再用 authorized/USBDEVFS_RESET/重绑控制器**。
-- 根因：host `a800000.usb` + `88e4000.phy` 的 s2idle fast-resume 只做 PHY runtime resume，
-  不重新初始化 PHY/控制器。
-- 下一步：只做内核 `qcom_snps_hsphy` resume 路径/上游修复的设计与验证。
-- 验收：suspend/resume 后键盘无重连、按键正常。
+> pogo 键盘唤醒假死已于 2026-11-22 用用户态自动复位解决（默认组件 `pogo/`，
+> 每次唤醒后 +3s 脉冲键盘 reset GPIO）；根因与实测证据见
+> [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2.2 与 [`HISTORY.md`](HISTORY.md)。
 
 ---
 
@@ -47,6 +42,9 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
   懒连接方案约 100 行 C + 4 个 unit，收益上限仅此，且 GeoClue/gnome-shell 是否常连不确定。
 - **Hi556 彩色/深度/3A 用户态**：5MP 彩色 Bayer（SGRBG10），Android 侧作 depth；分辨率/用途不适合彩色，
   驱动/RAW10 已验证（2592×1944@~30fps、节点并入 DTB），继续做需要闭源 CAMX/CHI 栈，暂不投入。
+- **pogo 键盘内核修复**：不做。实测确认卡住的是键盘 MCU/HID 侧（不是 DWC3/USB2 PHY fast-resume；
+  实验 A 强制控制器重初始化也无效），用户态自动复位（默认组件 `pogo/`）已解决；不再改
+  `qcom_snps_hsphy`/DWC3 resume 路径或做用户态 USB 控制器复位。
 - **硬件/上游限制**（详见 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) §2/§4）：前摄固定焦点；
   前后摄不能同时出流；PMIC RTC 无后备电池；额外霍尔不可用；5G 版本不存在；
   dmesg 噪音（DPU frame event overflow / GPU cooling）；传感器 PD 偶发静默卡死（约 1/14 开机，

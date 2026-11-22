@@ -61,7 +61,7 @@
 | 内核 | SMB5 Type-C legacy/100mA resume 卡死 | ✅ | 带充电器 3 轮 suspend/resume 验证 |
 | 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已修复**（2026-11-13，PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
 | 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；无保护套可用可选组件 `tablet-mode/`（控制中心开关 + uinput 虚拟霍尔） |
-| 系统 | 睡眠唤醒后 pogo 键盘 | ⚠️ | 已知内核 USB PHY resume 问题；重启/重插恢复，用户态不改（防死锁） |
+| 系统 | 睡眠唤醒后 pogo 键盘 | ✅ | 唤醒后 HID 假死已有默认组件 `pogo/` 规避：每次唤醒 +3s 自动脉冲键盘 reset GPIO（TLMM 141），键盘重枚举 ~1–1.5s 后恢复；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器 |
 | 系统 | 充电 | ⚠️ | 5V 基础 + **PD 9V 快充 + bq2597x 双泵并联已打通**（电池侧 ~18–20W）；PPS 11V keep-alive 稳定可用（50–56% 电量 ~20.5W，比固定档 +8%），可选组件 `pps-charger/`；66W 需原厂私有协议 |
 | — | 5G 版本 | — | 本机为 WiFi 版（5G 变体不在本包测试范围；其余杂项硬件所有型号均无） |
 
@@ -174,6 +174,7 @@
 | initramfs 固件不变量 | ✅ 不含 SLPI 固件 |
 | 相机栈 | 23 OK / 0 FAIL |
 | 闪光灯开机误闪修复 | ✅ 通过（`flash-led/verify.sh`） |
+| pogo 键盘唤醒自动复位 | ✅ 通过（`pogo/verify.sh`；无键盘时 hook 跳过） |
 | GNOME 手电筒（可选） | 未装 → SKIP；已装 → ✅ |
 | apt 状态 | 已 hold `linux-image/dtb/headers-current-sm8250`、`armbian-firmware-full`、`libfprint-2-2` |
 
@@ -198,6 +199,7 @@ gnss/          GNSS 子包：airoha_gps 驱动源码、airoha-gnssd/gps-nmea-sha
 camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、GPU debayer、Venus 硬编、
                虚拟相机、autoserve、自动对焦）、辅助脚本、udev/自启/休眠恢复、install.sh + verify.sh
 flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in）
+pogo/          默认组件：pogo 键盘唤醒自动复位（sleep hook + 脉冲键盘 reset GPIO，用户态）
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装）
 tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展（默认不装；
                uinput helper + systemd 服务，无保护套也能强制平板模式/自动旋转）
@@ -249,6 +251,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | GNSS | `sudo ./gnss/install/install.sh`（`airoha_gps.ko` 由内核步骤编译安装） |
 | 相机 | `sudo ./camera/install.sh` + `bash ./camera/elish-camera/verify.sh` |
 | 闪光灯修复（默认） | `sudo ./flash-led/install.sh`（turnkey 自动装） |
+| pogo 键盘唤醒复位（默认） | `sudo ./pogo/install.sh`（turnkey 自动装；`--no-pogo` 跳过） |
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
 | 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（开/关/自动；装完注销/重新登录） |
 | PPS 快充服务（可选，装后启用） | `sudo ./pps-charger/install.sh`（一键器：`--with-pps-charger`） |
@@ -292,6 +295,7 @@ bash camera/elish-camera/verify.sh  # 相机栈
 sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
 sudo ./gnss/install/verify.sh
 sudo ./flash-led/verify.sh          # 闪光灯开机误闪修复
+sudo ./pogo/verify.sh               # 默认组件：pogo 键盘唤醒自动复位
 sudo ./torch/verify.sh              # 可选手电筒（未安装则 SKIP）
 sudo ./tablet-mode/verify.sh        # 可选平板模式开关（未安装则 SKIP）
 sudo ./pps-charger/verify.sh         # 可选 PPS 快充服务（未安装则 SKIP）
@@ -305,7 +309,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - 传感器 PD 偶发静默卡死（约 **1/14** 次干净启动）：固件侧问题，干净重启恢复，非本包可修；
 - 原始陀螺/磁力计三轴/接近未暴露（libssc/udev 层待补）；
 - 相机：Hi556 景深无深度/彩色用户态；前后摄不能同时出流；前摄固定焦点；Flatpak/COSMIC 的 portal backend 限制；
-- pogo 键盘唤醒后可能失效（内核 USB PHY resume；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器）；
+- pogo 键盘唤醒后可能 HID 假死：默认组件 `pogo/` 会在唤醒后 +3s 自动脉冲键盘 reset GPIO 恢复（每次唤醒重枚举 ~1–1.5s，3s 内打字可能丢键）；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器；
 - 指纹 TA 需自提；`libfprint-2-2` 升级会覆盖自编译库（建议 hold）；内核/固件升级后需按 `docs/UPGRADE-IMPACT-ALL.md` 重做；
 - sudo 指纹 PAM 属安全敏感配置（旧 `--pam` 栈，可选），安装前确保能用密码回退；
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；

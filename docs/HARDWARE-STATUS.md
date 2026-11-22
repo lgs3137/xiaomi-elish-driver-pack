@@ -27,7 +27,7 @@
 | 已驱动 | 音频 | ✅（PA/WirePlumber 争用唯一 PCM 已修复：用户级 `51-disable-alsa.lua`；相机 PipeWire 不受影响） |
 | 已驱动 | 闪光灯 / 手电筒 | ✅ `white:flash`；开机误闪已修复（默认组件 `flash-led/`）；手电筒可选（`torch/`，默认不装） |
 | 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电：5V 基础 + **PD 9V 快充已打通**（电池侧低电量 ~15W，高电量按分段曲线降档，不再提前 Full）；bq2597x 泵 / 27W 与 11V 档未接 |
-| 功能缺陷 | 睡眠唤醒后 pogo 键盘可能失效/反复重枚举 | ⚠️ host USB PHY resume 内核问题；重启/重插恢复，用户态不改（历史危险复位已禁用） |
+| 功能缺陷 | 睡眠唤醒后 pogo 键盘 HID 假死 | ✅ 已规避：默认组件 `pogo/` 在唤醒后 +3s 自动脉冲键盘 reset GPIO（TLMM 141）；每次唤醒键盘会重枚举 ~1–1.5s。**不要**再用 `authorized`/`USBDEVFS_RESET`/重绑控制器 |
 | 本机不存在 | 5G 版本（本机 WiFi 版；5G 变体不在本包测试范围） | — |
 
 ---
@@ -61,12 +61,34 @@
 | iio 启动方式 | 启动脚本在 `IIO_DELAY` 后拉起；补丁版 iio 常驻等待热插（`staying alive ... (patched)`），健康检查最长 150 s；单实例、NRestarts=0 |
 | 剩余工作 | 原始陀螺/磁力计/接近仍需在 libssc/udev 层补类型/scale/units（天级，不是硬件驱动问题） |
 
-### 2.2 睡眠唤醒后 pogo 键盘失效
+### 2.2 睡眠唤醒后 pogo 键盘 HID 假死（已用用户态自动复位规避）
 
-- **现象**：s2idle 唤醒后键盘无响应，需物理拔插；偶发 suspend 后 USB 进入每 ~7 秒断开重连循环（重启后恢复）。
-- **根因**：键盘在 host `a8f8800.usb/a800000.usb`（`Xiaomi Pad Keyboard` / USB HID）；问题在 host+wakeup 的 s2idle fast-resume 只做 PHY runtime resume、不重新初始化 PHY/控制器。日志里 `dwc3-qcom-legacy a6f8800.usb: port-1 HS-PHY not in L2` 是 Type-C/外设控制器（device 模式）的误报，不是键盘。
-- **不要尝试**：`authorized` 0→1、`USBDEVFS_RESET`、重绑控制器（曾导致 `qcom_snps_hsphy_exit` 死锁、USB 瘫痪）；用户态 `elish-sensors-resume` 只处理 iio/传感器，**刻意不碰 pogo USB**。
-- **修复方向**：需改内核 resume 路径或报上游，用户态无解。遇此现象：重启或物理重插键盘。
+- **现象**：s2idle 唤醒后键盘无响应（`Xiaomi Pad Keyboard`，USB `3206:3ffc`）；USB 设备仍在、
+  `lsusb`/`GET_DESCRIPTOR` 正常，但按键/触摸板没有任何 input 事件；偶发 USB 每 ~7 秒断开重连。
+  物理拔插键盘或重启可恢复。
+- **根因（2026-11-22 实测修正）**：
+  - **不是** DWC3/USB2 PHY fast-resume 丢状态：2026-11-12 实验 A 把 host `a800000.usb` 的
+    `power/wakeup` 设为 disabled，强制走 `dwc3_core_exit()` + `dwc3_core_init_for_resume()`
+    （完整重初始化），唤醒后键盘仍无输入；`authorized` 0→1 / `USBDEVFS_RESET` 也只重枚举主机侧，
+    按键仍无效。
+  - 卡住的是**键盘 MCU/HID 侧**：设备级控制请求仍应答，HID 输入路径假死；只有脉冲键盘
+    **reset 引脚（TLMM 141）** 让 MCU 复位、USB 重新枚举后才能恢复（2026-11-22 两次实测：
+    Device 002→003、003→004，随后按键正常且无需拔插）。
+  - `dwc3-qcom-legacy … HS-PHY not in L2` 主要是 Type-C/外设控制器（device 模式）的噪音；
+    键盘在 `a8f8800.usb/a800000.usb`（host）。该 L2 提示只表示当次 suspend 时 PHY 未停在 L2，
+    与“唤醒后 HID 假死”无一一对应（实验 A 已排除“重初始化 PHY 即可恢复”）。
+- **修复（默认组件 `pogo/`，用户态，不改内核）**：systemd sleep hook
+  `/usr/lib/systemd/system-sleep/69-elish-pogo-kb.sh` 在 post 阶段用
+  `systemd-run --on-active=3s` 延迟调用 `/usr/local/sbin/elish-pogo-kb-reset`，检测到键盘后
+  脉冲 TLMM 141（低 150ms 再拉高）→ 键盘静默重枚举、输入恢复。3s 延迟是为了等 USB/xHCI
+  resume 完成（历史上 sleep-post 内 1s 直接操作曾导致硬死机）；3s 已多轮实测安全。
+- **代价/限制**：每次唤醒键盘重枚举约 1–1.5s（Device 号递增，唤醒后 3s 内打字可能丢键）；
+  未接 pogo 键盘时 hook 直接跳过。配置 `/etc/default/elish-pogo-kb`
+  （`ENABLED`/`DELAY_SEC`/`RST_GPIO`/`PULSE_MS`），日志 `/var/log/elish-pogo-kb.log`，
+  自检 `sudo ./pogo/verify.sh`，卸载 `sudo ./pogo/uninstall.sh`。
+- **不要尝试**：`authorized` 0→1、`USBDEVFS_RESET`、重绑控制器（曾导致
+  `qcom_snps_hsphy_exit` 死锁、USB 瘫痪）；`elish-sensors-resume` 只处理 iio/传感器，
+  **刻意不碰 pogo USB**。
 
 ### 2.3 其他小毛病（非驱动缺口）
 
@@ -98,7 +120,7 @@
 | 电池/充电 | 双 `bq27z561`、`pm8150b`、`bq2597x` master/slave、USB-C TCPM/UCSI；suspend/resume 后 Type-C legacy/100mA 卡死已修复（`0004`）；**PD 9V 快充已打通**（`0010`：VBUS≥6.5V 时电池充电电流 1.5A→6A，低电量实测 3.7–3.8A ≈ **15W**）；**提前 Full 已修复**：`0011–0013` 按电量分段降档（<70% 6A … ≥97% 0.5A），89–92% 仍持续充电；`bq2597x` 电荷泵仍 present=0（并联 / 27W 与 11V 档待后续） |
 | 音频 | `Xiaomi Mi Pad 5 Pro` 声卡；8×CS35L41 外放、耳机、录音。无输出已修复：根因是 PipeWire/WirePlumber ALSA monitor 与 PulseAudio 争用唯一 PCM（`hw:Pro,0`），用户级 `~/.config/wireplumber/main.lua.d/51-disable-alsa.lua`（`alsa_monitor.enabled=false`）解决，相机 PipeWire 不受影响；遗留 `Enable(0) failed: -110` 为功放下电 hibernate 超时（播放上电正常、无 `PUP-done` 超时，不影响外放） |
 | WiFi/BT | QCA6390（ath11k + btqca/hci_uart）；`wlp1s0`/`hci0` 正常 |
-| 键盘/鼠标 | USB HID：`Xiaomi Pad Keyboard`、`Xiaomi Pad Mouse`、`Xiaomi Pad`，外接蓝牙鼠标 |
+| 键盘/鼠标 | USB HID：`Xiaomi Pad Keyboard`、`Xiaomi Pad Mouse`、`Xiaomi Pad`，外接蓝牙鼠标；唤醒后键盘 HID 假死由默认组件 `pogo/` 自动复位（见 §2.2） |
 | 传感器 | 加速度/环境光/方向/指南针 heading（见 §2.1） |
 | **GNSS** | **Airoha AG3335**：`/dev/ttyHS1`（QUP5 UART，921600）+ `airoha_gps.ko`（供电/时钟/pinctrl）+ `airoha-gnssd`（PAIR002 + PAIR 运行时初始化 + NMEA→pty）+ `gpsd`（`/dev/ttyGNSS0`，NMEA0183）+ `gps-nmea-share` → GeoClue2（`/run/gps-share.sock`）；实机 NMEA 1 Hz，与传感器/罗盘可同时工作；室外真实 fix 验证 mode=3、12 星、GGA quality=1。地图应用：GNOME Maps 仅位置（不读传感器）；**Pure Maps 3.5.1（Flathub）已验证**；朝向：本包 polkit 规则放行 geoclue 的 `ClaimCompass`，实测 GeoClue Location 同时返回位置与 heading，Pure Maps 罗盘在跟随/导航且速度<10km/h 时激活 |
 | 指纹 | Goodix GF3626：fprintd 录入/验证、GDM 解锁、sudo 认证（当前接入 bioauth；旧 `pam_fprintd` 栈可选；NOPASSWD 未停用则被绕过）、`fp-ta-watchdog` 自动恢复 |

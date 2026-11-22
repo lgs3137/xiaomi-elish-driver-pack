@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-all.sh — 合并包总自检（内核联合 DTB + 传感器 + GNSS + 指纹 + 相机 + 闪光灯/手电筒 + apt 状态）
+# check-all.sh — 合并包总自检（内核联合 DTB + 传感器 + GNSS + 指纹 + 相机 + 闪光灯/pogo/手电筒 + apt 状态）
 # 用法： ./install/check-all.sh    （root 更完整；建议 sudo）
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -41,6 +41,13 @@ if [ -x "$HERE/flash-led/verify.sh" ]; then
   "$HERE/flash-led/verify.sh" || FAIL=1
 else
   echo "  WARN  缺少 flash-led/verify.sh"
+fi
+
+step "4b1. pogo 键盘唤醒自动复位（默认组件；未安装则跳过）"
+if [ -x "$HERE/pogo/verify.sh" ]; then
+  "$HERE/pogo/verify.sh" || FAIL=1
+else
+  echo "  WARN  缺少 pogo/verify.sh"
 fi
 
 step "4b2. GNOME 手电筒（可选组件；未安装则跳过）"

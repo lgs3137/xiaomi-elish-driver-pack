@@ -16,7 +16,8 @@
 - 从 `--android` 的 vendor 调校 bin 自动提取并生成相机 LSC/CCM（`--no-camera-tuning` 可关）；
 - 可选 `--with-dtb [--write-boot]` 只安装包内单一联合 DTB（含 Hi556），无需重编内核。
 
-> 默认组件还包括**后摄闪光灯开机误闪修复**（`flash-led/`，系统集成阶段自动安装）；
+> 默认组件还包括**后摄闪光灯开机误闪修复**（`flash-led/`）和 **pogo 键盘唤醒自动复位**
+> （`pogo/`，每次唤醒 +3s 脉冲键盘 reset GPIO；`--no-pogo` 可跳过），均在系统集成阶段自动安装；
 > **GNOME 手电筒**（`torch/`）是**可选**组件，默认不装：一键安装加 `--with-torch`，
 > 或单独 `sudo ./torch/install.sh`（装好后注销/重新登录，控制中心出现「手电筒」开关）。
 
@@ -255,6 +256,21 @@ sudo ./flash-led/uninstall.sh   # 回滚（回滚后开机又会闪，属 Armbia
 ```
 根因/证据/升级注意见 `flash-led/README.md`。
 
+## 6d2. pogo 键盘唤醒自动复位（默认组件）
+
+s2idle 唤醒后 pogo 键盘可能 HID 假死（USB 在、按键无事件；`authorized`/`USBDEVFS_RESET`
+/重绑控制器都无效且危险）。本组件在每次唤醒后 +3s 通过 systemd-run 延迟脉冲键盘 reset
+GPIO（TLMM 141），键盘静默重枚举 ~1–1.5s 后恢复；未接键盘时 hook 直接跳过。
+
+```bash
+sudo ./pogo/install.sh          # 默认组件（turnkey 已自动装）
+sudo ./pogo/verify.sh           # 自检（gpiochip/hook/日志/systemd-run）
+sudo ./pogo/uninstall.sh        # 卸载（--purge 连日志一起删）
+```
+配置 `/etc/default/elish-pogo-kb`（`ENABLED`/`DELAY_SEC`/`RST_GPIO`/`PULSE_MS`），
+日志 `/var/log/elish-pogo-kb.log`；根因与实测记录见 `docs/HARDWARE-STATUS.md` §2.2 与
+`pogo/README.md`。**仍然不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器。
+
 ## 6e. GNOME 手电筒（可选，默认不装）
 
 在 GNOME 46 控制中心（右上角 / `Super+S`）增加「手电筒」开关，并提供 `torch` CLI；
@@ -303,7 +319,7 @@ sudo ./pps-charger/uninstall.sh    # 卸载并回退 9V
 ```
 
 包含：联合 DTB、传感器 `sensors/install/verify.sh`、GNSS `gnss/install/verify.sh`、指纹 `fingerprint/install/verify-fingerprint.sh`、
-相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、可选手电筒 `torch/verify.sh`、可选平板模式开关 `tablet-mode/verify.sh`、可选 PPS 快充 `pps-charger/verify.sh`（未装则 SKIP）。
+相机 `camera/elish-camera/verify.sh`、闪光灯修复 `flash-led/verify.sh`、pogo 键盘唤醒复位 `pogo/verify.sh`、可选手电筒 `torch/verify.sh`、可选平板模式开关 `tablet-mode/verify.sh`、可选 PPS 快充 `pps-charger/verify.sh`（未装则 SKIP）。
 
 ## 8. 日常 / 禁用 / 回滚
 

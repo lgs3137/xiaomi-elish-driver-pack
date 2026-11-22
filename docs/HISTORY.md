@@ -4,6 +4,26 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
+## 2026-11-22 — pogo 键盘唤醒 HID 假死：用户态自动复位（默认组件 `pogo/`）
+
+- **现象**：s2idle 唤醒后 pogo 键盘（USB `3206:3ffc`）完全无输入；USB 设备仍在、`lsusb` 正常，
+  但按键/触摸板没有 input 事件；物理拔插或重启才恢复。
+- **根因修正**：此前认为“host USB PHY fast-resume 不重初始化”。2026-11-12 实验 A（关闭
+  `a800000.usb` 的 wakeup，强制 `dwc3_core_exit()` + `dwc3_core_init_for_resume()`）唤醒后键盘
+  仍无输入；`authorized` 0→1 / `USBDEVFS_RESET` 也只重枚举主机侧。真正卡住的是**键盘 MCU/HID
+  侧**（设备级控制请求仍应答），只有脉冲键盘 reset 引脚才恢复。
+- **修复**：系统唤醒后脉冲键盘 reset GPIO（TLMM 141）。为避免 sleep-post 内过早操作（历史 1s
+  直操作曾硬死机），hook 用 `systemd-run --on-active=3s` 延迟到 USB/xHCI resume 完成后再执行：
+  `/usr/lib/systemd/system-sleep/69-elish-pogo-kb.sh` + `/usr/local/sbin/elish-pogo-kb-reset`。
+  未接键盘时直接跳过；配置 `/etc/default/elish-pogo-kb`，日志 `/var/log/elish-pogo-kb.log`。
+- **验证**：手动脉冲两次均触发 `USB disconnect` → 重枚举（Device 002→003、003→004）并恢复按键；
+  装上 hook 后手动睡/醒一次正常；另做 3 轮 `systemctl suspend` + RTC 自动唤醒，hook 每轮 +3s
+  触发（devnum 7→8→9→10），无死机、键盘可用。
+- **限制**：每次唤醒键盘重枚举约 1–1.5s（Device 号递增；唤醒后 3s 内打字可能丢键）。**不要**
+  再用 `authorized`/`USBDEVFS_RESET`/重绑控制器（历史上重绑 `a8f8800.usb` 曾导致
+  `qcom_snps_hsphy_exit` 告警、tee 卡 D、USB 瘫痪）。这是 MCU 侧问题的用户态兜底，
+  以后若有内核正确修复可卸载本组件再做长睡验证。
+
 ## 2026-11-21 — s2idle 睡眠死机修复（0009）+ PD 9V 快充（0010）
 
 - **现象**：设备偶发“睡死”——s2idle 唤醒后全系统卡死，需长按电源。

@@ -68,7 +68,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | Kernel | SMB5 Type-C legacy/100 mA resume hang | ✅ | Verified with 3 suspend/resume cycles with charger attached |
 | System | Display/touch/pen/hall/battery/audio/Wi-Fi/BT/USB HID/GPU/UFS/PCIe/Venus | ⚠️ | Platform baseline; **audio fixed on 2026-11-13** (PulseAudio/WirePlumber PCM contention; see `docs/HARDWARE-STATUS.md`) |
 | System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; optional `tablet-mode/` component (Quick Settings switch + uinput virtual hall) works without a cover |
-| System | Pogo keyboard after suspend/resume | ⚠️ | Known kernel USB PHY resume issue; reboot/re-plug recovers; userspace deliberately does not touch it |
+| System | Pogo keyboard after suspend/resume | ✅ | HID-hang workaround (default `pogo/` component): every wake pulses the keyboard reset GPIO (TLMM 141) 3 s after resume; keyboard re-enumerates in ~1–1.5 s. **Do not** use `authorized`/`USBDEVFS_RESET`/controller rebind |
 | System | Charging | ⚠️ | 5 V baseline + **PD 9 V fast charge + bq2597x dual charge pumps working** (~18–20 W at the battery); PPS 11 V with keep-alive works reliably (~20.5 W at 50–56 %, +8 % over fixed) via the optional `pps-charger/` service; 66 W would need the vendor proprietary protocol |
 | — | 5G variant | — | This unit is Wi-Fi only (5G variant is outside this package's test scope; other misc hardware is absent on all variants) |
 
@@ -182,6 +182,7 @@ clean boot; sleep tests include 10-hour-class sleeps.
 | initramfs firmware invariant | ✅ no SLPI firmware |
 | Camera stack | 23 OK / 0 FAIL |
 | Flash boot-blink fix | ✅ pass (`flash-led/verify.sh`) |
+| Pogo keyboard wake reset | ✅ pass (`pogo/verify.sh`; hook skips when keyboard absent) |
 | GNOME torch (optional) | SKIP when not installed, ✅ when installed |
 | apt state | `linux-image/dtb/headers-current-sm8250`, `armbian-firmware-full`, `libfprint-2-2` are held |
 
@@ -208,6 +209,7 @@ camera/        camera sub-package: elish-camera GPU pipeline (full-res front/rea
                Venus encode, virtual cameras, autoserve, autofocus), helper scripts,
                udev/autostart/resume integration, install.sh + verify.sh
 flash-led/     rear flash boot-blink fix (default component): Armbian LED state restore guard
+pogo/          default component: pogo keyboard wake reset (sleep hook + keyboard reset GPIO pulse)
 torch/         optional GNOME 46 Quick Settings torch toggle + torch CLI (not installed by default)
 tablet-mode/   optional tablet-mode switch (on/off/auto) + GNOME 46 Quick Settings toggle
                (not installed by default; uinput helper + systemd service for devices without cover)
@@ -263,6 +265,7 @@ sudo ./install.sh --android /path/vendor_a.img --pmos /path/firmware-xiaomi-elis
 | GNSS | `sudo ./gnss/install/install.sh` (`airoha_gps.ko` is built by the kernel step) |
 | Camera | `sudo ./camera/install.sh` + `bash ./camera/elish-camera/verify.sh` |
 | Flash fix (default) | `sudo ./flash-led/install.sh` (turnkey installs it automatically) |
+| Pogo keyboard wake reset (default) | `sudo ./pogo/install.sh` (turnkey installs it automatically; `--no-pogo` skips) |
 | GNOME torch (optional) | `sudo ./torch/install.sh` (logout/login afterwards) |
 | Tablet-mode switch (optional) | `sudo ./tablet-mode/install.sh` (on/off/auto; logout/login afterwards) |
 | PPS fast-charge service (optional, enabled) | `sudo ./pps-charger/install.sh` (turnkey: `--with-pps-charger`) |
@@ -307,6 +310,7 @@ bash camera/elish-camera/verify.sh  # camera stack
 sudo ./fingerprint/install/verify-fingerprint.sh "$USER"
 sudo ./gnss/install/verify.sh
 sudo ./flash-led/verify.sh          # boot-flash fix
+sudo ./pogo/verify.sh               # default: pogo keyboard wake reset
 sudo ./torch/verify.sh              # optional torch (SKIP when not installed)
 sudo ./tablet-mode/verify.sh        # optional tablet-mode switch (SKIP when not installed)
 sudo ./pps-charger/verify.sh         # optional PPS fast-charge service (SKIP when not installed)
@@ -322,8 +326,9 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - Raw gyroscope / magnetometer axes / proximity not exposed (libssc/udev layer gap);
 - Camera: Hi556 has no depth/colour userland; front+rear cannot stream simultaneously; front camera has
   fixed focus; Flatpak/COSMIC portal backend limitations;
-- Pogo keyboard may stop working after resume (kernel USB PHY resume; **do not** use
-  `authorized`/`USBDEVFS_RESET`/controller rebind);
+- Pogo keyboard may HID-hang after resume; the default `pogo/` component pulses the keyboard reset
+  GPIO 3 s after each wake (re-enumeration ~1–1.5 s; keys typed within 3 s may be lost). **Do not** use
+  `authorized`/`USBDEVFS_RESET`/controller rebind;
 - Fingerprint TA must be extracted from your own device; `libfprint-2-2` upgrades overwrite the
   self-built library (hold it); kernel/firmware upgrades require redoing the steps in
   `docs/UPGRADE-IMPACT-ALL.md`;

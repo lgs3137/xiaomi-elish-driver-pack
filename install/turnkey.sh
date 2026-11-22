@@ -15,6 +15,7 @@
 #   --with-camera-tuning / --no-camera-tuning
 #                                  使用/不使用本机提取的相机调校数据（默认：有则用）
 #   --with-torch                   可选：GNOME 46 手电筒（控制中心开关 + torch CLI）；默认不装
+#   --with-pogo / --no-pogo        默认组件：pogo 键盘唤醒自动复位（sleep hook + 脉冲键盘 reset GPIO）；默认装
 #   --with-tablet-mode             可选：平板模式开关（开/关/自动；控制中心扩展 + uinput helper）；默认不装
 #   --with-pps-charger             可选：受控 11V PPS 快充服务（8s keep-alive；安装后启用）
 #   --no-fingerprint               跳过指纹
@@ -44,7 +45,7 @@ ANDROID=""; PMOS=""; FP=""; FP_ADB=0
 WITH_GNSS=1; WITH_CAMERA=1; WITH_FP=1; WITH_KERNEL=0; WITH_REGVER=0
 WITH_DTB=0; WITH_CAMERA_TUNING=1; SKIP_KERNEL_CHECK=0
 WITH_BIOAUTH=0; BIOAUTH_SUDO=0; BIOAUTH_PKEXEC=0
-WITH_TORCH=0; WITH_TABLET_MODE=0; WITH_PPS_CHARGER=0
+WITH_TORCH=0; WITH_TABLET_MODE=0; WITH_PPS_CHARGER=0; WITH_POGO=1
 DO_DEPS=1; SKIP_EXTRACT=0; SKIP_BUILD=0; SKIP_INSTALL=0; SKIP_CHECK=0
 PAM=0; FORCE=0; KSRC=""; WRITE_BOOT=0
 
@@ -68,6 +69,8 @@ while [ $# -gt 0 ]; do
         --no-torch) WITH_TORCH=0; shift ;;
         --with-tablet-mode) WITH_TABLET_MODE=1; shift ;;
         --no-tablet-mode) WITH_TABLET_MODE=0; shift ;;
+        --with-pogo) WITH_POGO=1; shift ;;
+        --no-pogo) WITH_POGO=0; shift ;;
         --with-pps-charger) WITH_PPS_CHARGER=1; shift ;;
         --no-pps-charger) WITH_PPS_CHARGER=0; shift ;;
         --no-fingerprint) WITH_FP=0; shift ;;
@@ -259,6 +262,17 @@ if [ "$SKIP_INSTALL" = 0 ]; then
     step "5d) 后摄闪光灯开机误闪修复（默认组件）"
     run bash "$PKG_ROOT/flash-led/install.sh"
 
+    # 默认组件：pogo 键盘唤醒自动复位（不依赖其他组件；未接键盘时 hook 自行跳过）
+    if [ "$WITH_POGO" = 1 ]; then
+        step "5d2) pogo 键盘唤醒自动复位（默认组件）"
+        PGARGS=()
+        [ "$DRY_RUN" = 1 ] && PGARGS+=(--dry-run)
+        [ "$ASSUME_YES" = 1 ] && PGARGS+=(--yes)
+        run bash "$PKG_ROOT/pogo/install.sh" "${PGARGS[@]}"
+    else
+        log "跳过 pogo 键盘唤醒自动复位（--no-pogo）"
+    fi
+
     if [ "$WITH_TORCH" = 1 ]; then
         step "5e) GNOME 手电筒（可选）：控制中心开关 + torch CLI"
         TARGS=()
@@ -357,6 +371,9 @@ cat <<EOF
 6) 可选 GNOME 手电筒（默认不装）：sudo ./install.sh --no-deps --skip-extract --skip-build --with-torch --yes
    装好后注销/重新登录；控制中心（右上角或 Super+S）出现「手电筒」开关（5 分钟自动关）。
    拍照闪光灯（flash_strobe）仍未支持：内核未开 CONFIG_V4L2_FLASH_LED_CLASS。
-7) 解压/移植时若换了目录：所有路径均由脚本自身定位，无需改文件。
+7) 默认组件（已自动装）：flash-led 开机误闪修复；pogo 键盘唤醒自动复位
+   （唤醒后 +3s 脉冲键盘 reset GPIO，键盘重枚举 ~1–1.5s；不需要时 --no-pogo 跳过，
+   卸载 sudo ./pogo/uninstall.sh，自检 sudo ./pogo/verify.sh）。
+8) 解压/移植时若换了目录：所有路径均由脚本自身定位，无需改文件。
 EOF
 log "日志/提取目录保留在 $BUILD_DIR（可删）"

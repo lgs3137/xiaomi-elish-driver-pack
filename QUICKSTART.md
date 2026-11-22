@@ -45,7 +45,9 @@ sudo ./install.sh --with-kernel --kernel-src /var/tmp/kbuild-src --write-boot --
 > 只有已运行本包完整内核+DTB 时才可跳过，一键器会预检 DTB/模块并警告。
 > `--with-dtb` 只更新 DTB，不编译内核模块；全新系统请用 `--with-kernel`。
 
-> 默认组件还包含**后摄闪光灯“开机闪一下”修复**（`flash-led/`，自动安装）；**GNOME 手电筒**
+> 默认组件还包含**后摄闪光灯“开机闪一下”修复**（`flash-led/`，自动安装）和
+> **pogo 键盘唤醒自动复位**（`pogo/`，自动安装：每次唤醒 +3s 脉冲键盘 reset GPIO，
+> 键盘重枚举 ~1–1.5s 后恢复；可用 `--no-pogo` 跳过）。**GNOME 手电筒**
 > （`torch/`）是可选组件、默认不装：完整安装加 `--with-torch`，或单独 `sudo ./torch/install.sh`
 > （装好后注销/重新登录，控制中心出现「手电筒」开关）。
 > **平板模式开关**（`tablet-mode/`，可选、默认不装）：没有磁吸保护套的人可以用它在控制中心
@@ -105,6 +107,7 @@ s2idle 唤醒不再崩 sensor PD（0009 已修）。
 | 指纹 | `sudo ./fingerprint/install/install-fingerprint-files.sh [--pam --user]` |
 | GNSS | `sudo ./gnss/install/install.sh` |
 | 后摄闪光灯开机误闪修复 | `sudo ./flash-led/install.sh`（默认组件，turnkey 已自动装） |
+| pogo 键盘唤醒自动复位 | `sudo ./pogo/install.sh`（默认组件，turnkey 已自动装；`--no-pogo` 跳过） |
 | GNOME 手电筒（可选） | `sudo ./torch/install.sh`（装完注销/重新登录） |
 | 平板模式开关（可选） | `sudo ./tablet-mode/install.sh`（装完注销/重新登录） |
 | PPS 快充服务（可选） | `sudo ./pps-charger/install.sh`（装后启用；一键器加 `--with-pps-charger`） |

@@ -1,0 +1,104 @@
+#!/bin/bash
+# elish-pogo-kb-reset —— 脉冲 pogo 键盘 reset GPIO（TLMM 141），修复唤醒后键盘 HID 假死
+#
+# 安装位置：/usr/local/sbin/elish-pogo-kb-reset
+# 调用方：/usr/lib/systemd/system-sleep/69-elish-pogo-kb.sh（唤醒后 +3s 延迟）
+# 也可手动运行（root）：elish-pogo-kb-reset [--force]
+# 配置：/etc/default/elish-pogo-kb（RST_GPIO / TLMM_LABEL / PULSE_MS）
+# 日志：/var/log/elish-pogo-kb.log
+set -u
+
+LOG=${ELISH_POGO_KB_LOG:-/var/log/elish-pogo-kb.log}
+CFG=/etc/default/elish-pogo-kb
+LOCK=/run/elish-pogo-kb.lock
+RST_GPIO=141
+TLMM_LABEL=f100000.pinctrl
+PULSE_MS=150
+FORCE=0
+
+[ "${1:-}" = "--force" ] && FORCE=1
+[ -r "$CFG" ] && . "$CFG"
+
+case "$RST_GPIO" in ''|*[!0-9]*) RST_GPIO=141 ;; esac
+case "$PULSE_MS" in ''|*[!0-9]*) PULSE_MS=150 ;; esac
+[ "$PULSE_MS" -ge 20 ] || PULSE_MS=20
+[ "$PULSE_MS" -le 900 ] || PULSE_MS=900
+
+# 串行化：同一时间只允许一个复位（手动 + hook 同时触发也不打架）
+[ -d /run ] || mkdir -p /run
+exec 9>"$LOCK" 2>/dev/null || true
+if [ -e /proc/self/fd/9 ] && command -v flock >/dev/null 2>&1; then
+    flock -n 9 || { echo "$(date -Is) skip: another reset is running" >>"$LOG" 2>/dev/null; exit 0; }
+fi
+
+# 日志轮转：>512 KiB 保留 1 份
+if [ -f "$LOG" ] && [ "$(stat -c%s "$LOG" 2>/dev/null || echo 0)" -gt 524288 ]; then
+    mv -f "$LOG" "$LOG.1" 2>/dev/null || true
+fi
+exec >>"$LOG" 2>&1
+
+kb_present() {
+    local d
+    if command -v lsusb >/dev/null 2>&1; then
+        lsusb -d 3206:3ffc 2>/dev/null | grep -q .
+        return
+    fi
+    for d in /sys/bus/usb/devices/*; do
+        if [ "$(cat "$d/idVendor" 2>/dev/null)" = "3206" ] && \
+           [ "$(cat "$d/idProduct" 2>/dev/null)" = "3ffc" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+kb_devnum() {
+    local d
+    for d in /sys/bus/usb/devices/*; do
+        if [ "$(cat "$d/idVendor" 2>/dev/null)" = "3206" ] && \
+           [ "$(cat "$d/idProduct" 2>/dev/null)" = "3ffc" ]; then
+            cat "$d/devnum" 2>/dev/null
+            return
+        fi
+    done
+    echo none
+}
+
+if [ "$FORCE" != 1 ] && ! kb_present; then
+    echo "$(date -Is) skip: pogo keyboard (3206:3ffc) not attached"
+    exit 0
+fi
+
+BASE=""
+for c in /sys/class/gpio/gpiochip*; do
+    if [ "$(cat "$c/label" 2>/dev/null)" = "$TLMM_LABEL" ]; then
+        BASE=$(cat "$c/base" 2>/dev/null)
+    fi
+done
+if [ -z "$BASE" ]; then
+    echo "$(date -Is) ERROR: gpiochip with label $TLMM_LABEL not found"
+    exit 1
+fi
+N=$((BASE + RST_GPIO))
+DIR=/sys/class/gpio/gpio$N
+if [ ! -e "$DIR" ]; then
+    echo "$N" > /sys/class/gpio/export 2>/dev/null || true
+    sleep 0.05
+fi
+if [ ! -e "$DIR" ]; then
+    echo "$(date -Is) ERROR: cannot export gpio$N (TLMM $RST_GPIO)"
+    exit 1
+fi
+
+echo "=== $(date -Is) reset start gpio$N devnum=$(kb_devnum)"
+if ! echo out > "$DIR/direction" 2>/dev/null; then
+    echo "$(date -Is) ERROR: cannot set gpio$N direction (pin held by another driver?)"
+    exit 1
+fi
+echo 0 > "$DIR/value" 2>/dev/null || { echo "$(date -Is) ERROR: cannot drive gpio$N low"; exit 1; }
+sleep "0.$(printf '%03d' "$PULSE_MS")"
+echo 1 > "$DIR/value" 2>/dev/null || { echo "$(date -Is) ERROR: cannot drive gpio$N high"; exit 1; }
+echo "$(date -Is) pulsed ${PULSE_MS}ms, gpio$N kept exported high"
+sleep 2
+echo "$(date -Is) done devnum=$(kb_devnum)"
+exit 0

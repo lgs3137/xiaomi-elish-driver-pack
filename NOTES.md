@@ -22,7 +22,9 @@
 9. **GNSS：不要为了定位重刷 GNSS flash**。芯片从 flash 自行启动；串口必须 **921600**，
    上电后 **~1 秒内**必须发 `$PAIR002`。刷写流程仅用于修复 flash（风险高，见 `gnss/extract/README.md`）。
 10. **不要尝试用户态复位 pogo 键盘 USB**（`authorized` 0→1 / `USBDEVFS_RESET` / 重绑控制器）：
-    曾触发 `qcom_snps_hsphy_exit` 死锁、USB 瘫痪；唤醒后键盘失效请重启或物理重插。
+    曾触发 `qcom_snps_hsphy_exit` 死锁、USB 瘫痪。唤醒后键盘 HID 假死已由默认组件
+    `pogo/` 自动规避：每次唤醒 +3s 脉冲键盘 reset GPIO（TLMM 141），键盘重枚举 ~1–1.5s
+    后恢复；未接键盘时 hook 跳过。仍不要用上述 USB 复位/重绑手段；细节见 `pogo/README.md`。
 
 ## 1. 统一内核/DTB/boot 是各功能的共同基础
 
