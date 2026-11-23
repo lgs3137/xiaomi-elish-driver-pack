@@ -67,9 +67,15 @@ sudo chmod 0644 /lib/firmware/gfenu.*
 
 `install/install-fingerprint-files.sh` 会安装 resume 钩子
 `/usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh` 和
-`/usr/local/sbin/fp-resume-reset`。唤醒后先探测 fprintd；TA 失效才重载，避免每次
-唤醒都重启 loader。QSEE loader retry 的 `ProtectKernelTunables=no` 允许它在 CMA
-压力下 drop caches/compact；严重碎片化时仍需重启。
+`/usr/local/sbin/fp-resume-reset`。自动钩子只做 `--ensure-loader`（重启 watchdog +
+确保 loader 在运行），**不跑 fprintd 探测**——唤醒后 GDM 锁屏要用指纹解锁，自动探测会抢
+claim 传感器导致解锁退回密码（2026-11-23 实测）。真正的 TA 失效由 `fp-ta-watchdog` 重载。
+
+需要手动深查时用 `sudo /usr/local/sbin/fp-resume-reset`（probe 模式）：healthy 不动；
+busy（GDM/用户正在用）不重载；stale（QSEE bring-up/status 1001/scm -22）才重载；
+unknown 不盲目重载。QSEE loader retry 的 `ProtectKernelTunables=no` 允许它在 CMA
+压力下 drop caches/compact；严重碎片化时仍需重启。TA 的 9 MiB 现由 DTB 的 32 MiB
+TZ 专用 reserved-memory 分配（见 `../kernel/dtb/README.md`），不再依赖全局 CMA。
 
 ## 3. qsee-supplicant / qsee-app-loader
 

@@ -8,7 +8,7 @@ command -v systemd-run >/dev/null 2>&1 || exit 0
 unit="fp-resume-$(date +%s)"
 systemd-run --collect --unit="$unit" --on-active=4s \
     --description="Reload Goodix TA after resume" \
-    /usr/local/sbin/fp-resume-reset >>"$LOG" 2>&1 || {
+    /usr/local/sbin/fp-resume-reset --ensure-loader >>"$LOG" 2>&1 || {
     echo "$(date -Is) [fp-resume] systemd-run failed" >>"$LOG" 2>/dev/null || true
 }
 exit 0

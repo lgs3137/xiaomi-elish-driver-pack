@@ -51,21 +51,35 @@ fp-ta-watchdog（日志检测 TA 拒服务 → 重启 loader）
 
 s2idle 后 fprintd 可能报 `Goodix QSEE bring-up command 1005 failed ... status 1001`；
 原因是 TA 会话失效，需要重载 `qsee-app-loader@gfenu`。但 TA 需要约 **9 MiB 连续 CMA**，
-长时间运行后 CMA 碎片化/不可迁移页会导致 `__cma_alloc: ... ret: -16`（EBUSY），
-此时 `CmaFree` 仍有 50–100 MB 也不够；严重时只能重启清 CMA。
+长时间运行后 CMA 碎片化/不可迁移页会导致 `__cma_alloc: ... ret: -16`（EBUSY）。
+包内联合 DTB 已新增 **32 MiB TZ 专用 reserved-memory**（`/firmware/scm/memory-region`，
+见 `../kernel/dtb/README.md`），TA 的 9 MiB 从该专用 coherent pool 分配，不再依赖全局 CMA。
 
 已安装：
 - `/usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh`：唤醒后延迟调用 helper；
-- `/usr/local/sbin/fp-resume-reset`：先 `fprintd-verify` 探测，**健康则不动 TA**；
-  失败才 stop loader → 外部 drop caches/compact → reload；避免每次唤醒都重启；
+- `/usr/local/sbin/fp-resume-reset --ensure-loader`：**只重启 watchdog、确保 loader 在运行，
+  不主动运行 `fprintd-verify` 探测**。原因（2026-11-23 实测）：唤醒后 GDM 锁屏正要 claim
+  传感器做指纹解锁，自动探测会先抢到设备，GDM 随即报 “device still busy” 并退回密码解锁；
+  探测也可能把 TA 留在 armed 状态；
+- 真正的 TA 失效由 `fp-ta-watchdog` 从 fprintd 日志发现并重载 loader；
 - `qsee-app-loader@.service.d/60-retry-reclaim.conf`：`ProtectKernelTunables=no`，
   允许 retry wrapper 在 CMA 压力下 reclaim；
-- 日志 `/var/log/fp-resume.log`；手动等价：`sudo /usr/local/sbin/fp-resume-reset`。
+- 日志 `/var/log/fp-resume.log`。
 
-本机 2026-11-23 一次严重 CMA 碎片（`req-size 2244 pages, ret -16`）曾只能重启恢复。
-包内联合 DTB 已新增 **32 MiB TZ 专用 reserved-memory**（`/firmware/scm/memory-region`，
-见 `../kernel/dtb/README.md`），TA 的 9 MiB 改从该专用 coherent pool 分配，不再依赖全局 CMA；
-之后即使内存压力大，TA 重载也不应再 EBUSY。resume 钩子继续保留（健康则不重载）。
+手动深查（可选）：`sudo /usr/local/sbin/fp-resume-reset`（默认 probe 模式）会跑一次
+`fprintd-verify`，结果分为 healthy / busy（被 GDM/用户占用，**不重载**）/ stale
+（QSEE bring-up、status 1001、scm -22 等，重载 loader）/ unknown（不盲目重载）。
+
+另外，长睡唤醒的 Firefox `touch-fix` 已改为**解锁后**再执行 1 秒 freeze：如果在锁屏/指纹
+认证期间 freeze，会冻结 qsee-supplicant，使进行中的 fprintd/TEE 请求卡在 D 状态并触发
+20 秒 freezer 超时（2026-11-23 13:47 实测）。对应系统级文件
+`/usr/lib/systemd/system-sleep/68-touch-fix.sh` + `/usr/local/sbin/touch-fix-run`
+（本机 workaround，不在本包内）。
+
+2026-11-23 实测：两轮睡眠测试；去掉自动探测后指纹第一次即解锁成功；touch-fix 等到解锁后
+才 rtcwake，没有再出现 20 秒冻结。若某次 TA 恰好失效，第一次指纹可能失败，`fp-ta-watchdog`
+重载 loader 后重试即可（不再用自动探测换首次成功率）。
+
 
 ## 目录
 

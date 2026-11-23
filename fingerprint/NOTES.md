@@ -61,8 +61,14 @@
   先做外部 reclaim。
 - **已从根上绕开并验证（2026-11-23）**：联合 DTB 给 `/firmware/scm` 加了 32 MiB 专用
   `shared-dma-pool`（`tz-ffi@93000000`），TA 的 9 MiB 走该池，不再依赖全局 CMA。
-  仍安装 `70-goodix-fp-resume.sh` + `fp-resume-reset`：唤醒后先探测 fprintd，健康则
-  不动，失败才停 loader/reclaim/重载。旧 DTB 仍可能遇到严重 CMA 碎片需重启。
+  仍安装 `70-goodix-fp-resume.sh` + `fp-resume-reset`，但自动钩子只做 `--ensure-loader`
+  （重启 watchdog + 确保 loader 在），**不跑 fprintd 探测**：2026-11-23 实例证明自动探测
+  会抢 GDM 锁屏指纹解锁的 claim，导致 “device still busy”、退回密码解锁。真正的 TA 失效
+  由 `fp-ta-watchdog` 重载 loader；需要手动深查时再跑 `fp-resume-reset`（probe 模式）。
+- **20 秒“假死”**（2026-11-23 13:47）：长睡唤醒后 Firefox `touch-fix` 的 rtcwake freeze
+  撞上正在进行的指纹认证；freeze 冻结 qsee-supplicant 后，fprintd 的 TEE 请求卡在 D 状态，
+  内核等待 `pm_freeze_timeout` 20s 才放弃。系统级 `68-touch-fix.sh` 已改为由
+  `/usr/local/sbin/touch-fix-run` 先等解锁后再 freeze；本包不包含该 workaround。
 - 手动恢复（不需要重启整个系统时先试）：`sudo /usr/local/sbin/fp-resume-reset`；
   日志 `/var/log/fp-resume.log`。仍失败则重启。
 

@@ -10,7 +10,7 @@ system/pam.d/             sudo（指纹优先栈，可选安装）、gdm-fingerp
 system/systemd/           qsee-supplicant.service、qsee-app-loader@.service（含 restart-limit /
                           retry-reclaim drop-in，ProtectKernelTunables=no）、fp-ta-watchdog.service、
                           fprintd drop-in、用户会话 watcher unit
-system/systemd-sleep/     70-goodix-fp-resume.sh（唤醒后探测/按需重载 TA）
+system/systemd-sleep/     70-goodix-fp-resume.sh（唤醒后 ensure-loader，不抢 GDM 指纹解锁；手动 probe 用 fp-resume-reset）
 system/udev/60-goodix-qsee.rules
 system/bin/               fp-sudo-prompt、fp-sudo-prompt-done、fp-ta-watchdog、qsee-app-loader-retry、
                           fp-resume-reset

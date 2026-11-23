@@ -117,6 +117,25 @@
   当时 `CmaFree` 仅 **5.6 MB**，TA 仍成功 `loaded 'gfenu' as app 4`，fprintd 打开正常。
   说明 TA 的 9 MiB 已完全走专用 pool，不再依赖全局 CMA。
 
+## 2026-11-23 — 睡眠唤醒后 20s“假死”修复（fp-resume 不再抢传感器 + touch-fix 解锁后执行）
+
+- **现象**：长睡唤醒后系统冻住约 20 秒；指纹解锁失败，最后用密码解锁。
+- **根因链**：
+  1. 唤醒后 GDM 锁屏正要用指纹解锁（fprintd claim 传感器）；
+  2. 自动 `70-goodix-fp-resume.sh` 在 +4s 跑 `fprintd-verify` 探测，先抢到传感器，
+     GDM 报 `device still busy`，用户只能改用密码；
+  3. 同时长睡+Firefox 触发 `68-touch-fix` 的额外 freeze；冻结 qsee-supplicant 后，
+     fprintd 的 TEE 请求卡在 D 状态，内核等满 `pm_freeze_timeout`（20s）才失败退出。
+- **修复**：
+  - 自动 fp-resume 改为 `fp-resume-reset --ensure-loader`：只重启 watchdog、确保 loader
+    在运行，**不再自动探测 fprintd**；真正的 TA 失效交给 `fp-ta-watchdog` 重载。
+  - `fp-resume-reset` 保留手动 probe 模式：区分 healthy / busy（被 GDM/用户占用，不重载）/
+    stale（QSEE bring-up、status 1001、scm -22）/ unknown（不盲目重载）。
+  - 系统级 `68-touch-fix.sh` + 新增 `/usr/local/sbin/touch-fix-run`：先等会话解锁，
+    解锁后 2s 再执行 1s freeze，避免冻结 supplicant 造成 20s TEE 卡死。
+- **验证**：两轮睡眠测试；去掉自动探测后指纹**第一次即解锁成功**；touch-fix 等到解锁后
+  才 rtcwake，未再出现 20s 冻结。touch-fix 部分是本机 workaround，不在包内。
+
 ## 2026-11-23 — Goodix TA 唤醒后自动恢复 / CMA 重载修复
 
 - **现象**：s2idle 后指纹 fprintd 报 `Goodix QSEE bring-up command 1005 failed
@@ -127,6 +146,8 @@
 - **修复**：retry drop-in 改为 `ProtectKernelTunables=no`；新增
   `70-goodix-fp-resume.sh` + `fp-resume-reset`，唤醒后探测 fprintd，失效才停 loader、
   外部 reclaim 并重载；健康则不动。严重碎片化时仍需重启（本次即如此）。
+  （同日下半天该自动探测改为 ensure-only，避免抢 GDM 指纹解锁；见上一条
+  “睡眠唤醒后 20s 假死修复”。）
 - 手动恢复：`sudo /usr/local/sbin/fp-resume-reset`。
 
 ## 2026-11-23 — GNSS 按需启停 + cold start 修复

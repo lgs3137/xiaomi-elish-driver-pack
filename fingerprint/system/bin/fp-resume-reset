@@ -3,28 +3,99 @@
 #
 # After s2idle the TA session can become stale: fprintd then fails with
 # "Goodix QSEE bring-up command 1005 failed ... status 1001" even though the
-# loader unit still says active.  Probe fprintd first; only reload the TA when
-# the sensor really cannot be opened.  Reload needs a ~9 MiB contiguous CMA
-# block, so do reclaim outside the service sandbox before starting the loader.
+# loader unit still says active.
+#
+# Modes:
+#   fp-resume-reset                 probe fprintd, reload TA only if truly stale
+#   fp-resume-reset --ensure-loader restart watchdog + make sure the loader
+#                                   unit is active (no fprintd probe; used by the
+#                                   automatic post-resume hook, so it cannot
+#                                   race/claim the sensor during screen unlock)
+#
+# Why the automatic hook must not probe: GDM's lock screen fingerprint unlock
+# claims the sensor right after resume.  An automatic fprintd-verify probe can
+# claim the device first, then GDM fails with "device still busy" and the user
+# has to unlock with a password.  A probe can also leave the TA in an armed
+# state.  Real TA failures are still caught by fp-ta-watchdog and this helper
+# can be run manually for a deeper check.
 LOG=/var/log/fp-resume.log
 log() { echo "$(date -Is) [fp-resume] $*" >>"$LOG" 2>/dev/null || true; }
 
+MODE=probe
+case "${1:-}" in
+    --ensure-loader) MODE=ensure ;;
+    ""|--probe) MODE=probe ;;
+    *) echo "usage: $0 [--probe|--ensure-loader]" >&2; exit 2 ;;
+esac
+
 USER_NAME=$(getent passwd 1000 2>/dev/null | cut -d: -f1)
-probe_ok() {
-    [ -n "$USER_NAME" ] && command -v fprintd-verify >/dev/null 2>&1 || return 1
-    # "Verify started!" means the TA/sensor opened; the timeout cancels the
-    # pending finger wait.  Failure prints "Open failed" and returns quickly.
-    timeout 4 fprintd-verify "$USER_NAME" 2>&1 | grep -q 'Verify started'
-}
+PROBE_OUT=/run/fp-resume-probe.out
 
 # Keep the watchdog's journal subscription fresh even when TA is healthy.
 systemctl restart --no-block fp-ta-watchdog.service 2>/dev/null || true
-if probe_ok; then
-    log "TA probe OK; not reloading"
+
+if [ "$MODE" = "ensure" ]; then
+    if systemctl is-active --quiet qsee-app-loader@gfenu.service; then
+        log "loader active; ensure-only (no fprintd probe)"
+    else
+        log "loader inactive; starting qsee-app-loader@gfenu (ensure-only)"
+        systemctl start --no-block qsee-app-loader@gfenu.service 2>/dev/null || true
+        sleep 2
+        log "loader=$(systemctl is-active qsee-app-loader@gfenu 2>/dev/null)"
+    fi
     exit 0
 fi
 
-log "TA probe failed; stopping loader, reclaiming CMA, reloading"
+# Echo one of: healthy | busy | stale | unknown
+probe_result() {
+    [ -n "$USER_NAME" ] && command -v fprintd-verify >/dev/null 2>&1 || {
+        echo unknown
+        return
+    }
+    # Healthy TA opens the sensor, prints "Verify started!" and waits for a
+    # finger until the timeout kills the client (rc=124).  A stale TA usually
+    # prints a QSEE error and exits before the timeout.
+    timeout 6 fprintd-verify "$USER_NAME" >"$PROBE_OUT" 2>&1
+    rc=$?
+    if grep -qiE 'already claimed|Claim already in progress|PermissionDenied|Permission denied|AccessDenied' "$PROBE_OUT"; then
+        echo busy
+        return
+    fi
+    if grep -qiE 'Open failed|QSEE open failed|bring-up command|status 1001|scm call failed|QSEE invoke|Device reported an error' "$PROBE_OUT"; then
+        echo stale
+        return
+    fi
+    if grep -q 'Verify started' "$PROBE_OUT"; then
+        if [ "$rc" = 124 ]; then
+            echo healthy
+        else
+            # opened but exited early without a recognizable TA error
+            echo unknown
+        fi
+        return
+    fi
+    echo unknown
+}
+
+RESULT=$(probe_result)
+case "$RESULT" in
+    healthy)
+        log "TA probe OK; not reloading"
+        exit 0
+        ;;
+    busy)
+        log "TA probe: sensor claimed by another client (GDM/user auth in progress); not reloading"
+        exit 0
+        ;;
+    stale)
+        log "TA probe: stale session; stopping loader, reclaiming CMA, reloading"
+        ;;
+    *)
+        log "TA probe inconclusive (timeout/unknown); not reloading (output: $(tr '\n' ' ' <"$PROBE_OUT" 2>/dev/null | cut -c1-240))"
+        exit 0
+        ;;
+esac
+
 systemctl stop --no-block qsee-app-loader@gfenu.service 2>/dev/null || true
 sleep 1
 systemctl reset-failed qsee-app-loader@gfenu.service 2>/dev/null || true

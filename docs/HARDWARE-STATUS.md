@@ -23,7 +23,7 @@
 | 已驱动（可配置） | 屏幕方向 / 平板模式 / 相机流重建 | ✅ `tablet_mode=on/off/auto`、`rebuild_mode=idle/live/off`；`elish-camera-ctl orientation` |
 | 已驱动 | 相机后端登录自启 | ✅ `elish-camera-autostart` + `/etc/xdg/autostart/elish-camera-autoserve.desktop` |
 | 已驱动 | 相机画质调校（LSC/CCM） | ✅ 仅提供本机只读提取脚本（不随包带调校数据）；提取后默认启用（后摄暗角 4.4×→~1×）；`ELISH_LSC`/`ELISH_CCM` 可关 |
-| 已驱动 | 指纹 Goodix GF3626 | ✅ fprintd 录入/验证、GDM 解锁、sudo 认证（当前走 bioauth）、`fp-ta-watchdog` + resume 钩子自动重载 TA；**联合 DTB 已为 TZ 划 32 MiB 专用 pool，TA 不再依赖全局 CMA**；自检 OK=19 / WARN=1 / FAIL=0 |
+| 已驱动 | 指纹 Goodix GF3626 | ✅ fprintd 录入/验证、GDM 解锁、sudo 认证（当前走 bioauth）、`fp-ta-watchdog` + resume 钩子（ensure-loader，不自动探测以免抢 GDM 解锁）恢复 TA；**联合 DTB 已为 TZ 划 32 MiB 专用 pool，TA 不再依赖全局 CMA**；自检 OK=19 / WARN=1 / FAIL=0 |
 | 已驱动 | 音频 | ✅（PA/WirePlumber 争用唯一 PCM 已修复：用户级 `51-disable-alsa.lua`；相机 PipeWire 不受影响） |
 | 已驱动 | 闪光灯 / 手电筒 | ✅ `white:flash`；开机误闪已修复（默认组件 `flash-led/`）；手电筒可选（`torch/`，默认不装） |
 | 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电：5V 基础 + **PD 9V 快充已打通**（电池侧低电量 ~15W，高电量按分段曲线降档，不再提前 Full）；bq2597x 泵 / 27W 与 11V 档未接 |
@@ -125,7 +125,7 @@
 | 键盘/鼠标 | USB HID：`Xiaomi Pad Keyboard`、`Xiaomi Pad Mouse`、`Xiaomi Pad`，外接蓝牙鼠标；唤醒后键盘 HID 假死由默认组件 `pogo/` 自动复位（见 §2.2） |
 | 传感器 | 加速度/环境光/方向/指南针 heading（见 §2.1） |
 | **GNSS** | **Airoha AG3335**：`/dev/ttyHS1`（QUP5 UART，921600）+ `airoha_gps.ko`（供电/时钟/pinctrl）+ `airoha-gnssd`（PAIR002 + PAIR 运行时初始化/cold start + NMEA→pty）+ `gpsd`（`/dev/ttyGNSS0`，NMEA0183）+ `gps-nmea-share` → GeoClue2（`/run/gps-share.sock`）；**按需启停**：`gpsd.socket`/`gps-nmea-share.socket` 触发，`gnss-idle.timer` 空闲停止；实机 NMEA 1 Hz，与传感器/罗盘可同时工作；室外真实 fix 验证 mode=3、12 星、GGA quality=1。地图应用：GNOME Maps 仅位置（不读传感器）；**Pure Maps 3.5.1（Flathub）已验证**；朝向：本包 polkit 规则放行 geoclue 的 `ClaimCompass`，实测 GeoClue Location 同时返回位置与 heading，Pure Maps 罗盘在跟随/导航且速度<10km/h 时激活 |
-| 指纹 | Goodix GF3626：fprintd 录入/验证、GDM 解锁、sudo 认证（当前接入 bioauth；旧 `pam_fprintd` 栈可选；NOPASSWD 未停用则被绕过）、`fp-ta-watchdog` + resume 钩子自动恢复；TA 重载需 9MiB 连续 CMA，严重碎片时仍要重启 |
+| 指纹 | Goodix GF3626：fprintd 录入/验证、GDM 解锁、sudo 认证（当前接入 bioauth；旧 `pam_fprintd` 栈可选；NOPASSWD 未停用则被绕过）、`fp-ta-watchdog` + resume 钩子（ensure-loader，不自动探测）自动恢复；TA 重载需 9MiB 连续 CMA，严重碎片时仍要重启 |
 | 相机闪光灯 | `/sys/class/leds/white:flash`（v4l2 flash LED）；开机误闪修复（`flash-led/`，默认）；可选手电筒（`torch/`：GNOME 46 控制中心开关 + `torch` CLI，默认不装） |
 | 视频编解码 | Venus V4L2 stateful：`vainfo` → H.264/HEVC 解码/编码；Firefox VA-API |
 | GPU/存储/总线 | Adreno/freedreno、UFS、PCIe、USB 主机 |
