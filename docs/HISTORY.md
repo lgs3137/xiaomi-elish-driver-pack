@@ -105,6 +105,14 @@
 - **Hi556 stage2**：RAW10 2592×1944 SGRBG10 @ ~30fps，checker test pattern 通过；随后合并进单一联合
   DTB（模型级，含 Hi556 节点）。原“PM8150A L1/L2 被 USB 占用”纠正为 **DTS 缺 `ldoc2` 节点**。
 
+## 2026-11-23 — TZ 专用 reserved-memory（彻底解决 TA 的 CMA 碎片）
+
+- 联合 DTB 新增 32 MiB `tz-ffi@93000000`（`shared-dma-pool`, `no-map`），并给
+  `/firmware/scm` 加 `memory-region`。`qcom_tzmem` 的 9 MiB TA 从该专用 coherent
+  pool 分配，不再与相机/Venus/页缓存争全局 CMA；根因上消除 `__cma_alloc -16`。
+- 代价 32 MiB RAM；DTB sha256 `6d1cb494…`，只新增 1 节点 + 1 属性，L10C 已还原，
+  `verify-combined-dtb.sh` 通过。
+
 ## 2026-11-23 — Goodix TA 唤醒后自动恢复 / CMA 重载修复
 
 - **现象**：s2idle 后指纹 fprintd 报 `Goodix QSEE bring-up command 1005 failed

@@ -18,7 +18,7 @@
 | `fprintd-verify` 验证（verify-match） | ✅ |
 | GDM 锁屏/登录指纹图标与解锁 | ✅ |
 | sudo 指纹（弹窗提示、8s 超时回退密码） | ✅ |
-| TA "拒服务" 自动恢复（看门狗/resume 钩子重载 loader） | ✅（CMA 严重碎片时需重启） |
+| TA "拒服务" 自动恢复（看门狗/resume 钩子重载 loader） | ✅（联合 DTB 已划 32MiB TZ 专用 pool，不再依赖全局 CMA） |
 | 安装自检 `install/verify-fingerprint.sh` | ✅ OK=19 / WARN=1 / FAIL=0（2026-11-21 复核；WARN=旧 `--pam` 栈未启用） |
 
 ## 硬件与版本
@@ -62,8 +62,10 @@ s2idle 后 fprintd 可能报 `Goodix QSEE bring-up command 1005 failed ... statu
   允许 retry wrapper 在 CMA 压力下 reclaim；
 - 日志 `/var/log/fp-resume.log`；手动等价：`sudo /usr/local/sbin/fp-resume-reset`。
 
-本机 2026-11-23 一次严重 CMA 碎片（`req-size 2244 pages, ret -16`）仍只能重启恢复；
-resume 钩子用于避免“每次唤醒都坏”。
+本机 2026-11-23 一次严重 CMA 碎片（`req-size 2244 pages, ret -16`）曾只能重启恢复。
+包内联合 DTB 已新增 **32 MiB TZ 专用 reserved-memory**（`/firmware/scm/memory-region`，
+见 `../kernel/dtb/README.md`），TA 的 9 MiB 改从该专用 coherent pool 分配，不再依赖全局 CMA；
+之后即使内存压力大，TA 重载也不应再 EBUSY。resume 钩子继续保留（健康则不重载）。
 
 ## 目录
 

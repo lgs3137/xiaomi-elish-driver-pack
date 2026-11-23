@@ -17,7 +17,7 @@
 
 本目录的 DTB 已包含以上全部改动：`sm8250-xiaomi-elish-csot.dtb` 为**唯一联合 DTB**
 （模型级、无本机私有信息、含 Hi556），139,091 B，sha256
-`0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8`。
+`6d1cb494772f78ae72ed0fefe9f9068ec7609049524a7c7d62dc9c982f055afe`。
 
 ## 传感器真正依赖的是 fastrpc reserved-memory
 
@@ -54,6 +54,29 @@ uart16、haptics、regulator@88e7000 等），且树内只有 vmids、没有指�
 4 字节 `regulator-min/max-microvolt`（`00 32 4b 00`）改写成 3 字节（`02 4b 00`）——语义破坏。
 **L10A 是 `regulators-0/ldo10`（3.008V），不受该问题影响**；当前验证 DTB 只新增了计划内节点/属性，
 没有改动任何已有属性。改属性请用等长二进制替换或完整源码重编。
+
+## TZ / 指纹专用 reserved memory（2026-11-23）
+
+联合 DTB 新增 32 MiB 专用 carveout，并交给 `/firmware/scm`：
+
+```
+reserved-memory {
+    tz_ffi_mem: tz-ffi@93000000 {
+        compatible = "shared-dma-pool";
+        reg = <0x0 0x93000000 0x0 0x2000000>;
+        no-map;
+    };
+};
+firmware { scm { memory-region = <&tz_ffi_mem>; }; };
+```
+
+`qcom_scm` probe 的 `of_reserved_mem_device_init()` 会把该 region 设成 SCM 设备的
+per-device coherent DMA pool；`qcom_tzmem` 的 TA（gfenu，约 9 MiB）从这里分配，
+**不再从全局 CMA 抢连续块**，因此长期运行/内存压力下不会再出现
+`__cma_alloc: ... req-size: 2244 pages, ret: -16`。代价是少 32 MiB RAM。
+
+当前 DTB sha256 `6d1cb494…`；只新增 1 个节点 + 1 个属性，L10C 已还原，
+`verify-combined-dtb.sh` 通过。应用：`sudo kernel/install-dtb.sh --write-boot`。
 
 ## Hi556 景深相机（已实测 RAW 出流）
 

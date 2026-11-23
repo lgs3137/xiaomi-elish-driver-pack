@@ -62,7 +62,7 @@ pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分�
 | `include/` | 指纹驱动必需的 3 个内核头文件 |
 | `INTEGRATION.md` | 头文件 + drivers/tee Kconfig/Makefile 集成步骤 |
 | `initramfs/` | 修复版 initramfs hook + 安装脚本（防止 SLPI 固件进 initramfs） |
-| `dtb/` | **单一**已验证联合 DTB（模型级，已合并相机/OV8856/OV13B10/Hi556）+ 说明/参考/校验脚本 |
+| `dtb/` | **单一**已验证联合 DTB（模型级，已合并相机/Hi556 + 32MiB TZ 专用 reserved-memory）+ 说明/参考/校验脚本 |
 | `dtb/hi556/` | Hi556 **构建/应用方法脚本**（不再分发单独 stage1/stage2 DTB）；联合 DTB 已含 Hi556；DTS/patch 不随包 |
 | `boot/` | `zz-update-abl-kernel` 系统 hook 副本（参考；统一用 update-boot-image.sh） |
 | `integration/` | DTS vmids 片段（完整基线重建参考） |

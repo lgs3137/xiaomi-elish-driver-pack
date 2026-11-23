@@ -5,7 +5,7 @@ Linux 侧由 mainline `drivers/media/i2c/hi556.c` 驱动。本目录的 DTS 补�
 I2C、MCLK、reset 与 CAMSS 连接节点（+7 节点 / +1 phandle / 0 改动 / 0 删除）。
 
 > 包内只有一份模型级联合 DTB `../sm8250-xiaomi-elish-csot.dtb`
-> （sha256 `0d639355650ad34ef3a03ed6af44f4fd2e1ec287aadd543a7c707238f8b544e8`，139,091 B），
+> （sha256 `6d1cb494772f78ae72ed0fefe9f9068ec7609049524a7c7d62dc9c982f055afe`，139,091 B），
 > **已合并 Hi556 stage2 节点**，无需再单独应用 Hi556 补丁。本目录只保留构建/校验/回滚脚本，
 > 供审计补丁内容或从旧基线重建时使用；`.dts`/`.patch`/`.dtso` 文本不随包。
 

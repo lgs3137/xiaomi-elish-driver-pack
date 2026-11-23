@@ -23,7 +23,7 @@
 | 已驱动（可配置） | 屏幕方向 / 平板模式 / 相机流重建 | ✅ `tablet_mode=on/off/auto`、`rebuild_mode=idle/live/off`；`elish-camera-ctl orientation` |
 | 已驱动 | 相机后端登录自启 | ✅ `elish-camera-autostart` + `/etc/xdg/autostart/elish-camera-autoserve.desktop` |
 | 已驱动 | 相机画质调校（LSC/CCM） | ✅ 仅提供本机只读提取脚本（不随包带调校数据）；提取后默认启用（后摄暗角 4.4×→~1×）；`ELISH_LSC`/`ELISH_CCM` 可关 |
-| 已驱动 | 指纹 Goodix GF3626 | ✅ fprintd 录入/验证、GDM 解锁、sudo 认证（当前走 bioauth）、`fp-ta-watchdog` + resume 钩子自动重载 TA；CMA 严重碎片时仍需重启；自检 OK=19 / WARN=1 / FAIL=0 |
+| 已驱动 | 指纹 Goodix GF3626 | ✅ fprintd 录入/验证、GDM 解锁、sudo 认证（当前走 bioauth）、`fp-ta-watchdog` + resume 钩子自动重载 TA；**联合 DTB 已为 TZ 划 32 MiB 专用 pool，TA 不再依赖全局 CMA**；自检 OK=19 / WARN=1 / FAIL=0 |
 | 已驱动 | 音频 | ✅（PA/WirePlumber 争用唯一 PCM 已修复：用户级 `51-disable-alsa.lua`；相机 PipeWire 不受影响） |
 | 已驱动 | 闪光灯 / 手电筒 | ✅ `white:flash`；开机误闪已修复（默认组件 `flash-led/`）；手电筒可选（`torch/`，默认不装） |
 | 已驱动 | 显示/触摸/笔/霍尔/电池充电/WiFi/BT/键鼠/Venus/GPU/UFS/PCIe/PMIC | ✅ 基础平台可用；充电：5V 基础 + **PD 9V 快充已打通**（电池侧低电量 ~15W，高电量按分段曲线降档，不再提前 Full）；bq2597x 泵 / 27W 与 11V 档未接 |
