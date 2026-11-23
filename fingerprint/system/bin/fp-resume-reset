@@ -1,0 +1,37 @@
+#!/bin/sh
+# Resume recovery for Goodix GF3626 / QSEE TA.
+#
+# After s2idle the TA session can become stale: fprintd then fails with
+# "Goodix QSEE bring-up command 1005 failed ... status 1001" even though the
+# loader unit still says active.  Probe fprintd first; only reload the TA when
+# the sensor really cannot be opened.  Reload needs a ~9 MiB contiguous CMA
+# block, so do reclaim outside the service sandbox before starting the loader.
+LOG=/var/log/fp-resume.log
+log() { echo "$(date -Is) [fp-resume] $*" >>"$LOG" 2>/dev/null || true; }
+
+USER_NAME=$(getent passwd 1000 2>/dev/null | cut -d: -f1)
+probe_ok() {
+    [ -n "$USER_NAME" ] && command -v fprintd-verify >/dev/null 2>&1 || return 1
+    # "Verify started!" means the TA/sensor opened; the timeout cancels the
+    # pending finger wait.  Failure prints "Open failed" and returns quickly.
+    timeout 4 fprintd-verify "$USER_NAME" 2>&1 | grep -q 'Verify started'
+}
+
+# Keep the watchdog's journal subscription fresh even when TA is healthy.
+systemctl restart --no-block fp-ta-watchdog.service 2>/dev/null || true
+if probe_ok; then
+    log "TA probe OK; not reloading"
+    exit 0
+fi
+
+log "TA probe failed; stopping loader, reclaiming CMA, reloading"
+systemctl stop --no-block qsee-app-loader@gfenu.service 2>/dev/null || true
+sleep 1
+systemctl reset-failed qsee-app-loader@gfenu.service 2>/dev/null || true
+sync
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+echo 1 > /proc/sys/vm/compact_memory 2>/dev/null || true
+systemctl start --no-block qsee-app-loader@gfenu.service 2>/dev/null || true
+sleep 2
+systemctl restart --no-block fprintd.service 2>/dev/null || true
+log "loader=$(systemctl is-active qsee-app-loader@gfenu 2>/dev/null) fprintd=$(systemctl is-active fprintd 2>/dev/null)"

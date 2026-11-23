@@ -63,6 +63,14 @@ sudo chmod 0644 /lib/firmware/gfenu.*
 
 **不要用 `fingerpr.*`**（错误 TA）。TA 名字必须与 DTB `/fingerprint` 的 `firmware-name` 一致（gfenu）。
 
+## 2b. 唤醒后 TA 自动恢复
+
+`install/install-fingerprint-files.sh` 会安装 resume 钩子
+`/usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh` 和
+`/usr/local/sbin/fp-resume-reset`。唤醒后先探测 fprintd；TA 失效才重载，避免每次
+唤醒都重启 loader。QSEE loader retry 的 `ProtectKernelTunables=no` 允许它在 CMA
+压力下 drop caches/compact；严重碎片化时仍需重启。
+
 ## 3. qsee-supplicant / qsee-app-loader
 
 ```bash

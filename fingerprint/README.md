@@ -18,7 +18,7 @@
 | `fprintd-verify` 验证（verify-match） | ✅ |
 | GDM 锁屏/登录指纹图标与解锁 | ✅ |
 | sudo 指纹（弹窗提示、8s 超时回退密码） | ✅ |
-| TA "拒服务" 自动恢复（看门狗重载 loader） | ✅ |
+| TA "拒服务" 自动恢复（看门狗/resume 钩子重载 loader） | ✅（CMA 严重碎片时需重启） |
 | 安装自检 `install/verify-fingerprint.sh` | ✅ OK=19 / WARN=1 / FAIL=0（2026-11-21 复核；WARN=旧 `--pam` 栈未启用） |
 
 ## 硬件与版本
@@ -46,6 +46,24 @@ fp-ta-watchdog（日志检测 TA 拒服务 → 重启 loader）
 内核：drivers/tee/qseecom（/dev/tee0、/dev/teepriv0）、qcom_scm QSEECOM、mdt_loader ELF64、
       goodix_fp_spi.ko（/dev/goodix_fp：L10A/复位/IRQ/netlink）
 ```
+
+## 唤醒后 TA 自动恢复（2026-11-23）
+
+s2idle 后 fprintd 可能报 `Goodix QSEE bring-up command 1005 failed ... status 1001`；
+原因是 TA 会话失效，需要重载 `qsee-app-loader@gfenu`。但 TA 需要约 **9 MiB 连续 CMA**，
+长时间运行后 CMA 碎片化/不可迁移页会导致 `__cma_alloc: ... ret: -16`（EBUSY），
+此时 `CmaFree` 仍有 50–100 MB 也不够；严重时只能重启清 CMA。
+
+已安装：
+- `/usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh`：唤醒后延迟调用 helper；
+- `/usr/local/sbin/fp-resume-reset`：先 `fprintd-verify` 探测，**健康则不动 TA**；
+  失败才 stop loader → 外部 drop caches/compact → reload；避免每次唤醒都重启；
+- `qsee-app-loader@.service.d/60-retry-reclaim.conf`：`ProtectKernelTunables=no`，
+  允许 retry wrapper 在 CMA 压力下 reclaim；
+- 日志 `/var/log/fp-resume.log`；手动等价：`sudo /usr/local/sbin/fp-resume-reset`。
+
+本机 2026-11-23 一次严重 CMA 碎片（`req-size 2244 pages, ret -16`）仍只能重启恢复；
+resume 钩子用于避免“每次唤醒都坏”。
 
 ## 目录
 

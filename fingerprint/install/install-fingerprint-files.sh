@@ -33,6 +33,9 @@ printf 'goodix_fp_spi\n' > /etc/modules-load.d/goodix-fp.conf
 echo "== 3) 脚本"
 install -d /usr/local/bin
 install -m 0755 "$P/system/bin/fp-sudo-prompt" "$P/system/bin/fp-sudo-prompt-done" "$P/system/bin/fp-ta-watchdog" "$P/system/bin/qsee-app-loader-retry" /usr/local/bin/
+# 唤醒后自动重载 TA（修复 s2idle 后 fprintd 1005/1001；不需要重启系统）
+install -D -m 0755 "$P/system/bin/fp-resume-reset" /usr/local/sbin/fp-resume-reset
+install -D -m 0755 "$P/system/systemd-sleep/70-goodix-fp-resume.sh" /usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh
 
 echo "== 4) 可选：PAM（sudo 指纹优先、8s 超时回退密码）"
 if [ "$PAM" = 1 ]; then
@@ -65,7 +68,7 @@ echo "== 6) 重新加载并启用"
 systemctl daemon-reload
 udevadm control --reload-rules || true
 udevadm trigger --action=add --subsystem-match=misc --sysname-match=goodix_fp || true
-systemctl enable qsee-supplicant.service
+systemctl enable qsee-supplicant.service 2>/dev/null || true
 systemctl enable fp-ta-watchdog.service
 systemctl enable fprintd.service 2>/dev/null || true
 systemctl restart qsee-supplicant.service || true

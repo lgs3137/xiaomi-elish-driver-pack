@@ -8,10 +8,12 @@ src/qsee-supplicant/      supplicant + app-loader 完整源码（0.1.1，无编�
 src/libfprint/            goodixqsee 驱动源码 + meson 选项 + 日志补丁（相对 430e24e5）
 system/pam.d/             sudo（指纹优先栈，可选安装）、gdm-fingerprint（对照）
 system/systemd/           qsee-supplicant.service、qsee-app-loader@.service（含 restart-limit /
-                          retry-reclaim drop-in）、fp-ta-watchdog.service、fprintd drop-in、
-                          用户会话 watcher unit
+                          retry-reclaim drop-in，ProtectKernelTunables=no）、fp-ta-watchdog.service、
+                          fprintd drop-in、用户会话 watcher unit
+system/systemd-sleep/     70-goodix-fp-resume.sh（唤醒后探测/按需重载 TA）
 system/udev/60-goodix-qsee.rules
-system/bin/               fp-sudo-prompt、fp-sudo-prompt-done、fp-ta-watchdog、qsee-app-loader-retry
+system/bin/               fp-sudo-prompt、fp-sudo-prompt-done、fp-ta-watchdog、qsee-app-loader-retry、
+                          fp-resume-reset
 system/user-bin/          fp-sudo-prompt-watch
 extract/                  extract-gfenu-ta.sh + README（TA 提取与 sha256 校验）
 install/                  install-fingerprint-files.sh、verify-fingerprint.sh、uninstall-fingerprint.sh

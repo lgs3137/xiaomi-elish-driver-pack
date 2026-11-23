@@ -105,6 +105,18 @@
 - **Hi556 stage2**：RAW10 2592×1944 SGRBG10 @ ~30fps，checker test pattern 通过；随后合并进单一联合
   DTB（模型级，含 Hi556 节点）。原“PM8150A L1/L2 被 USB 占用”纠正为 **DTS 缺 `ldoc2` 节点**。
 
+## 2026-11-23 — Goodix TA 唤醒后自动恢复 / CMA 重载修复
+
+- **现象**：s2idle 后指纹 fprintd 报 `Goodix QSEE bring-up command 1005 failed
+  ... status 1001`，重启可恢复。
+- **根因**：TA 会话失效需重载 loader；TA 需要 ~9 MiB 连续 CMA，长时间运行后碎片化，
+  重载失败；retry wrapper 的 drop_caches/compact 又被 `ProtectKernelTunables=yes`
+  限制为只读 `/proc/sys/vm`。
+- **修复**：retry drop-in 改为 `ProtectKernelTunables=no`；新增
+  `70-goodix-fp-resume.sh` + `fp-resume-reset`，唤醒后探测 fprintd，失效才停 loader、
+  外部 reclaim 并重载；健康则不动。严重碎片化时仍需重启（本次即如此）。
+- 手动恢复：`sudo /usr/local/sbin/fp-resume-reset`。
+
 ## 2026-11-23 — GNSS 按需启停 + cold start 修复
 
 - **根因**：s2idle 唤醒后芯片备份星历失效，`$PAIR004`（hot start）返回

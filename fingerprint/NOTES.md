@@ -50,6 +50,21 @@
   必要时手动 `systemctl restart qsee-app-loader@gfenu`；重启系统仍是最后兜底，
   但已经不是 CMA 失败的必需操作。
 
+## 2b. CMA 碎片 / TA 重载失败（2026-11-23）
+
+- **现象**：s2idle 后 fprintd 报 `Goodix QSEE bring-up command 1005 failed ... status 1001`；
+  重启可恢复。
+- **根因**：TA 会话失效需要重载 `qsee-app-loader@gfenu`，但 TA 需要约 **9 MiB 连续 CMA**；
+  长时间运行后 CMA 碎片化，CmaFree 虽有 50–100 MB 仍 `Cannot allocate memory`。
+  `qsee-app-loader-retry` 的 drop_caches/compact 之前被服务单元 `ProtectKernelTunables=yes`
+  限制（只读 `/proc/sys/vm`）；已改为 `ProtectKernelTunables=no`，并在 resume helper 中
+  先做外部 reclaim。
+- **仍可能失败**：严重碎片化时（例如本次 CmaFree 100 MB 但 9 MiB 连续块不可得）免重启
+  重载仍失败，只能重启清 CMA。已安装 `70-goodix-fp-resume.sh` + `fp-resume-reset`：
+  唤醒后先探测 fprintd 能否打开，健康则不动，失败才停 loader/reclaim/重载（避免不必要重启）。
+- 手动恢复（不需要重启整个系统时先试）：`sudo /usr/local/sbin/fp-resume-reset`；
+  日志 `/var/log/fp-resume.log`。仍失败则重启。
+
 ## 3. TA "拒服务"（1062 / `scm call failed -22`）
 
 - 触发：短时间内并发/连续多个 verify（脚本连测）会把 TA 留在 armed 状态。

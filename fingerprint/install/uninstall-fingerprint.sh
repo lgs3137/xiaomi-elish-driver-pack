@@ -11,6 +11,8 @@ rm -f /etc/systemd/system/fprintd.service.d/60-goodix-qsee.conf
 rmdir /etc/systemd/system/fprintd.service.d 2>/dev/null || true
 rm -f /etc/udev/rules.d/60-goodix-qsee.rules
 rm -f /usr/local/bin/fp-sudo-prompt /usr/local/bin/fp-sudo-prompt-done /usr/local/bin/fp-ta-watchdog
+rm -f /usr/local/sbin/fp-resume-reset
+rm -f /usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh
 if [ -n "${SUDO_USER:-}" ]; then
   H=$(getent passwd "$SUDO_USER" | cut -d: -f6)
   systemctl --user -M "$SUDO_USER@" disable --now fp-sudo-prompt-watch.service 2>/dev/null || true

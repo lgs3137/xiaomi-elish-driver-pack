@@ -44,6 +44,11 @@ strings /usr/lib/aarch64-linux-gnu/libfprint-2.so.2.0.0 2>/dev/null | grep -q 'G
 grep -q 'pam_fprintd.so' /etc/pam.d/sudo 2>/dev/null && ok "sudo PAM 含 pam_fprintd" || wk "sudo PAM 未启用指纹（--pam 可选）"
 grep -q CmaFree <(cat /proc/meminfo) && ok "CMA 可用: $(awk '/CmaFree/{print $2" kB"}' /proc/meminfo)" || wk "CMA 状态未知"
 
+echo "-- 免重启恢复"
+cleanup_tmp=""
+grep -q 'ProtectKernelTunables=no' /etc/systemd/system/qsee-app-loader@.service.d/60-retry-reclaim.conf 2>/dev/null   && ok "TA loader retry 允许 reclaim（ProtectKernelTunables=no）"   || wk "TA loader retry 仍受 ProtectKernelTunables 限制（CMA 失败时无法 reclaim）"
+[ -x /usr/local/sbin/fp-resume-reset ] && [ -x /usr/lib/systemd/system-sleep/70-goodix-fp-resume.sh ]   && ok "resume 自动重载 TA 钩子已安装"   || wk "缺少 resume 自动重载 TA 钩子（唤醒后 1005/1001 需手动 reload）"
+
 echo "-- fprintd 设备/模板"
 if [ -n "$U" ] && command -v fprintd-list >/dev/null; then
   out=$(fprintd-list "$U" 2>&1 || true)
