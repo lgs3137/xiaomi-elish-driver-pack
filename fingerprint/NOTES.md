@@ -59,7 +59,7 @@
   `qsee-app-loader-retry` 的 drop_caches/compact 之前被服务单元 `ProtectKernelTunables=yes`
   限制（只读 `/proc/sys/vm`）；已改为 `ProtectKernelTunables=no`，并在 resume helper 中
   先做外部 reclaim。
-- **已从根上绕开（2026-11-23）**：联合 DTB 给 `/firmware/scm` 加了 32 MiB 专用
+- **已从根上绕开并验证（2026-11-23）**：联合 DTB 给 `/firmware/scm` 加了 32 MiB 专用
   `shared-dma-pool`（`tz-ffi@93000000`），TA 的 9 MiB 走该池，不再依赖全局 CMA。
   仍安装 `70-goodix-fp-resume.sh` + `fp-resume-reset`：唤醒后先探测 fprintd，健康则
   不动，失败才停 loader/reclaim/重载。旧 DTB 仍可能遇到严重 CMA 碎片需重启。

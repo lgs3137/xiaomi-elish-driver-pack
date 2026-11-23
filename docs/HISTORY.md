@@ -112,6 +112,10 @@
   pool 分配，不再与相机/Venus/页缓存争全局 CMA；根因上消除 `__cma_alloc -16`。
 - 代价 32 MiB RAM；DTB sha256 `6d1cb494…`，只新增 1 节点 + 1 属性，L10C 已还原，
   `verify-combined-dtb.sh` 通过。
+- **2026-11-23 08:24 重启验证**：内核 `Reserved memory: created DMA memory pool at
+  0x93000000, size 32 MiB`；`qcom_scm ... assigned reserved memory node tz-ffi@93000000`；
+  当时 `CmaFree` 仅 **5.6 MB**，TA 仍成功 `loaded 'gfenu' as app 4`，fprintd 打开正常。
+  说明 TA 的 9 MiB 已完全走专用 pool，不再依赖全局 CMA。
 
 ## 2026-11-23 — Goodix TA 唤醒后自动恢复 / CMA 重载修复
 

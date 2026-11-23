@@ -78,6 +78,9 @@ per-device coherent DMA pool；`qcom_tzmem` 的 TA（gfenu，约 9 MiB）从这�
 当前 DTB sha256 `6d1cb494…`；只新增 1 个节点 + 1 个属性，L10C 已还原，
 `verify-combined-dtb.sh` 通过。应用：`sudo kernel/install-dtb.sh --write-boot`。
 
+重启实测（2026-11-23 08:24）：内核创建 32 MiB DMA memory pool、`qcom_scm` 成功
+`assigned reserved memory node tz-ffi`；`CmaFree` 仅 5.6 MB 时 TA `gfenu` 仍加载成功。
+
 ## Hi556 景深相机（已实测 RAW 出流）
 
 本目录 `hi556/` 只保留 Hi556 的构建/应用脚本；Hi556 节点已经合并进包内**单一联合 DTB**：
