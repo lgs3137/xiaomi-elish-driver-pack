@@ -17,8 +17,9 @@
   13:18:01 插回 → 全部回 0。SW 当秒生效，IME 约 2 s（watcher 轮询）。
 - **注意**：脉冲翻转法在“服务停过且期间拔插”或“唤醒复位”时可能错位，可用
   `elish-keyboard-detect --set 0|1` 校准、`--status` 查看。
-- **初始状态**：冷启动用 USB 枚举（`3206:3ffc`）判断键盘是否在（冷启动没有运行中的幻影设备），
-  运行中重启服务沿用持久化状态；这样“关机时拔掉键盘再开机”也能正确。
+- **初始状态**：实测 USB 始终枚举（拔着键盘冷启动也出现 `3206:3ffc`）、GPIO83 电平恒高、
+  GPIO46 被 gps-ldo 占用、I2C 0x4c 不可达、霍尔不随拔插变化 —— **没有可靠的自动初值判据**；
+  因此沿用持久化状态，错位时用 `elish-keyboard-detect --set 0|1` 校准。
 - **打包**：新增 `utils/waydroid/` 子包（watcher + systemd + install/uninstall/verify + README）；
   watcher 优化为空闲只读 evdev、仅状态变化时调 `waydroid shell`（实测 CPU 931ms/10s → 1ms/10s）。
 
