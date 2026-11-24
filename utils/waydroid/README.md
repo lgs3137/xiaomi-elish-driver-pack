@@ -48,3 +48,20 @@ sudo ./utils/waydroid/uninstall.sh
 Watcher 只改 Android 的 IME 策略设置，不修改 Waydroid 本体；Waydroid 的输入设备是
 FIFO 模拟的（`/dev/input/wl_keyboard_events`），宿主侧无法让它“消失”，所以用这个设置来等价实现
 “有键盘不弹、没键盘弹”。
+
+## 多窗口模式（可选）
+
+Waydroid 1.4+ 支持每个 Android 应用独立成窗（GNOME 里可并排/最小化）：
+
+```bash
+echo 'persist.waydroid.multi_windows=true' | sudo tee -a /var/lib/waydroid/waydroid_base.prop
+waydroid session stop && waydroid session start
+```
+
+之后 `waydroid app launch <包名>` 或应用图标即以独立窗口打开。
+
+> 注意：`waydroid prop set persist.waydroid.multi_windows true` 写的位置会在会话启动时被
+> 重建覆盖，必须写进 `waydroid_base.prop`。
+
+本机实测（Waydroid 1.6.3，MAINLINE）：QQ 以独立窗口运行正常；Fcitx5 软键盘随平板模式
+弹出的链路在窗口模式下仍生效。
