@@ -15,6 +15,11 @@
 - **长期修复**：新增 `fprintd.service.d/70-keepalive.conf`（`ExecStart=... --no-timeout` +
   `WantedBy=multi-user.target`），fprintd 开机即启动并常驻，TEE 缓冲池开机分配后一直持有，
   避免内存碎片化后重新分配失败；`verify-fingerprint.sh` 增加对应检查。
+- **睡眠/唤醒回归（常驻带来的新问题）**：fprintd 跨 suspend 保持 TEE/netlink 会话，唤醒后首次验证
+  报 `Cannot run while suspended`，`goodix_fp_spi` 还会每 20 ms 刷 `failed to send netlink event
+  to user space: -11`。修复：post-resume 钩子在 +1s 先 `compact_memory` 再**同步重启 fprintd**
+  （赶在锁屏 GDM claim 之前），然后照旧在 +4s 跑 `--ensure-loader`；实测唤醒后首次指纹解锁成功，
+  netlink 刷屏消失。
 
 ## 2026-11-24 — 平板模式增强：pogo 键盘拔插检测（GPIO83）
 
