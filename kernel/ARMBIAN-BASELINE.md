@@ -33,3 +33,10 @@
 - 本包 `patches/fingerprint/` 下的 `fp-spi-*.patch`、`scm-qseecom.patch` 是原项目对
   上游文件的**分片改动记录**（便于审阅），不是完整 Armbian 基线。
 - 内核版本必须保持 `6.18.44-current-sm8250`（ABI/模块依赖）；升级内核需获取对应版本补丁集并重做。
+
+## Armbian 补丁 0063（USB gadget NCM 生命周期重构）
+
+该补丁基于旧模型（`bool bound`），而 **6.18.44 主线已采用更新的 `bind_count` +
+`gether_attach_gadget/gether_detach_gadget` 模型**（见 `f_ncm.c` 的 `ncm_bind/ncm_unbind`）。
+硬套会把主线新重构回退，因此对 6.18.44 **不应用 0063**；其余 68 个 sm8250 补丁正常应用。
+若将来内核回到更老版本（`bool bound` 模型），再按当时源码 rebase 该补丁。

@@ -4,6 +4,22 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
+## 2026-11-24 — 指纹内核级根治：QSEE staging 预分配 + TEE shm 压缩重试
+
+- **根因**：`qseecom_tee` 的用户缓冲是普通内核内存，每次打开设备用
+  `alloc_pages_exact(size, GFP_KERNEL|__GFP_ZERO)` 现要连续块；Waydroid 常驻下内存碎片化，
+  order-7（512 KiB）分配偶发失败 → `pool-fprintd: page allocation failure` +
+  `QSEE invoke: 无法分配内存`。
+- **驱动改动**：`kernel/qseecom/core.c` 在 probe 时**预分配并常驻**一块 512 KiB staging reserve，
+  TEE shm 分配失败时直接借用；`drivers/tee/tee_shm.c` 的 `tee_dyn_shm_alloc_helper` 改为
+  `__GFP_RETRY_MAYFAIL` + 5 次重试（不依赖不可导出的 `compact_node`）。
+- **实测（2026-11-24 19:35 重启）**：dmesg `qcom_qseecom_tee: staging reserve 512 KiB preallocated`，
+  `pool-fprintd` 失败 0 次，fprintd 正常。
+- **后续**：验证稳定后可移除 `fprintd --no-timeout` 常驻、唤醒钩子的 order≥7 等待、
+  `sysctl.d/99-elish-fp.conf` 的 min_free 等 workaround（TA watchdog/loader、唤醒重启 fprintd 保留）。
+- **Armbian 补丁 0063**：对 6.18.44 已过时（主线已用 `bind_count` + attach/detach 新模型），
+  不应用，原因见 `kernel/ARMBIAN-BASELINE.md`。
+
 ## 2026-11-24 — 指纹 TA bring-up 失败（QSEE 缓冲池碎片）+ fprintd 常驻
 
 - **现象**：指纹突然不可用，fprintd 报 `Goodix QSEE bring-up command 1005 failed: status 1001`。
@@ -52,6 +68,8 @@
   `ENODEV`（重枚举）不再崩溃。实测唤醒后屏幕方向稳定。
 - **注意**：拔着键盘唤醒**同样**有重枚举脉冲（幻影 USB 设备每次唤醒都会重枚举），因此该脉冲
   **不能**作为“唤醒后键盘是否接着”的判据。
+- **开机方向抖动**：`tablet_mode_switch` 在开机前 15 秒强制保持笔记本模式（不置
+  `SW_TABLET_MODE=1`），避免加速计/iio-sensor-proxy 初始化期间自动旋转乱转；15 秒后按实际状态发布。
 - **唤醒时钟差识别**：`suspend_stats` 在唤醒后半段才更新，第一个唤醒脉冲会漏网；改用
   wall/monotonic 时钟差（挂起时 monotonic 停走）在事件处理前识别唤醒并忽略脉冲，
   实测唤醒不再误翻 `SW_TABLET_MODE`。

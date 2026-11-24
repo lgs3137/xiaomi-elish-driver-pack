@@ -38,6 +38,9 @@
 #include <linux/sizes.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/gfp.h>
+#include <linux/mm.h>
+#include <linux/topology.h>
 #include <linux/tee_core.h>
 #include <linux/tee_drv.h>
 #include <linux/types.h>
@@ -254,6 +257,38 @@ struct qseecom_tee_context {
  * and it showed up as writes from one side being invisible to the other.
  */
 
+/*
+ * Staging reserve: one order-7 (512 KiB) block allocated at probe time and
+ * kept for the lifetime of the driver.  The TEE shm pools below are ordinary
+ * cacheable memory allocated on demand with alloc_pages_exact(); on a device
+ * that runs a container pinning most of RAM, a 512 KiB contiguous request
+ * eventually fails from fragmentation even though plenty of free memory
+ * exists in smaller pieces.  The reserve gives the common case (the Goodix
+ * TA's staging buffer) a block fragmentation cannot take.  While it is in
+ * use, allocation falls back to the normal path, which compacts and retries.
+ */
+#define QSEECOM_STAGING_RESERVE_SIZE	SZ_512K
+
+static void *qseecom_staging_reserve;
+static struct tee_shm *qseecom_staging_owner;
+static DEFINE_MUTEX(qseecom_staging_lock);
+
+static void *qseecom_staging_alloc_block(void)
+{
+	void *buf;
+	int i;
+
+	for (i = 0; i < 5; i++) {
+		buf = alloc_pages_exact(QSEECOM_STAGING_RESERVE_SIZE,
+					GFP_KERNEL | __GFP_ZERO |
+					__GFP_RETRY_MAYFAIL);
+		if (buf)
+			return buf;
+		cond_resched();
+	}
+	return NULL;
+}
+
 static int qseecom_tee_pool_alloc(struct tee_shm_pool *pool,
 				  struct tee_shm *shm, size_t size,
 				  size_t align)
@@ -282,8 +317,36 @@ static int qseecom_tee_pool_alloc(struct tee_shm_pool *pool,
 	 * would make any allocation smaller than a page impossible to map.
 	 */
 	ret = tee_dyn_shm_alloc_helper(shm, size, align, NULL);
-	if (ret)
-		return ret;
+	if (ret) {
+		size_t nr = roundup(size, PAGE_SIZE);
+		struct page **pages;
+		unsigned int i;
+
+		mutex_lock(&qseecom_staging_lock);
+		if (qseecom_staging_owner || !qseecom_staging_reserve ||
+		    nr > QSEECOM_STAGING_RESERVE_SIZE) {
+			mutex_unlock(&qseecom_staging_lock);
+			return ret;
+		}
+		pages = kcalloc(nr / PAGE_SIZE, sizeof(*pages), GFP_KERNEL);
+		if (!pages) {
+			mutex_unlock(&qseecom_staging_lock);
+			return ret;
+		}
+		for (i = 0; i < nr / PAGE_SIZE; i++)
+			pages[i] = virt_to_page((u8 *)qseecom_staging_reserve +
+						i * PAGE_SIZE);
+		shm->kaddr = qseecom_staging_reserve;
+		shm->paddr = virt_to_phys(shm->kaddr);
+		shm->size = nr;
+		shm->pages = pages;
+		shm->num_pages = nr / PAGE_SIZE;
+		qseecom_staging_owner = shm;
+		mutex_unlock(&qseecom_staging_lock);
+		pr_info("served %zu bytes from staging reserve\n", nr);
+		shm->flags &= ~TEE_SHM_DYNAMIC;
+		return 0;
+	}
 
 	/*
 	 * Nothing was registered with the secure world, so the shm must not
@@ -298,6 +361,26 @@ static int qseecom_tee_pool_alloc(struct tee_shm_pool *pool,
 static void qseecom_tee_pool_free(struct tee_shm_pool *pool,
 				  struct tee_shm *shm)
 {
+	bool borrowed = false;
+
+	mutex_lock(&qseecom_staging_lock);
+	if (qseecom_staging_owner == shm) {
+		qseecom_staging_owner = NULL;
+		borrowed = true;
+	}
+	mutex_unlock(&qseecom_staging_lock);
+
+	if (borrowed) {
+		/* The block itself stays with the reserve. */
+		kfree(shm->pages);
+		shm->pages = NULL;
+		shm->kaddr = NULL;
+		shm->paddr = 0;
+		shm->size = 0;
+		shm->num_pages = 0;
+		return;
+	}
+
 	tee_dyn_shm_free_helper(shm, NULL);
 }
 
@@ -1860,6 +1943,15 @@ static int qseecom_tee_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(qtee->pool),
 				     "failed to create shared memory pool\n");
 
+	if (!qseecom_staging_reserve) {
+		qseecom_staging_reserve = qseecom_staging_alloc_block();
+		if (qseecom_staging_reserve)
+			dev_info(dev, "staging reserve %u KiB preallocated\n",
+				 (u32)(QSEECOM_STAGING_RESERVE_SIZE / SZ_1K));
+		else
+			dev_warn(dev, "staging reserve preallocation failed\n");
+	}
+
 	qtee->teedev = tee_device_alloc(&qseecom_tee_desc, dev, qtee->pool,
 					qtee);
 	if (IS_ERR(qtee->teedev)) {
@@ -1906,6 +1998,14 @@ static void qseecom_tee_remove(struct platform_device *pdev)
 	tee_device_unregister(qtee->supp_teedev);
 	tee_device_unregister(qtee->teedev);
 	tee_shm_pool_free(qtee->pool);
+
+	mutex_lock(&qseecom_staging_lock);
+	if (!qseecom_staging_owner && qseecom_staging_reserve) {
+		free_pages_exact(qseecom_staging_reserve,
+				 QSEECOM_STAGING_RESERVE_SIZE);
+		qseecom_staging_reserve = NULL;
+	}
+	mutex_unlock(&qseecom_staging_lock);
 
 	/*
 	 * The applications themselves stay loaded in TZ -- nothing here asks

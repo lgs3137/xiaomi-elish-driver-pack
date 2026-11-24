@@ -1,0 +1,26 @@
+--- a/drivers/tee/tee_shm.c
++++ b/drivers/tee/tee_shm.c
+@@ -347,8 +347,21 @@
+ 	 * Ignore alignment since this is already going to be page aligned
+ 	 * and there's no need for any larger alignment.
+ 	 */
+-	shm->kaddr = alloc_pages_exact(nr_pages * PAGE_SIZE,
+-				       GFP_KERNEL | __GFP_ZERO);
++	/*
++	 * Fragmentation defence: 512 KiB (order-7) staging buffers are what the
++	 * Goodix QSEE client asks for; a plain alloc_pages_exact() gives up as
++	 * soon as no single contiguous block exists, even though enough memory
++	 * is free in smaller pieces.  __GFP_RETRY_MAYFAIL makes the allocator
++	 * retry reclaim/compaction with a few bounded attempts first.
++	 */
++	for (i = 0; i < 5; i++) {
++		shm->kaddr = alloc_pages_exact(nr_pages * PAGE_SIZE,
++					       GFP_KERNEL | __GFP_ZERO |
++					       __GFP_RETRY_MAYFAIL);
++		if (shm->kaddr)
++			break;
++		cond_resched();
++	}
+ 	if (!shm->kaddr)
+ 		return -ENOMEM;
+ 

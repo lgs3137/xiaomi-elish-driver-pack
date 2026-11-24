@@ -114,12 +114,30 @@ static int keyboard_present(void)
     return -1;
 }
 
+static double boot_uptime(void)
+{
+    FILE *f = fopen("/proc/uptime", "r");
+    double v = 0.0;
+    if (f) {
+        if (fscanf(f, "%lf", &v) != 1)
+            v = 0.0;
+        fclose(f);
+    }
+    return v;
+}
+
 static int desired_state(int mode, int gfd)
 {
     int kb;
     if (mode == 1)
         return 1;
     if (mode == 0)
+        return 0;
+    /* Boot grace: the accelerometer stack (iio-sensor-proxy) is still coming
+     * up for the first seconds; publishing tablet mode here turns auto-rotate
+     * on while orientation is garbage, which makes the screen spin.  Keep
+     * laptop mode until the sensor stack has settled. */
+    if (boot_uptime() < 15.0)
         return 0;
     kb = keyboard_present(); /* auto: keyboard first */
     if (kb >= 0)
