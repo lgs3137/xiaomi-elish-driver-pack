@@ -22,6 +22,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 PKG_ROOT=$(cd "$HERE/.." && pwd)
 PATCH_DIR="$PKG_ROOT/kernel/patches"
+. "$HERE/patch-lib.sh"
 
 REPO="armbian/linux"
 REF=""
@@ -132,6 +133,8 @@ for p in "$PATCH_DIR"/*.patch; do
     else
         if patch -p1 -R --dry-run -N -d "$SRC" < "$p" >/dev/null 2>&1; then
             C_ALREADY=$((C_ALREADY+1)); ok "$name（已应用，反向检查通过）"
+        elif patch_content_present "$SRC" "$p"; then
+            C_ALREADY=$((C_ALREADY+1)); ok "$name（已应用，内容已在树中 $PATCH_PRESENT_STATS；上下文漂移）"
         else
             C_CONFLICT=$((C_CONFLICT+1)); bad "$name 存在冲突"
             echo "$out" | grep -E 'Hunk|FAILED|can.t find' | sed 's/^/          /'

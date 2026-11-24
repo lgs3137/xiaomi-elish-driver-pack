@@ -16,6 +16,7 @@
 set -euo pipefail
 TAG=kernel
 . "$(dirname "$0")/../install/lib/common.sh"
+. "$(dirname "$0")/patch-lib.sh"
 
 KSRC=""; WRITE_BOOT=0; SKIP_BUILD=0; JOBS=$(nproc); SLOT_ARG=""
 while [ $# -gt 0 ]; do
@@ -96,8 +97,10 @@ apply_kpatch() {
         run patch -p1 -d "$KSRC" --forward < "$p"
     elif patch -p1 -d "$KSRC" --dry-run --reverse < "$p" >/dev/null 2>&1; then
         log "已应用，跳过: $(basename "$p")"
+    elif patch_content_present "$KSRC" "$p"; then
+        log "已应用（上下文漂移；补丁新增行已有 $PATCH_PRESENT_STATS 在树中），跳过: $(basename "$p")"
     else
-        warn "补丁不匹配，跳过: $(basename "$p")（源码版本可能不同）"
+        warn "补丁不匹配，跳过: $(basename "$p")（源码版本可能不同，请人工确认）"
     fi
 }
 P="$TAGK/patches"
@@ -153,6 +156,20 @@ if [ "$SKIP_BUILD" = 0 ]; then
     run make -C "$KSRC" ARCH=arm64 -j"$JOBS" modules
 else
     log "跳过编译（--skip-build）"
+fi
+
+# 关键：update-boot-image.sh 走系统 hook（zz-update-abl-kernel），它打包的是 /boot/vmlinuz-$KREL_RUN。
+# 必须先把刚编好的 Image 装到 /boot/vmlinuz，否则启动槽里仍是旧内核（2026-11-24 修复）。
+step "5b) 安装新内核到 /boot/vmlinuz-$KREL_RUN"
+IMG="$KSRC/arch/arm64/boot/Image"
+[ -f "$IMG" ] || die "缺少构建产物 $IMG；请先编译（去掉 --skip-build）"
+if [ -f "/boot/vmlinuz-$KREL_RUN" ]; then
+    run cp -a "/boot/vmlinuz-$KREL_RUN" "$BK/vmlinuz-$KREL_RUN"
+fi
+run cp -a "$IMG" "/boot/vmlinuz-$KREL_RUN"
+if [ "$DRY_RUN" = 0 ]; then
+    cmp -s "$IMG" "/boot/vmlinuz-$KREL_RUN" || die "复制后校验失败：/boot/vmlinuz-$KREL_RUN 与构建产物不一致"
+    log "已安装并校验 /boot/vmlinuz-$KREL_RUN（sha256 $(sha256sum "$IMG" | awk '{print $1}')）"
 fi
 
 step "6) 安装模块"

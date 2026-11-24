@@ -19,8 +19,16 @@
   通过；`Image` 50.2 MB / `vmlinux` 478 MB，`nm vmlinux` 可见 `init_binderfs`、`binderfs_fill_super`、
   `binderfs_dev` 等符号，`Image` 内含 `binderfs_*` 字符串；内核版本 / `LOCALVERSION` 不变
   （`6.18.44-current-sm8250`），模块 ABI 不受影响。
-- **未做**：新内核尚未写入 boot 槽（需 root；`sudo ./kernel/build-and-install.sh --kernel-src
-  /var/tmp/kbuild-src --write-boot`）；Waydroid 容器与 Android 镜像不随包、未验证。
+- **安装与启动槽（重要修正）**：`build-and-install.sh` 原流程只编译、不安装 Image，而
+  `update-boot-image.sh` 走系统 hook 打包的是 `/boot/vmlinuz-$KVER`，导致首次 `--write-boot` 实际写回的
+  是旧内核。已新增 **step 5b**（备份旧 `vmlinuz` → `cp arch/arm64/boot/Image /boot/vmlinuz-$KVER` →
+  `cmp` 校验）并重跑：boot_b 镜像 51,302,400 B，解包 boot 镜像 gzip 段得到内核 sha256
+  `5750b2f2…`，与构建产物一致；`/boot/vmlinuz` 已替换并校验。旧 `vmlinuz`/boot 镜像备份在
+  `/root/elish-kernel-fix-*/` 与 `/root/elish-kernel-backup-*/`。
+- **补丁状态判定**：新增 `kernel/patch-lib.sh`（正向 dry-run → 反向 dry-run → 新增行命中 ≥70% 三态），
+  `build-and-install.sh` 与 `compat-check.sh` 共用；增量树里 0010/0011/0014 由 WARN 改为
+  “已应用（上下文漂移，命中 58/67、55/70、68/69）”，真正缺失的补丁仍会 WARN（已用伪造补丁反向验证）。
+- **未做**：尚未重启进入新内核；Waydroid 容器与 Android 镜像不随包、未验证。
 
 ## 2026-11-22 — pogo 键盘唤醒 HID 假死：用户态自动复位（默认组件 `pogo/`）
 

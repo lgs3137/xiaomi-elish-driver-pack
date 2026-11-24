@@ -177,6 +177,10 @@ release 配置 #13 当日 4 次 s2idle 0 崩溃；`suspend_stats` success=4 fail
 ## 五、应用校验
 
 - 内核补丁：对 pristine v6.18.44 `patch -p1 --dry-run` 通过；升级前可用 `kernel/compat-check.sh` 只读预演；
+- 补丁状态判定（`kernel/patch-lib.sh`，`build-and-install.sh` 与 `compat-check.sh` 共用）：先正向 dry-run，
+  再反向 dry-run；两者都失败时按“补丁新增行是否已在目标文件中（≥70%）”判定。增量树里
+  0010/0011/0014 属于**上下文漂移但内容已并入**（分别命中 58/67、55/70、68/69），显示为
+  “已应用（上下文漂移）”，不再误报 WARN；真正没打上的补丁命中率很低，仍会 WARN；
 - hexrpc/iio 补丁：对 v0.3.2 / `ca0d5b0` 通过；
 - 指纹内核文件为整文件替换/新增，需按 `kernel/README.md` 放入源码树后编译验证（ABI 三件套）；
 - GNSS：`kernel/dtb/verify-combined-dtb.sh`（节点）+ `gnss/install/verify.sh`（设备/服务/NMEA/gpsd）；

@@ -90,6 +90,8 @@ patch -p1 < <本包>/kernel/patches/0014-bq2597x-probe-typec-notifier.patch
 patch -p1 < <本包>/kernel/patches/0015-bq2597x-soc-gated-charging.patch
 patch -p1 < <本包>/kernel/patches/0016-bq27xxx-discharging-status.patch
 patch -p1 < <本包>/kernel/patches/0017-pwrkey-post-resume-grace.patch
+# 补丁状态判定（增量树常见“上下文漂移”）：正向 dry-run → 反向 dry-run → 新增行内容命中（≥70%）。
+# 0010/0011/0014 在已演进的树里正反向都失败，但内容已并入，会显示“已应用（上下文漂移）”。
 # 3) 让 QCOM_MDT_LOADER 用户可选（若树内 Kconfig 仍是裸 tristate）
 grep -q 'tristate "Qualcomm MDT firmware loader"' drivers/soc/qcom/Kconfig || \
   patch -p1 < <本包>/kernel/patches/0003-qcom-mdt-loader-user-selectable.patch

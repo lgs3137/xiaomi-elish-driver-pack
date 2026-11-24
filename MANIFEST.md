@@ -40,6 +40,7 @@ pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分�
 | `README.md` | 统一内核构建步骤、配置/ABI 校验、联合 DTB/boot 镜像 |
 | `build-and-install.sh` | 一键补丁/配置/编译/模块/DTB/initramfs/Linux 启动槽（按 armbianEnv 自动检测；自动备份；不碰 Android 槽） |
 | `compat-check.sh` | 升级前只读兼容性检查：补丁 dry-run + 整文件副本 diff + 关键符号/DTS 检查（支持 --src / --fetch-ref） |
+| `patch-lib.sh` | 补丁状态判定（正向/反向 dry-run + 新增行命中 ≥70%），`build-and-install.sh` / `compat-check.sh` 共用 |
 | `install-dtb.sh` | 只安装包内单一联合 DTB（`--write-boot` 才重建 Linux 槽） |
 | `update-boot-image.sh` | 预检 DTB/initramfs + 备份目标 Linux 启动槽 + 重建 + 回读校验（槽位自动检测；`--slot` 断言） |
 | `install-new-kernel.sh` | 安装内核并写 Linux 启动槽的脚本（自动检测；历史脚本，不推荐） |
@@ -194,5 +195,5 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 
 ## 统计
 
-**344 个文件；源文件合计约 5.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（344 条，`sha256sum -c` 通过）。
+**345 个文件；源文件合计约 5.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（345 条，`sha256sum -c` 通过）。
