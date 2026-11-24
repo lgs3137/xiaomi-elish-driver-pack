@@ -38,6 +38,8 @@ n=$(ls /lib/firmware/gfenu.* 2>/dev/null | wc -l)
 lsmod 2>/dev/null | grep -q '^goodix_fp_spi' && ok "goodix_fp_spi 已加载" || bad "goodix_fp_spi 未加载"
 dmesg 2>/dev/null | grep -q "loaded 'gfenu'" && ok "dmesg: loaded 'gfenu'" || wk "dmesg 未见 loaded 'gfenu'（可能已加载过或需要 root）"
 grep -q 'DeviceAllow=/dev/goodix_fp' /etc/systemd/system/fprintd.service.d/60-goodix-qsee.conf 2>/dev/null && ok "fprintd DeviceAllow drop-in" || bad "fprintd drop-in 缺失"
+grep -q 'no-timeout' /etc/systemd/system/fprintd.service.d/70-keepalive.conf 2>/dev/null && ok "fprintd 常驻 drop-in（--no-timeout）" || bad "fprintd 常驻 drop-in 缺失（Waydroid 内存压力下易 1005/1001）"
+systemctl is-enabled --quiet fprintd 2>/dev/null && ok "fprintd 开机自启" || wk "fprintd 未开机自启（仍会被 D-Bus 激活）"
 ls -l /usr/sbin/qsee-supplicant /usr/sbin/qsee-app-loader >/dev/null 2>&1 && ok "qsee-supplicant/app-loader 已安装" || bad "缺少 /usr/sbin/qsee-*"
 [ -e /usr/lib/aarch64-linux-gnu/libfprint-2.so.2.0.0 ] && ok "自定义 libfprint 已安装" || wk "libfprint 未找到"
 strings /usr/lib/aarch64-linux-gnu/libfprint-2.so.2.0.0 2>/dev/null | grep -q 'Goodix QSEE bring-up command' && ok "libfprint 含 goodixqsee 日志补丁（看门狗可用）" || wk "libfprint 日志补丁未确认"

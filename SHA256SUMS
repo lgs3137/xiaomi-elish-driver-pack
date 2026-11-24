@@ -83,7 +83,7 @@ caf884d8e0aac3ec2ee8da8f3ee2f0be198335d3161bfb30361d6232777ee4f0  ./camera/syste
 fd1f71388f90f31b939a711c5ab3f0e6400ad4f1667cf69f1b6d9249e6e86492  ./docs/DEVICE-DATA-EXTRACTION.md
 2946749bd6bba02f4f0cc93fa6eb8f03ca32c07b0e83548b956b578af9f70590  ./docs/HARDENING.md
 287fed5c22392b539fd5f0a34ad1c3be687ddeeb96e31897a51c251ae84f0a15  ./docs/HARDWARE-STATUS.md
-87f609a0f2f8c90f2e2f1bd2a79f747c76c4e1569f3cec73eb0c464dfe7e625e  ./docs/HISTORY.md
+06032deb3c53ba6a3606668fe38dcd6333ad2ab3f04235e4116bd2313ac02f35  ./docs/HISTORY.md
 94957b7fc63ed1fb80a8163ed1e3f76874147290fbeb387f389f0d4eda7dc1fc  ./docs/KERNEL-UPGRADE-RISK.md
 ba78be32fbf1343e2a4f97d0df7e9fd236d7d446e4e441a1039c90049bd5dc53  ./docs/TODO.md
 5577d984c72bb3084704d2e771457a0a407322b22f1e2dd2f4e1a3f8af3e67e4  ./docs/UPGRADE-IMPACT-ALL.md
@@ -93,9 +93,9 @@ b9731d082ec48b6068bd703a85d51647208b889a31b11675562ef908e3dde225  ./fingerprint/
 7d057a9b53d9bbbed67bed3d8315dff19e97795a167efd39256d01a71c7dfdaa  ./fingerprint/README.md
 2c0fb6a1322065e576f8184825c5dd7b4d9b71e0fe9b1f8ba5ad673f753d0a11  ./fingerprint/extract/README.md
 919c16126f6cd2ac4e8eb8c3611c300040049b67afdf17df3e649ba808c05c0b  ./fingerprint/extract/extract-gfenu-ta.sh
-d4a6aa9b22068f1fa48d0073a5a2b1331bbbb0c23acb211925261e94def31799  ./fingerprint/install/install-fingerprint-files.sh
+70e706024980691dcd5719056d9d914ef7dfd8303de8a952e54732388fc1f2e1  ./fingerprint/install/install-fingerprint-files.sh
 6c834e74e7fd90154d4cae7c52b820b1bbd68d1e891df36a15a97747606d9e3e  ./fingerprint/install/uninstall-fingerprint.sh
-eb449b907031bf3afc2f2438758362686512bc45a786c8a7d891f0dfa8e89e59  ./fingerprint/install/verify-fingerprint.sh
+aab7beeda602082094ec50b83e66e4d145cb61d4da9fc4a52c51501688132acf  ./fingerprint/install/verify-fingerprint.sh
 2f9911d0c9169508b9ad07acf5efa85c318b19ad9f1303d876b9f25ce69e5952  ./fingerprint/src/libfprint/goodixqsee/README.md
 4626ac903b336cfb6beda12e3de66fc76255b14ad9b1ad7e1938c383ca68b7ac  ./fingerprint/src/libfprint/goodixqsee/goodix-qsee-proto.c
 fedcdd02db785867aa8445a616b6fca1e44500efec24e57906c49e19904e71f8  ./fingerprint/src/libfprint/goodixqsee/goodix-qsee-proto.h
@@ -155,6 +155,7 @@ e2a9f65ec2fa119cbb0484a0ebfdf648079ec581b9cf22ed0c69d9368ce09df8  ./fingerprint/
 1f6803c70e659ef57b128a26b5d373f5b2b70fc5073f79cb3ab172437e2e4a63  ./fingerprint/system/systemd-sleep/70-goodix-fp-resume.sh
 d747858c0cc69bb25a8f772c60e8692176f9fbb18971a6eae6c852dc2d32c146  ./fingerprint/system/systemd/fp-ta-watchdog.service
 3e6b78705ec6dd035259e11731ff9bf44f7b70be89d61364130abc0a29d7bd4c  ./fingerprint/system/systemd/fprintd-60-goodix-qsee.conf
+a4dc56af9fb04249263a0db8baef890a82a8e719f065c9ed5dc43e56d71b0d3f  ./fingerprint/system/systemd/fprintd-70-keepalive.conf
 5ecd6a1b08581ae5a86e44a312661db70c9869fda52107aaa1e658cf78460be3  ./fingerprint/system/systemd/qsee-app-loader@.service
 7c8898fab4449386a8ae73a8ac2cb5a0e5dbcdd10591c3398c1720a7f939c76c  ./fingerprint/system/systemd/qsee-app-loader@.service.d/50-restart-limit.conf
 5b84fa0392842d197dffbd5609b45c5df6c0256000a8711b4799167d6940ff16  ./fingerprint/system/systemd/qsee-app-loader@.service.d/60-retry-reclaim.conf

@@ -4,6 +4,18 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
+## 2026-11-24 — 指纹 TA bring-up 失败（QSEE 缓冲池碎片）+ fprintd 常驻
+
+- **现象**：指纹突然不可用，fprintd 报 `Goodix QSEE bring-up command 1005 failed: status 1001`。
+- **原因**：TEE carveout 是专用内存，但 `qseecom_tee` 打开设备时还要在**普通内核内存**里分配
+  `order:7`（连续 512KB）缓冲池（`pool-fprintd`，`qseecom_tee_pool_alloc`）。Waydroid 运行下
+  5.4 GiB 内存只剩 ~116 MiB、`buddyinfo` 的 order-7 为 0，分配失败导致 TA 会话进入坏状态。
+- **免重启恢复**：`echo 1 > /proc/sys/vm/compact_memory` 腾出高阶块 → `systemctl restart
+  qsee-app-loader@gfenu` → `systemctl restart fprintd`；实测恢复指纹。
+- **长期修复**：新增 `fprintd.service.d/70-keepalive.conf`（`ExecStart=... --no-timeout` +
+  `WantedBy=multi-user.target`），fprintd 开机即启动并常驻，TEE 缓冲池开机分配后一直持有，
+  避免内存碎片化后重新分配失败；`verify-fingerprint.sh` 增加对应检查。
+
 ## 2026-11-24 — 平板模式增强：pogo 键盘拔插检测（GPIO83）
 
 - **背景**：磁吸霍尔不可靠；希望用键盘拔插联动平板模式。厂商 DTS 里 pogo 键盘带

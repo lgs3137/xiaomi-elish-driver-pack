@@ -25,6 +25,12 @@ install -m 0644 "$P/system/systemd/qsee-app-loader@.service.d/50-restart-limit.c
 install -m 0644 "$P/system/systemd/qsee-app-loader@.service.d/60-retry-reclaim.conf" /etc/systemd/system/qsee-app-loader@.service.d/
 install -d /etc/systemd/system/fprintd.service.d
 install -m 0644 "$P/system/systemd/fprintd-60-goodix-qsee.conf" /etc/systemd/system/fprintd.service.d/60-goodix-qsee.conf
+# Keep fprintd resident (--no-timeout): the QSEE TEE buffer pool (order-7 normal memory,
+# not the TEE carveout) is allocated once at daemon start; holding it avoids later
+# fragmentation failures under Waydroid/memory pressure.
+install -m 0644 "$P/system/systemd/fprintd-70-keepalive.conf" /etc/systemd/system/fprintd.service.d/70-keepalive.conf
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable fprintd >/dev/null 2>&1 || true
 
 echo "== 2b) 模块自动加载"
 install -d /etc/modules-load.d
