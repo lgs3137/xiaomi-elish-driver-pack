@@ -198,6 +198,24 @@ def main():
     last_pulse = 0.0
     last_resume = 0.0
     suspend_seen = suspend_count()
+    prev_wall = time.time()
+    prev_mono = time.monotonic()
+
+    def check_resume():
+        """用 wall/monotonic 时钟差识别休眠：挂起时 monotonic 停走、wall 继续，
+        两者差值突然变大即刚从休眠回来。比 suspend_stats（唤醒后半段才更新）可靠。"""
+        nonlocal prev_wall, prev_mono, last_resume
+        now_wall = time.time()
+        now_mono = time.monotonic()
+        gap = (now_wall - prev_wall) - (now_mono - prev_mono)
+        prev_wall, prev_mono = now_wall, now_mono
+        if gap > 2.0:
+            last_resume = now_wall
+            drop_kb()
+            refresh_kb()
+            log(f"resume detected (clock gap {gap:.1f}s); ignore pulses {RESUME_SUPPRESS_S:.0f}s")
+            return True
+        return False
 
     def drop_kb():
         for p in list(kb_fds):
@@ -223,6 +241,8 @@ def main():
                     return proc.poll() or 0
                 if "FALLING EDGE" not in line or f"offset: {LINE}" not in line:
                     continue
+                if check_resume():
+                    continue
                 now = time.time()
                 sc = suspend_count()
                 if sc != suspend_seen:
@@ -244,6 +264,8 @@ def main():
                 write_state(state)
                 log(f"pulse -> keyboard_present={int(state)}")
             else:
+                if check_resume():
+                    continue
                 fd = kb_fds.get(_node)
                 if fd is None:
                     continue
@@ -253,8 +275,14 @@ def main():
                     data = b""
                 except OSError as e:
                     # 唤醒/重枚举后旧 evdev 节点会 ENODEV；丢掉重扫，不能崩
-                    sel.unregister(fd)
-                    os.close(fd)
+                    try:
+                        sel.unregister(fd)
+                    except (KeyError, ValueError):
+                        pass
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
                     kb_fds.pop(_node, None)
                     last_resume = time.time()
                     log(f"input node {_node} vanished ({e}); rescan, ignore pulses {RESUME_SUPPRESS_S:.0f}s")
@@ -263,6 +291,7 @@ def main():
                     state = True
                     write_state(state)
                     log(f"input activity -> keyboard_present=1 ({_node})")
+        check_resume()
         sc = suspend_count()
         if sc != suspend_seen:
             suspend_seen = sc

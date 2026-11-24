@@ -32,6 +32,11 @@ install -m 0644 "$P/system/systemd/fprintd-70-keepalive.conf" /etc/systemd/syste
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable fprintd >/dev/null 2>&1 || true
 
+echo "== 2a) 内存碎片调优（TEE order-7 池）"
+install -d /etc/sysctl.d
+install -m 0644 "$P/system/sysctl.d/99-elish-fp.conf" /etc/sysctl.d/99-elish-fp.conf
+sysctl --system >/dev/null 2>&1 || true
+
 echo "== 2b) 模块自动加载"
 install -d /etc/modules-load.d
 printf 'goodix_fp_spi\n' > /etc/modules-load.d/goodix-fp.conf

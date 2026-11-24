@@ -16,7 +16,22 @@ log() { echo "$(date -Is) [fp-resume] $*" >>"$LOG" 2>/dev/null || true; }
 
 sleep 1
 sync
-echo 1 > /proc/sys/vm/compact_memory 2>/dev/null || true
+# qseecom_tee 的 order-7 池要连续 512 KiB；等 buddyinfo 里出现 order>=7 的块
+# 再重启 fprintd，否则会 "pool-fprintd: page allocation failure"。
+wait_order7() {
+    local i
+    for i in $(seq 1 10); do
+        if awk '{ for (j=5; j<=NF; j++) if (j-5 >= 7 && $j+0 > 0) ok=1 } END { exit !ok }' /proc/buddyinfo; then
+            log "order>=7 block available after ${i}s"
+            return 0
+        fi
+        echo 1 > /proc/sys/vm/compact_memory 2>/dev/null || true
+        sleep 1
+    done
+    log "order>=7 still unavailable after 10s; restarting fprintd anyway"
+    return 1
+}
+wait_order7 || true
 systemctl restart fprintd >>"$LOG" 2>&1 && log "fprintd restarted after resume" \
     || log "fprintd restart failed"
 

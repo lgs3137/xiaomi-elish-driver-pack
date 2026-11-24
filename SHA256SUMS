@@ -83,7 +83,7 @@ caf884d8e0aac3ec2ee8da8f3ee2f0be198335d3161bfb30361d6232777ee4f0  ./camera/syste
 fd1f71388f90f31b939a711c5ab3f0e6400ad4f1667cf69f1b6d9249e6e86492  ./docs/DEVICE-DATA-EXTRACTION.md
 2946749bd6bba02f4f0cc93fa6eb8f03ca32c07b0e83548b956b578af9f70590  ./docs/HARDENING.md
 287fed5c22392b539fd5f0a34ad1c3be687ddeeb96e31897a51c251ae84f0a15  ./docs/HARDWARE-STATUS.md
-d6ec97f65a04aac53f0e7f5ffaad5f8fa6a42a49c3e730508a4c69ff4c4b1d65  ./docs/HISTORY.md
+1e395f7f758a0e5e2217d5a7add8883129d03d94937801d118dfbbad1e78e2e3  ./docs/HISTORY.md
 94957b7fc63ed1fb80a8163ed1e3f76874147290fbeb387f389f0d4eda7dc1fc  ./docs/KERNEL-UPGRADE-RISK.md
 ba78be32fbf1343e2a4f97d0df7e9fd236d7d446e4e441a1039c90049bd5dc53  ./docs/TODO.md
 5577d984c72bb3084704d2e771457a0a407322b22f1e2dd2f4e1a3f8af3e67e4  ./docs/UPGRADE-IMPACT-ALL.md
@@ -93,7 +93,7 @@ b9731d082ec48b6068bd703a85d51647208b889a31b11675562ef908e3dde225  ./fingerprint/
 7d057a9b53d9bbbed67bed3d8315dff19e97795a167efd39256d01a71c7dfdaa  ./fingerprint/README.md
 2c0fb6a1322065e576f8184825c5dd7b4d9b71e0fe9b1f8ba5ad673f753d0a11  ./fingerprint/extract/README.md
 919c16126f6cd2ac4e8eb8c3611c300040049b67afdf17df3e649ba808c05c0b  ./fingerprint/extract/extract-gfenu-ta.sh
-70e706024980691dcd5719056d9d914ef7dfd8303de8a952e54732388fc1f2e1  ./fingerprint/install/install-fingerprint-files.sh
+af27b47764606d81dcec3651e069227b10dc066fb5ea9fb4ea8b8a9fb99d6892  ./fingerprint/install/install-fingerprint-files.sh
 6c834e74e7fd90154d4cae7c52b820b1bbd68d1e891df36a15a97747606d9e3e  ./fingerprint/install/uninstall-fingerprint.sh
 aab7beeda602082094ec50b83e66e4d145cb61d4da9fc4a52c51501688132acf  ./fingerprint/install/verify-fingerprint.sh
 2f9911d0c9169508b9ad07acf5efa85c318b19ad9f1303d876b9f25ce69e5952  ./fingerprint/src/libfprint/goodixqsee/README.md
@@ -152,7 +152,8 @@ a53b63506938d4629d1e5d3f599a41e0629dde4cd7c3a3c8ec6916a80a61f5a7  ./fingerprint/
 e2a9f65ec2fa119cbb0484a0ebfdf648079ec581b9cf22ed0c69d9368ce09df8  ./fingerprint/system/bin/qsee-app-loader-retry
 2b5843515b1663872c9f2bc129f85ad7bedf82dab8bc73c3f2ffb04f569e7207  ./fingerprint/system/pam.d/gdm-fingerprint
 2cc139ccb69f725b23b812b88e221b57079967c0a2cca1f686ee3703e2fc0aa7  ./fingerprint/system/pam.d/sudo
-b95b5d0e056255c80f5ca827fffe34e0587df7653e1cb7401c868f8ebe6e26c8  ./fingerprint/system/systemd-sleep/70-goodix-fp-resume.sh
+d2961b73827546d27a1bcef28e3bbcf76c48956cb75e0a4bdbe06b3f67836673  ./fingerprint/system/sysctl.d/99-elish-fp.conf
+3400d8846273290f52cff793dc62f6faf800a33255bbaf9099e3c734569a3503  ./fingerprint/system/systemd-sleep/70-goodix-fp-resume.sh
 d747858c0cc69bb25a8f772c60e8692176f9fbb18971a6eae6c852dc2d32c146  ./fingerprint/system/systemd/fp-ta-watchdog.service
 3e6b78705ec6dd035259e11731ff9bf44f7b70be89d61364130abc0a29d7bd4c  ./fingerprint/system/systemd/fprintd-60-goodix-qsee.conf
 a4dc56af9fb04249263a0db8baef890a82a8e719f065c9ed5dc43e56d71b0d3f  ./fingerprint/system/systemd/fprintd-70-keepalive.conf
@@ -329,7 +330,7 @@ d8cd8f1c9c2ed5b43f7572c7c8e95e63b3dc22cd8ccb8b07e955a634fc903930  ./sensors/user
 3f94a6343efc655ee37a9d4af06e32eef4e41b06ba552429510d49264e555d31  ./tablet-mode/README.md
 f98dd5619a010e1e2d5850cb8044db51a0c35f0afe5f846afaa91b9b19a0e244  ./tablet-mode/build/elish-tablet-mode-switch
 dbb7414a5a00689aa4a7b74799d97299569425c72f065cc7a0577662877e21e5  ./tablet-mode/elish-keyboard-detect.conf
-688abe59bf7a81d1b17acd41f4afca51e24f5a8a271e6a42d1b19ceb8ed80cc9  ./tablet-mode/elish-keyboard-detect.py
+a743ad17da47d270dee4541f463549beca8b9be212062609e9823743f8cb9f70  ./tablet-mode/elish-keyboard-detect.py
 d9478f1dc8295ce7018ccaf3ebd233587b89a6d0ef93ed1c584bfb01cb323766  ./tablet-mode/install.sh
 d7fde56c57b089fd84b6739d9bbed4df012bb5cf2b09c60d287cd33d8f47a4e9  ./tablet-mode/systemd/elish-keyboard-detect.service
 2eac955fb566851ed83c8ace391b33f94cd8531b25a27b44833e79db09deef96  ./tablet-mode/systemd/elish-tablet-mode.service

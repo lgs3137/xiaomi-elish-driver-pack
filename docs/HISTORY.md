@@ -20,6 +20,11 @@
   to user space: -11`。修复：post-resume 钩子在 +1s 先 `compact_memory` 再**同步重启 fprintd**
   （赶在锁屏 GDM claim 之前），然后照旧在 +4s 跑 `--ensure-loader`；实测唤醒后首次指纹解锁成功，
   netlink 刷屏消失。
+- **唤醒后 QSEE 池分配失败（内存碎片）**：`pool-fprintd: page allocation failure: order:7` +
+  `QSEE invoke: 无法分配内存`。钩子改为**先等 `/proc/buddyinfo` 出现 order>=7 块再重启 fprintd**
+  （最多 10s，边等边 compact）；`/etc/sysctl.d/99-elish-fp.conf` 增加
+  `vm.min_free_kbytes=131072`、`vm.compaction_proactiveness=60`、`vm.extfrag_threshold=100`。
+  根治需改内核 qseecom 驱动为开机预分配/走 reserved-memory，属后续工作。
 
 ## 2026-11-24 — 平板模式增强：pogo 键盘拔插检测（GPIO83）
 
@@ -47,6 +52,9 @@
   `ENODEV`（重枚举）不再崩溃。实测唤醒后屏幕方向稳定。
 - **注意**：拔着键盘唤醒**同样**有重枚举脉冲（幻影 USB 设备每次唤醒都会重枚举），因此该脉冲
   **不能**作为“唤醒后键盘是否接着”的判据。
+- **唤醒时钟差识别**：`suspend_stats` 在唤醒后半段才更新，第一个唤醒脉冲会漏网；改用
+  wall/monotonic 时钟差（挂起时 monotonic 停走）在事件处理前识别唤醒并忽略脉冲，
+  实测唤醒不再误翻 `SW_TABLET_MODE`。
 - **冷启动默认**：保持“未连接”(0)（`/etc/default/elish-keyboard-detect`
   `COLD_BOOT_STATE=detached|attached`）；未连接→已连接只需按一下键盘，反向在没有键盘时很难操作，
   所以默认选 detached。开机 10 秒内忽略 USB 重枚举脉冲，避免幻影设备误翻状态。
