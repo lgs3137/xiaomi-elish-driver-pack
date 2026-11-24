@@ -47,6 +47,18 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 
 ---
 
+## 4. Android 容器（Waydroid）/ QQ 平板登录（低，未开始）
+
+- 现状（2026-11-24）：内核已启用 `CONFIG_ANDROID_BINDERFS=y`（见 `kernel/README.md`「Waydroid」），
+  Waydroid 的前置已就绪；Waydroid 容器与 Android 镜像**不随包**。
+- 背景：QQ 多端规则为「手机/平板/电脑各一」，LinuxQQ 属电脑类，会和 Windows QQ 互踢；要让本机以
+  「平板」身份上线，需在 Linux 里跑 Android 版 QQ（Waydroid 是 LXC 容器，共享本内核、原生 arm64）。
+- 下一步：装 waydroid + arm64 GSI → 平板属性伪装（`ro.build.characteristics=tablet` 等）→ 装官方 QQ →
+  验证「手机 + Windows + 本机（平板）」三端同时在线；注意腾讯的第三方客户端/改机风控。
+- 验收：手机与 Windows QQ 均不被踢；`check-all.sh` 的 binderfs 项 OK。
+
+---
+
 ## 明确不做（评估过，不作为 TODO）
 
 - **GNSS 按需启动/懒连接**：不做。`airoha-gnssd` 常开成本约 50–70 mW（≈电池 3–5%/天，实际休眠更低），

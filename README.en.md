@@ -66,6 +66,7 @@ It bundles four subsystems on one shared kernel / DTB / boot image:
 | Kernel | fastrpc SDSP VMID / sensors-PD, QSEECOM/TEE, mdt_loader, qcom_scm, goodix_fp_spi | ✅ | Fingerprint/sensor kernel layer |
 | Kernel | LPASS pinctrl clock-timeout defer (pogo keyboard/USB random failures) | ✅ | Stand-alone patch `kernel/patches/0002-…` |
 | Kernel | SMB5 Type-C legacy/100 mA resume hang | ✅ | Verified with 3 suspend/resume cycles with charger attached |
+| Kernel | Android container prerequisite (binderfs, 2026-11-24) | ⚠️ | `CONFIG_ANDROID_BINDERFS=y` enabled; the Waydroid container and Android images are **not shipped** and not validated on-device; see `kernel/README.md` ("Waydroid") |
 | System | Display/touch/pen/hall/battery/audio/Wi-Fi/BT/USB HID/GPU/UFS/PCIe/Venus | ⚠️ | Platform baseline; **audio fixed on 2026-11-13** (PulseAudio/WirePlumber PCM contention; see `docs/HARDWARE-STATUS.md`) |
 | System | Screen orientation / tablet mode / auto-rotate configuration | ⚠️ | `tablet_mode=on/off/auto`, `rebuild_mode`; optional `tablet-mode/` component (Quick Settings switch + uinput virtual hall) works without a cover |
 | System | Pogo keyboard after suspend/resume | ✅ | HID-hang workaround (default `pogo/` component): every wake pulses the keyboard reset GPIO (TLMM 141) 3 s after resume; keyboard re-enumerates in ~1–1.5 s. **Do not** use `authorized`/`USBDEVFS_RESET`/controller rebind |
@@ -338,6 +339,9 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - The GNOME torch extension needs logout/login (GNOME 46 cannot hot-load new extensions);
 - Photo flash (`flash_strobe`) is unsupported: `CONFIG_V4L2_FLASH_LED_CLASS` is not enabled and the camera
   software has no flash control;
+- Android container (Waydroid): the kernel enables binderfs (2026-11-24), but the Waydroid container and
+  Android images are **not shipped and not validated**; with binderfs enabled the kernel no longer creates
+  static `/dev/binder*` nodes (Waydroid mounts binderfs itself);
 - Charging: 5 V baseline + PD 9 V fast charge + bq2597x dual pumps (~18–20 W at low SoC); optional `pps-charger/` 11 V keep-alive reaches ~20.5 W (exits at 88 %/premature Full for trickle to 100 %); 66 W still needs the vendor proprietary protocol (`docs/TODO.md` §1);
 - Firefox on native Wayland **loses touch input after long sleep** — an upstream Firefox bug
   (mozilla 2032822 / 2026258), unrelated to this driver package.

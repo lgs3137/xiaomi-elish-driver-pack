@@ -46,7 +46,7 @@ pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分�
 | `qseecom/` | 指纹 QSEECOM TEE 驱动 |
 | `mdt_loader.c` / `qcom_scm.c` | 指纹内核文件 |
 | `goodix_fp_spi/` | 指纹传感器驱动源码（无编译产物） |
-| `config-used-6.18.44` / `kernel.release` | 内核配置/版本 |
+| `config-used-6.18.44` / `kernel.release` | 内核配置/版本（含 `CONFIG_ANDROID_BINDERFS=y`，Waydroid 前置；见 `kernel/README.md`「Waydroid」） |
 | `ARMBIAN-BASELINE.md` | Armbian sm8250 基线获取说明（不随包补丁集） |
 | `patches/0001-fastrpc-…patch`、`fastrpc.c.modified` | 传感器 fastrpc 补丁/完整文件 |
 | `patches/fingerprint/` | 指纹内核补丁：**qseecom-tee-series.patch（14 文件权威系列）** + fp-spi ×4 + scm-qseecom 分片 |
@@ -194,5 +194,5 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 
 ## 统计
 
-**344 个文件；体积约 2.4 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（338 条，`sha256sum -c` 通过）。
+**344 个文件；源文件合计约 5.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（344 条，`sha256sum -c` 通过）。

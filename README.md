@@ -59,6 +59,7 @@
 | 内核 | fastrpc SDSP VMID/sensors-PD、QSEECOM/TEE、mdt_loader、qcom_scm、goodix_fp_spi | ✅ | 指纹/传感器内核层 |
 | 内核 | LPASS pinctrl clock-timeout defer（pogo 键盘/USB 随机失效） | ✅ | 独立补丁 `kernel/patches/0002-…` |
 | 内核 | SMB5 Type-C legacy/100mA resume 卡死 | ✅ | 带充电器 3 轮 suspend/resume 验证 |
+| 内核 | Android 容器前置（binderfs，2026-11-24） | ⚠️ | 已启用 `CONFIG_ANDROID_BINDERFS=y`；Waydroid 容器与 Android 镜像**不随包**、未在本机验证，见 `kernel/README.md`「Waydroid」 |
 | 系统 | 显示/触摸/笔/霍尔/电池/音频/WiFi/BT/USB 键鼠/GPU/UFS/PCIe/Venus | ⚠️ | 基础平台；**音频已修复**（2026-11-13，PulseAudio/WirePlumber PCM 争用，见 `docs/HARDWARE-STATUS.md`） |
 | 系统 | 屏幕方向/平板模式/自动旋转配置 | ⚠️ | `tablet_mode=on/off/auto`、`rebuild_mode`；无保护套可用可选组件 `tablet-mode/`（控制中心开关 + uinput 虚拟霍尔） |
 | 系统 | 睡眠唤醒后 pogo 键盘 | ✅ | 唤醒后 HID 假死已有默认组件 `pogo/` 规避：每次唤醒 +3s 自动脉冲键盘 reset GPIO（TLMM 141），键盘重枚举 ~1–1.5s 后恢复；**不要**用 `authorized`/`USBDEVFS_RESET`/重绑控制器 |
@@ -315,6 +316,7 @@ sudo ./kernel/dtb/verify-combined-dtb.sh
 - 手电筒 GNOME 扩展需注销/重新登录后生效（GNOME 46 不支持热加载新扩展）；
 - 拍照闪光灯（`flash_strobe`）不支持：内核未开 `CONFIG_V4L2_FLASH_LED_CLASS`，相机软件无 flash 控件；
 - 充电：5V 基础 + PD 9V 快充 + bq2597x 双泵并联（低电量 ~18–20W）已打通；可选 PPS 服务用 11V keep-alive（~20.5W，+8%，温度 40°C 左右）；66W 需原厂私有协议（`docs/TODO.md` §1）；
+- Android 容器（Waydroid）：内核已启用 binderfs（2026-11-24），但 Waydroid 容器与 Android 镜像**不随包提供、未验证**；开 binderfs 后系统不再创建静态 `/dev/binder*` 节点（Waydroid 启动时自行挂载 binderfs）；
 - Firefox 原生 Wayland **长睡唤醒后触屏失效**属上游 Firefox bug（mozilla 2032822 / 2026258），与本驱动包无关。
 
 ---

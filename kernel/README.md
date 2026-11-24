@@ -21,7 +21,7 @@
 | `mdt_loader.c` | 带 ELF64 支持的 `drivers/soc/qcom/mdt_loader.c` |
 | `qcom_scm.c` | 含 `qcom_scm_qseecom_*` 的 `drivers/firmware/qcom/qcom_scm.c` |
 | `goodix_fp_spi/` | 指纹传感器模块源码（out-of-tree 模块） |
-| `config-used-6.18.44` | 实际编译配置（含 TEE/QSEECOM/BTF 等） |
+| `config-used-6.18.44` | 实际编译配置（含 TEE/QSEECOM/BTF/BinderFS 等） |
 | `ARMBIAN-BASELINE.md` | 如何获取 Armbian sm8250 基线（不随包提供完整补丁集） |
 | `patches/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch` | 传感器 fastrpc 两处修改 |
 | `patches/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch` | LPASS pinctrl 时钟超时 defer（pogo 键盘/USB，独立于传感器/指纹） |
@@ -131,12 +131,34 @@ sed -i '/sdm845_slpi_resource_init = {/,/};/ s/\.auto_boot = false/.auto_boot = 
 
 ```bash
 grep -E 'CONFIG_TEE=|CONFIG_TEE_QSEECOM=|CONFIG_QCOM_QSEECOM=|CONFIG_QCOM_MDT_LOADER=|\
-CONFIG_QCOM_FASTRPC=|CONFIG_DEBUG_INFO_BTF=|CONFIG_MODULE_ALLOW_BTF_MISMATCH=|CONFIG_LOCALVERSION=' .config
+CONFIG_QCOM_FASTRPC=|CONFIG_DEBUG_INFO_BTF=|CONFIG_MODULE_ALLOW_BTF_MISMATCH=|\
+CONFIG_ANDROID_BINDERFS=|CONFIG_LOCALVERSION=' .config
 ```
 
 期望：`TEE=y`、`TEE_QSEECOM=y`、`QCOM_QSEECOM=y`、`QCOM_MDT_LOADER=y`、`QCOM_FASTRPC=m`、
-`DEBUG_INFO_BTF=y`、`MODULE_ALLOW_BTF_MISMATCH=y`、`LOCALVERSION="-current-sm8250"`。
+`DEBUG_INFO_BTF=y`、`MODULE_ALLOW_BTF_MISMATCH=y`、`ANDROID_BINDERFS=y`、`LOCALVERSION="-current-sm8250"`。
 BTF 编译需要 ≥4GB swap。
+
+## Waydroid / Android 容器（binderfs，2026-11-24）
+
+本包内核启用 `CONFIG_ANDROID_BINDERFS=y`，供 Waydroid 使用。Waydroid 是 **LXC 容器**（不是虚拟机）：
+它共享本内核、直接执行原生 arm64 代码，唯一的内核前置就是 binder（binderfs）。不装 Waydroid 时该选项
+无副作用（见下面的节点行为变化）。
+
+> **行为变化**：开 binderfs 后 `drivers/android/binder.c` 不再在启动时创建静态 `/dev/binder`、
+> `/dev/hwbinder`、`/dev/vndbinder`（该逻辑只在未开 binderfs 时执行）。本包各组件都不依赖这些节点；
+> Waydroid 启动时会自己 `mount -t binder binder /dev/binderfs`，再用 `binder-control` 创建设备。
+
+验证（当前运行内核，需 root）：
+
+```bash
+zcat /proc/config.gz | grep '^CONFIG_ANDROID_BINDERFS='        # 期望 =y
+sudo sh -c 'mkdir -p /dev/binderfs && mount -t binder binder /dev/binderfs && ls /dev/binderfs'
+# 期望看到 binder-control（binderfs 的控制节点）
+```
+
+Waydroid 本体与 Android 镜像**不随包提供**（需自行装 `waydroid` 包 + arm64 GSI）；本包只负责内核前置。
+
 
 ## ABI 三件套（不满足会黑屏/模块全拒）
 

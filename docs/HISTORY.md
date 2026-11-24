@@ -4,6 +4,24 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
+## 2026-11-24 — 内核启用 binderfs（Waydroid / Android 容器前置）
+
+- **背景**：QQ 多端规则是「手机 / 平板 / 电脑」各一个；LinuxQQ 上报为电脑类，会和 Windows QQ 互踢。
+  想让本机以「平板」身份上线，需在 Linux 里跑 Android 版 QQ。Waydroid 是 LXC 容器（共享本内核、
+  原生 arm64 执行，不是虚拟机），唯一的内核前置是 binderfs。
+- **变更**：`kernel/config-used-6.18.44` 启用 `CONFIG_ANDROID_BINDERFS=y`；`kernel/build-and-install.sh`
+  配置校验、`install/check-all.sh`（新增 4d 项）与 `kernel/README.md`「Waydroid / Android 容器」同步；
+  `README.md` / `README.en.md` 状态表与已知限制、`MANIFEST.md`、`docs/TODO.md` 更新。
+- **行为变化**：开 binderfs 后 `drivers/android/binder.c` 不再创建静态 `/dev/binder`、`/dev/hwbinder`、
+  `/dev/vndbinder`（该逻辑只在未开 binderfs 时执行），改由 `mount -t binder binder /dev/binderfs` 提供；
+  本包组件不依赖这些节点（`/etc` 无引用，无 adb）。
+- **构建验证**：`/var/tmp/kbuild-src`（6.18.44 + 本包补丁）全量 `make ARCH=arm64 -j8 Image modules`
+  通过；`Image` 50.2 MB / `vmlinux` 478 MB，`nm vmlinux` 可见 `init_binderfs`、`binderfs_fill_super`、
+  `binderfs_dev` 等符号，`Image` 内含 `binderfs_*` 字符串；内核版本 / `LOCALVERSION` 不变
+  （`6.18.44-current-sm8250`），模块 ABI 不受影响。
+- **未做**：新内核尚未写入 boot 槽（需 root；`sudo ./kernel/build-and-install.sh --kernel-src
+  /var/tmp/kbuild-src --write-boot`）；Waydroid 容器与 Android 镜像不随包、未验证。
+
 ## 2026-11-22 — pogo 键盘唤醒 HID 假死：用户态自动复位（默认组件 `pogo/`）
 
 - **现象**：s2idle 唤醒后 pogo 键盘（USB `3206:3ffc`）完全无输入；USB 设备仍在、`lsusb` 正常，

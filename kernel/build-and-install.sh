@@ -140,7 +140,8 @@ run cp -a "$TAGK/config-used-6.18.44" "$KSRC/.config"
 run make -C "$KSRC" ARCH=arm64 olddefconfig
 if [ "$DRY_RUN" = 0 ]; then
     for c in CONFIG_TEE=y CONFIG_TEE_QSEECOM=y CONFIG_QCOM_QSEECOM=y CONFIG_QCOM_MDT_LOADER=y \
-             CONFIG_QCOM_FASTRPC=m CONFIG_DEBUG_INFO_BTF=y CONFIG_MODULE_ALLOW_BTF_MISMATCH=y; do
+             CONFIG_QCOM_FASTRPC=m CONFIG_DEBUG_INFO_BTF=y CONFIG_MODULE_ALLOW_BTF_MISMATCH=y \
+             CONFIG_ANDROID_BINDERFS=y; do
         grep -q "^$c" "$KSRC/.config" || warn "配置缺少: $c"
     done
     grep -q '^CONFIG_LOCALVERSION="-current-sm8250"' "$KSRC/.config" || warn "LOCALVERSION 不是 -current-sm8250"

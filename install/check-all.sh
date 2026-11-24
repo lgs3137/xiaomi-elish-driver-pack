@@ -87,6 +87,18 @@ else
   echo "  SKIP  未安装 bioauth（可选组件，默认不装）"
 fi
 
+step "4d. Android binderfs（Waydroid 前置；内核 CONFIG_ANDROID_BINDERFS=y）"
+if [ -r /proc/config.gz ] && zcat /proc/config.gz 2>/dev/null | grep -q '^CONFIG_ANDROID_BINDERFS=y'; then
+  echo "  OK    内核已启用 CONFIG_ANDROID_BINDERFS"
+  if grep -qs ' /dev/binderfs ' /proc/mounts; then
+    echo "  OK    /dev/binderfs 已挂载"
+  else
+    echo "  SKIP  /dev/binderfs 未挂载（Waydroid 启动时自行挂载；可 sudo mount -t binder binder /dev/binderfs 验证）"
+  fi
+else
+  echo "  WARN  当前内核未启用 CONFIG_ANDROID_BINDERFS（Waydroid 无法启动；见 kernel/README.md「Waydroid / Android 容器」）"
+fi
+
 step "5. apt 状态（防止被升级破坏）"
 for p in linux-image-current-sm8250 linux-dtb-current-sm8250 linux-headers-current-sm8250 \
          armbian-firmware-full libfprint-2-2; do
