@@ -30,6 +30,7 @@ TLMM_LABEL = "f100000.pinctrl"
 DEBOUNCE_S = 0.3
 STARTUP_IGNORE_S = 2.0
 RESCAN_S = 5.0
+RESUME_SUPPRESS_S = 8.0   # 唤醒后 USB 重枚举会打脉冲，忽略这段时间免误翻平板模式
 KB_NAME_HINTS = ("Xiaomi Pad Keyboard",)  # 本机键盘无触摸板；Mouse/Pad 是幻影接口，不参与校准
 
 
@@ -53,6 +54,14 @@ def load_state():
         return open(PERSIST).read().strip() != "0"
     except OSError:
         return True
+
+
+def suspend_count():
+    """每次 suspend/resume 递增；用来识别“刚唤醒”并抑制重枚举脉冲。"""
+    try:
+        return int(open("/sys/power/suspend_stats/success").read().strip())
+    except (OSError, ValueError):
+        return -1
 
 
 def boot_uptime():
@@ -173,6 +182,20 @@ def main():
     last_scan = time.time()
     started = time.time()
     last_pulse = 0.0
+    last_resume = 0.0
+    suspend_seen = suspend_count()
+
+    def drop_kb():
+        for p in list(kb_fds):
+            fd = kb_fds.pop(p)
+            try:
+                sel.unregister(fd)
+            except (KeyError, ValueError):
+                pass
+            try:
+                os.close(fd)
+            except OSError:
+                pass
     log(f"watching {chip} line {LINE}, initial keyboard_present={int(state)} "
         f"({'cold boot' if boot_uptime() < 180 else 'persist'})")
 
@@ -187,6 +210,19 @@ def main():
                 if "FALLING EDGE" not in line or f"offset: {LINE}" not in line:
                     continue
                 now = time.time()
+                sc = suspend_count()
+                if sc != suspend_seen:
+                    # 唤醒后的第一个脉冲会在循环末尾的检测之前到达：先认 rescan，
+                    # 并把这个脉冲当重枚举噪声忽略。
+                    suspend_seen = sc
+                    last_resume = now
+                    drop_kb()
+                    refresh_kb()
+                    log(f"resume detected on pulse (suspend #{sc}); ignore pulses {RESUME_SUPPRESS_S:.0f}s")
+                    continue
+                if now - last_resume < RESUME_SUPPRESS_S:
+                    log(f"pulse ignored ({now - last_resume:.1f}s after resume)")
+                    continue
                 if now - started < STARTUP_IGNORE_S or now - last_pulse < DEBOUNCE_S:
                     continue
                 last_pulse = now
@@ -201,10 +237,25 @@ def main():
                     data = os.read(fd, 24 * 64)
                 except BlockingIOError:
                     data = b""
+                except OSError as e:
+                    # 唤醒/重枚举后旧 evdev 节点会 ENODEV；丢掉重扫，不能崩
+                    sel.unregister(fd)
+                    os.close(fd)
+                    kb_fds.pop(_node, None)
+                    last_resume = time.time()
+                    log(f"input node {_node} vanished ({e}); rescan, ignore pulses {RESUME_SUPPRESS_S:.0f}s")
+                    continue
                 if data and not state:
                     state = True
                     write_state(state)
                     log(f"input activity -> keyboard_present=1 ({_node})")
+        sc = suspend_count()
+        if sc != suspend_seen:
+            suspend_seen = sc
+            last_resume = time.time()
+            drop_kb()
+            refresh_kb()
+            log(f"resume detected (suspend #{sc}); ignore pulses {RESUME_SUPPRESS_S:.0f}s, rescan input nodes")
         if time.time() - last_scan >= RESCAN_S:
             last_scan = time.time()
             refresh_kb()

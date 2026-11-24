@@ -40,6 +40,13 @@
   霍尔不随拔插变化；因此冷启动默认“未连接”(0)，运行中重启沿用持久化状态。
 - **输入校准**：监听 `Xiaomi Pad Keyboard` 的 evdev 键盘事件，任何按键都强制校准为“已连接”
   （本机键盘无触摸板，Mouse/Pad 幻影接口不监听）；配合拔插脉冲翻转，错位最多持续到第一次按键。
+- **唤醒方向乱转修复**：resume 时 pogo 键盘 USB 重枚举会在 GPIO83 打脉冲，检测器误翻
+  `present=0` → 平板模式助手置 `SW_TABLET_MODE=1`（自动旋转开），叠加加速计重初始化
+  （`iio-sensor-proxy` 重启）导致屏幕乱转两下。检测器改为**处理脉冲前先查
+  `/sys/power/suspend_stats/success`**，唤醒后 8 秒内忽略脉冲并重扫输入节点，且 evdev
+  `ENODEV`（重枚举）不再崩溃。实测唤醒后屏幕方向稳定。
+- **注意**：拔着键盘唤醒**同样**有重枚举脉冲（幻影 USB 设备每次唤醒都会重枚举），因此该脉冲
+  **不能**作为“唤醒后键盘是否接着”的判据。
 - **打包**：新增 `utils/waydroid/` 子包（watcher + systemd + install/uninstall/verify + README）；
   watcher 优化为空闲只读 evdev、仅状态变化时调 `waydroid shell`（实测 CPU 931ms/10s → 1ms/10s）。
 
