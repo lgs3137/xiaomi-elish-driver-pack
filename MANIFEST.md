@@ -29,7 +29,7 @@ camera/        相机子包：elish-camera GPU 管线（前后摄全分辨率、
 flash-led/     后摄闪光灯开机误闪修复（默认组件）：Armbian LED 状态恢复守卫（wrapper + drop-in；不改 Armbian 包文件）
 pogo/          默认组件：pogo 键盘唤醒自动复位（sleep hook + 脉冲键盘 reset GPIO；用户态）
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；--with-torch 或单独 install.sh）
-tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展；uinput helper + systemd 服务
+tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展；uinput helper + 键盘拔插检测 + systemd 服务
 pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分档；装后默认启用；--with-pps-charger）+ 控制中心「充电功率」扩展
 ```
 
@@ -166,6 +166,8 @@ Airoha AG3335 GNSS 子包（2026-11-12 打通，2026-11-13 室外真实定位验
 | `install.sh` / `uninstall.sh` | 安装/卸载（编译 uinput helper、装 systemd 服务、装 GNOME 扩展并写 dconf） |
 | `verify.sh` | 自检（未安装则 SKIP）：helper、服务、配置可写、扩展与加载状态 |
 | `systemd/elish-tablet-mode.service` | 开机启动 helper（`/usr/local/bin/elish-tablet-mode-switch`） |
+| `elish-keyboard-detect.py` | 读 GPIO83 脉冲（pogo 键盘拔插）→ `/run/elish-keyboard-present` |
+| `systemd/elish-keyboard-detect.service` | 键盘检测服务（开机启动） |
 | `tablet-mode@elish/` | GNOME 46 Quick Settings 扩展（开/关/自动循环；读 `/etc/elish-orientation.conf`） |
 
 helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput 虚拟 `SW_TABLET_MODE`，不碰真实 lid）。

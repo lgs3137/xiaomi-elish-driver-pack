@@ -1,0 +1,13 @@
+[Unit]
+Description=elish: pogo keyboard presence detector (TLMM GPIO83) for tablet-mode
+After=elish-tablet-mode.service
+Wants=elish-tablet-mode.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/elish-keyboard-detect
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

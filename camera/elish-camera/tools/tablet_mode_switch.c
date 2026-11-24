@@ -13,7 +13,9 @@
  *   /etc/elish-orientation.conf:
  *     tablet_mode = on      always tablet mode  -> auto-rotate always on
  *                 = off     never tablet mode  -> auto-rotate always off
- *                 = auto    mirror the real hall switch (default: on)
+ *                 = auto    prefer keyboard detect (/run/elish-keyboard-present,
+ *                           written by elish-keyboard-detect); fall back to the
+ *                           real hall switch when the detector is absent
  *
  * The real SW_LID is never touched, so cover-close suspend via logind keeps
  * working; this helper only publishes a virtual SW_TABLET_MODE.
@@ -96,13 +98,33 @@ static int real_switch_state(int gfd)
     return (sw >> SW_TABLET_MODE) & 1;
 }
 
+/* auto 模式的键盘检测：0=键盘在(笔记本)、1=键盘不在(平板)、-1=未知(回退霍尔) */
+static int keyboard_present(void)
+{
+    FILE *f = fopen("/run/elish-keyboard-present", "r");
+    int c;
+    if (!f)
+        return -1;
+    c = fgetc(f);
+    fclose(f);
+    if (c == '1')
+        return 1;
+    if (c == '0')
+        return 0;
+    return -1;
+}
+
 static int desired_state(int mode, int gfd)
 {
+    int kb;
     if (mode == 1)
         return 1;
     if (mode == 0)
         return 0;
-    return real_switch_state(gfd); /* auto: mirror the hall switch */
+    kb = keyboard_present(); /* auto: keyboard first */
+    if (kb >= 0)
+        return kb ? 0 : 1;
+    return real_switch_state(gfd); /* fallback: mirror the hall switch */
 }
 
 static void emit_switch(int fd, int value, int *current)
@@ -199,12 +221,8 @@ int main(void)
                           (now.tv_nsec - last_poll.tv_nsec) / 1000000L;
         if (elapsed_ms >= 1000) {
             last_poll = now;
-            if (mode == -1) {
-                /* keep mirroring the hall switch */
-                emit_switch(ufd, real_switch_state(gfd), &current);
-            } else if (current != mode) {
-                emit_switch(ufd, mode, &current);
-            }
+            /* auto 优先键盘检测；其余模式 desired_state 已处理 */
+            emit_switch(ufd, desired_state(mode, gfd), &current);
         }
     }
 

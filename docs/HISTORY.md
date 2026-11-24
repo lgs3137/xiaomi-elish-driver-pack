@@ -4,6 +4,20 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
+## 2026-11-24 — 平板模式增强：pogo 键盘拔插检测（GPIO83）
+
+- **背景**：磁吸霍尔不可靠；希望用键盘拔插联动平板模式。厂商 DTS 里 pogo 键盘带
+  `xiaomi-keyboard,in-irq-gpio = <&tlmm 83>`（还有 `rst-gpio 141` / `vdd-gpio 127`）。
+- **实测结论**：GPIO83 平时为高，**拔插瞬间产生一个 ~1 ms 低脉冲**（打字/空闲无脉冲）；
+  电平不随拔插翻转，且 USB 侧始终不产生 disconnect（这是 mainline port 上看不到键盘移除的原因）。
+- **实现**：新增 `elish-keyboard-detect` 服务（`gpiomon` 捕获脉冲 → 翻转状态 →
+  `/run/elish-keyboard-present`，状态持久化到 `/var/lib/`）；`tablet_mode=auto` 改为**键盘优先**
+  （检测服务不在时回退霍尔）；`elish-tablet-mode` 按键盘状态发布 `SW_TABLET_MODE`。
+- **验证**：13:17:48 拔 → `keyboard_present=0` → `SW_TABLET_MODE=1` → Waydroid `show_ime=1`；
+  13:18:01 插回 → 全部回 0。SW 当秒生效，IME 约 2 s（watcher 轮询）。
+- **注意**：脉冲翻转法在“服务停过且期间拔插”或“唤醒复位”时可能错位，可用
+  `elish-keyboard-detect --set 0|1` 校准、`--status` 查看。
+
 ## 2026-11-24 — 内核启用 binderfs（Waydroid / Android 容器前置）
 
 - **背景**：QQ 多端规则是「手机 / 平板 / 电脑」各一个；LinuxQQ 上报为电脑类，会和 Windows QQ 互踢。

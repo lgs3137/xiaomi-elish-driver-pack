@@ -18,9 +18,27 @@
 
 | 模式 | 效果 |
 |---|---|
-| `auto`（默认） | 跟随磁吸保护套的霍尔开关；有套就和平板一样旋转，合上/取下按霍尔走 |
+| `auto`（默认） | **优先按 pogo 键盘拔插**（GPIO83，`elish-keyboard-detect`）；检测服务不在时退回霍尔 |
 | `on` | **总是平板模式**：自动旋转始终开启（适合没有保护套、或霍尔失效的人） |
 | `off` | **总是笔记本模式**：自动旋转关闭（当普通平板横屏用） |
+
+### 键盘检测（GPIO83）
+
+厂商 DTS 里 pogo 键盘带一个插入检测引脚：`xiaomi-keyboard,in-irq-gpio = <&tlmm 83>`。
+实测该引脚平时为高，**拔插瞬间产生一个 ~1ms 的低脉冲**（打字/空闲不产生脉冲），
+`elish-keyboard-detect` 用 `gpiomon` 捕获脉冲并翻转状态，结果写到
+`/run/elish-keyboard-present`（键盘在=1，拔出=0），状态持久化在 `/var/lib/elish-keyboard-present`。
+
+- 手动校准：`elish-keyboard-detect --set 0|1`；查看：`elish-keyboard-detect --status`
+  （服务停过且期间拔插过、或唤醒复位导致错位时用）
+
+`auto` 模式下：
+
+- 键盘在 → 笔记本模式（`SW_TABLET_MODE=0`：关自动旋转、软键盘不弹）
+- 键盘拔出 → 平板模式（`SW_TABLET_MODE=1`：开自动旋转、软键盘允许弹）
+- 检测服务不在 → 退回霍尔（兼容旧行为）
+
+服务只把该引脚当**输入**读取，不触碰键盘供电（gpio127）和复位（gpio141）。
 
 `rebuild_mode`（相机流在旋转时如何重建）不受影响，仍由 `elish-camera-ctl orientation` 管理。
 
@@ -37,6 +55,8 @@ sudo ./tablet-mode/install.sh          # 可加 --dry-run / --user <用户名>
 |---|---|
 | `/usr/local/bin/elish-tablet-mode-switch` | uinput 虚拟 `SW_TABLET_MODE`（编译自 `camera/elish-camera/tools/tablet_mode_switch.c`） |
 | `/etc/systemd/system/elish-tablet-mode.service` | 开机启动、1 秒内响应配置变化 |
+| `/usr/local/sbin/elish-keyboard-detect` | 读 GPIO83（键盘插入检测）→ `/run/elish-keyboard-present` |
+| `/etc/systemd/system/elish-keyboard-detect.service` | 键盘检测服务（开机启动、0.5 秒轮询） |
 | `~<user>/.local/share/gnome-shell/extensions/tablet-mode@elish/` | GNOME 46 Quick Settings 开关 |
 | `/etc/elish-orientation.conf` | 调整为 `root:<用户组> 0664`，普通用户可写（切换不需 sudo） |
 

@@ -33,6 +33,8 @@ C="$PKG_ROOT/tablet-mode"
 UUID=tablet-mode@elish
 HELPER=/usr/local/bin/elish-tablet-mode-switch
 UNIT=/etc/systemd/system/elish-tablet-mode.service
+KDETECT=/usr/local/sbin/elish-keyboard-detect
+KUNIT=/etc/systemd/system/elish-keyboard-detect.service
 CONF=/etc/elish-orientation.conf
 SRC="$PKG_ROOT/camera/elish-camera/tools/tablet_mode_switch.c"
 U=${TM_USER:-${SUDO_USER:-}}
@@ -77,7 +79,7 @@ if [ "$DRY_RUN" = 1 ]; then
     log "DRY: 确保 $CONF 存在并设为 root:$GIDN 0664"
 else
     if [ ! -f "$CONF" ]; then
-        printf '# elish orientation settings (edit with: elish-camera-ctl orientation)\n# tablet_mode: on | off | auto\n#   on   = always tablet mode -> GNOME auto-rotate always enabled\n#   off  = never tablet mode  -> GNOME auto-rotate disabled\n#   auto = mirror the magnetic cover hall switch\n\n# rebuild_mode: idle | live | off\nrebuild_mode=idle\ntablet_mode=auto\n' > "$CONF"
+        printf '# elish orientation settings (edit with: elish-camera-ctl orientation)\n# tablet_mode: on | off | auto\n#   on   = always tablet mode -> GNOME auto-rotate always enabled\n#   off  = never tablet mode  -> GNOME auto-rotate disabled\n#   auto = keyboard detect first (GPIO83, elish-keyboard-detect), else hall switch\n\n# rebuild_mode: idle | live | off\nrebuild_mode=idle\ntablet_mode=auto\n' > "$CONF"
         log "已创建 $CONF（tablet_mode=auto）"
     fi
     chown root:"$GIDN" "$CONF"
@@ -99,6 +101,22 @@ if [ "$DRY_RUN" = 0 ]; then
         log "elish-tablet-mode.service active"
     else
         warn "服务未 active：journalctl -u elish-tablet-mode -b 查看（/dev/uinput 权限？）"
+    fi
+fi
+
+step "3b) 安装键盘检测服务（GPIO83 → /run/elish-keyboard-present）"
+have gpiomon || warn "缺少 gpiomon（apt install gpiod）：键盘检测服务将无法工作"
+run install -D -m 0755 "$C/elish-keyboard-detect.py" "$KDETECT"
+run install -D -m 0644 "$C/systemd/elish-keyboard-detect.service" "$KUNIT"
+run systemctl daemon-reload
+run systemctl enable --now elish-keyboard-detect.service
+run systemctl restart elish-tablet-mode.service
+if [ "$DRY_RUN" = 0 ]; then
+    sleep 1
+    if systemctl is-active --quiet elish-keyboard-detect.service; then
+        log "elish-keyboard-detect.service active（键盘状态: $(cat /run/elish-keyboard-present 2>/dev/null || echo 未知)）"
+    else
+        warn "键盘检测服务未 active：journalctl -u elish-keyboard-detect -b"
     fi
 fi
 
@@ -147,7 +165,8 @@ step "完成"
 cat <<EOF
 平板模式组件已安装。
 - helper: $HELPER（服务 elish-tablet-mode.service）
-- 配置: $CONF（tablet_mode = on|off|auto，$U 组可写）
+- 键盘检测: $KDETECT（服务 elish-keyboard-detect.service，GPIO83 → /run/elish-keyboard-present）
+- 配置: $CONF（tablet_mode = on|off|auto，$U 组可写；auto 优先按键盘拔插，其次霍尔）
 - 扩展: $DEST（用户 $U）
 
 用法：

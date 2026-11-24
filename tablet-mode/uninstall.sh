@@ -26,6 +26,8 @@ need_root
 UUID=tablet-mode@elish
 HELPER=/usr/local/bin/elish-tablet-mode-switch
 UNIT=/etc/systemd/system/elish-tablet-mode.service
+KDETECT=/usr/local/sbin/elish-keyboard-detect
+KUNIT=/etc/systemd/system/elish-keyboard-detect.service
 U=${TM_USER:-${SUDO_USER:-}}
 if [ -z "$U" ] || [ "$U" = root ]; then
     if [ "$DRY_RUN" = 1 ]; then
@@ -46,6 +48,13 @@ as_user() {
 }
 
 step "1) 停止并移除 systemd 服务"
+if [ -e "$KUNIT" ]; then
+    run systemctl disable --now elish-keyboard-detect.service || true
+    run rm -f "$KUNIT"
+    run systemctl daemon-reload
+else
+    log "未安装 elish-keyboard-detect.service"
+fi
 if [ -e "$UNIT" ] || systemctl list-unit-files 2>/dev/null | grep -q '^elish-tablet-mode.service'; then
     run systemctl disable --now elish-tablet-mode.service || true
     run rm -f "$UNIT"
@@ -54,8 +63,9 @@ else
     log "未安装 elish-tablet-mode.service"
 fi
 
-step "2) 移除 helper"
-run rm -f "$HELPER"
+step "2) 移除 helper 与键盘检测脚本"
+run rm -f "$HELPER" "$KDETECT"
+run rm -f /run/elish-keyboard-present
 
 step "3) 移除 GNOME 扩展"
 if [ -e "$DEST" ]; then
