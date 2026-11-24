@@ -51,6 +51,37 @@ def load_state():
         return True
 
 
+def usb_present():
+    """pogo 键盘是否作为 USB 设备被枚举（冷启动时可靠；运行中拔掉可能是幻影）"""
+    for d in glob.glob("/sys/bus/usb/devices/*"):
+        try:
+            if (open(os.path.join(d, "idVendor")).read().strip() == "3206" and
+                    open(os.path.join(d, "idProduct")).read().strip() == "3ffc"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def boot_uptime():
+    try:
+        return float(open("/proc/uptime").read().split()[0])
+    except (OSError, ValueError):
+        return 0.0
+
+
+def initial_state():
+    """冷启动用 USB 枚举定初值；运行中重启服务则沿用持久化状态"""
+    if boot_uptime() < 180:
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if usb_present():
+                return True
+            time.sleep(0.5)
+        return False
+    return load_state()
+
+
 def tlmm_base():
     for chip in glob.glob("/sys/class/gpio/gpiochip*"):
         try:
@@ -101,7 +132,8 @@ def main():
         log(f"keyboard_present set to {v}")
         return 0
 
-    state = load_state()
+    state = initial_state()
+    log(f"initial state from {'USB(冷启动)' if boot_uptime() < 180 else 'persist'}: {int(state)}")
     write_state(state)
     unexport()
     chip = find_chip()
