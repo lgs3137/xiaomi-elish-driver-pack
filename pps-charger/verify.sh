@@ -30,7 +30,8 @@ if [ -e "$UNIT" ]; then
 fi
 
 if command -v python3 >/dev/null 2>&1 && [ -x "$BIN" ]; then
-    if python3 -m py_compile "$BIN" 2>/dev/null; then
+    # 内存里编译，避免非 root 时 py_compile 往 /usr/local/sbin 写 __pycache__ 而误报
+    if python3 -c 'import sys; compile(open(sys.argv[1], "rb").read(), sys.argv[1], "exec")' "$BIN" 2>/dev/null; then
         ok "Python 语法检查通过"
     else
         fail "Python 语法错误"

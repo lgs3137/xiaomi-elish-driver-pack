@@ -28,7 +28,12 @@
 - **补丁状态判定**：新增 `kernel/patch-lib.sh`（正向 dry-run → 反向 dry-run → 新增行命中 ≥70% 三态），
   `build-and-install.sh` 与 `compat-check.sh` 共用；增量树里 0010/0011/0014 由 WARN 改为
   “已应用（上下文漂移，命中 58/67、55/70、68/69）”，真正缺失的补丁仍会 WARN（已用伪造补丁反向验证）。
-- **未做**：尚未重启进入新内核；Waydroid 容器与 Android 镜像不随包、未验证。
+- **重启验证（11-24 11:53）**：新内核 #23 正常启动；`CONFIG_ANDROID_BINDERFS=y`、`/proc/filesystems` 出现
+  `binder`，静态 `/dev/binder*` 不再创建（upstream 行为）；fastrpc/TEE/goodix/GNSS 设备与 SLPI 启动正常，
+  `install/check-all.sh` **全部通过**（binderfs 项 OK；`/dev/binderfs` 未挂载属预期，Waydroid 启动时自行挂载）。
+- **pps-charger 自检误报修正**：非 root 运行 `verify.sh` 时 `python3 -m py_compile` 会尝试写
+  `/usr/local/sbin/__pycache__` 而失败 → 误报“Python 语法错误”；改为内存 `compile()` 检查。
+- **未做**：Waydroid 容器与 Android 镜像不随包、未验证。
 
 ## 2026-11-22 — pogo 键盘唤醒 HID 假死：用户态自动复位（默认组件 `pogo/`）
 
