@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""elish-keyboard-detect: 用 TLMM GPIO83 的脉冲检测 pogo 键盘插拔
+"""elish-keyboard-detect: pogo 键盘插拔/输入检测
 
-背景（本机实测）:
-- GPIO83 = 厂商 DTS 的 `xiaomi-keyboard,in-irq-gpio`；
-- 该引脚平时为高，**拔插瞬间会产生一个 ~1ms 的低脉冲**（falling→rising），
-  打字/空闲不产生脉冲；
-- 因此用“每个低脉冲翻转一次状态”来跟踪键盘在/不在，初始状态默认“在”，
-  并持久化到 /var/lib/elish-keyboard-present（服务重启不丢，极端情况可手动 --set 校准）。
+信号（实测 + 厂商驱动 elish-r-oss: drivers/input/misc/xiaomi_keyboard/）:
+- GPIO83 (`xiaomi-keyboard,in-irq-gpio`) 在拔插瞬间产生 ~1ms 低脉冲；IRQ 上升沿翻转状态；
+- USB 常驻、电平不变、霍尔不动，因此没有绝对电平信号；
+- 补充：监听 pogo 键盘自身的 evdev 键盘事件，任何按键输入都校准为“已连接”（本机无触摸板）。
+
+状态:
+- 冷启动(uptime<180s)默认“未连接”(0)，避免关机拔键盘再开机时判错；
+- 运行中重启服务沿用 /var/lib/elish-keyboard-present；
+- 拔插脉冲翻转；键盘/触摸板输入强制校准为 1；
+- 手动校准: --set 0|1 / --status。
 
 输出: /run/elish-keyboard-present (1=键盘在, 0=拔出)
-只读 GPIO83（gpiomon 带上拉），不触碰键盘供电(gpio127)/复位(gpio141)。
-
-用法: elish-keyboard-detect            # 后台服务
-      elish-keyboard-detect --set 0|1 # 手动校准并退出
-      elish-keyboard-detect --status  # 打印当前状态
+只把 GPIO83 当输入读取，不触碰键盘供电(gpio127)/复位(gpio141)。
 """
+import fcntl
 import glob
 import os
+import selectors
 import subprocess
 import sys
 import time
@@ -27,6 +29,8 @@ PERSIST = "/var/lib/elish-keyboard-present"
 TLMM_LABEL = "f100000.pinctrl"
 DEBOUNCE_S = 0.3
 STARTUP_IGNORE_S = 2.0
+RESCAN_S = 5.0
+KB_NAME_HINTS = ("Xiaomi Pad Keyboard",)  # 本机键盘无触摸板；Mouse/Pad 是幻影接口，不参与校准
 
 
 def log(msg):
@@ -51,17 +55,24 @@ def load_state():
         return True
 
 
+def boot_uptime():
+    try:
+        return float(open("/proc/uptime").read().split()[0])
+    except (OSError, ValueError):
+        return 0.0
+
+
 def initial_state():
-    """沿用上次持久化的状态（USB/电平/霍尔在本机都不可靠，见 README）。
-    服务停过且期间拔插过、或关机时拔插导致错位时，用 --set 校准。"""
+    """冷启动默认未连接；运行中重启沿用持久化状态。"""
+    if boot_uptime() < 180:
+        return False
     return load_state()
 
 
 def tlmm_base():
     for chip in glob.glob("/sys/class/gpio/gpiochip*"):
         try:
-            label = open(os.path.join(chip, "label")).read().strip()
-            if TLMM_LABEL not in label:
+            if TLMM_LABEL not in open(os.path.join(chip, "label")).read().strip():
                 continue
             if int(open(os.path.join(chip, "ngpio")).read()) <= LINE:
                 continue
@@ -85,7 +96,6 @@ def unexport():
 
 
 def find_chip():
-    # gpiodetect 会打印 "gpiochipN [f100000.pinctrl] (181 lines)"
     try:
         out = subprocess.run(["gpiodetect"], capture_output=True,
                              text=True, timeout=5).stdout
@@ -97,18 +107,39 @@ def find_chip():
     return None
 
 
+def evdev_name(fd):
+    try:
+        raw = fcntl.ioctl(fd, (2 << 30) | (256 << 16) | (0x45 << 8) | 0x06, b"\0" * 256)
+        return raw.split(b"\0")[0].decode(errors="ignore")
+    except OSError:
+        return ""
+
+
+def keyboard_nodes():
+    nodes = []
+    for p in glob.glob("/dev/input/event*"):
+        try:
+            fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+        name = evdev_name(fd)
+        os.close(fd)
+        if any(h in name for h in KB_NAME_HINTS):
+            nodes.append(p)
+    return nodes
+
+
 def main():
     if "--status" in sys.argv:
         print("1" if load_state() else "0")
         return 0
     if "--set" in sys.argv:
-        v = "1" if sys.argv[sys.argv.index("--set") + 1] != "0" else "0"
-        write_state(v == "1")
-        log(f"keyboard_present set to {v}")
+        v = sys.argv[sys.argv.index("--set") + 1] != "0"
+        write_state(v)
+        log(f"keyboard_present set to {int(v)}")
         return 0
 
     state = initial_state()
-    log(f"initial state from persist: {int(state)}")
     write_state(state)
     unexport()
     chip = find_chip()
@@ -116,24 +147,67 @@ def main():
         log("TLMM gpiochip not found; retry in 5s")
         time.sleep(5)
         return 1
-    log(f"watching {chip} line {LINE}, initial keyboard_present={int(state)}")
 
     proc = subprocess.Popen(
         ["stdbuf", "-oL", "-eL", "gpiomon", "-B", "pull-up", chip, str(LINE)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    sel = selectors.DefaultSelector()
+    sel.register(proc.stdout, selectors.EVENT_READ, ("gpio", None))
+
+    # 键盘/触摸板 evdev 节点：任何输入事件 -> 校准为已连接
+    kb_fds = {}
+
+    def refresh_kb():
+        for p in keyboard_nodes():
+            if p in kb_fds:
+                continue
+            try:
+                fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                continue
+            kb_fds[p] = fd
+            sel.register(fd, selectors.EVENT_READ, ("kbd", p))
+            log(f"watching input node {p} ({evdev_name(fd)})")
+
+    refresh_kb()
+    last_scan = time.time()
     started = time.time()
-    last = 0.0
-    for line in proc.stdout:
-        if "FALLING EDGE" not in line or f"offset: {LINE}" not in line:
-            continue
-        now = time.time()
-        if now - started < STARTUP_IGNORE_S or now - last < DEBOUNCE_S:
-            continue
-        last = now
-        state = not state
-        write_state(state)
-        log(f"pulse -> keyboard_present={int(state)}")
-    return proc.wait()
+    last_pulse = 0.0
+    log(f"watching {chip} line {LINE}, initial keyboard_present={int(state)} "
+        f"({'cold boot' if boot_uptime() < 180 else 'persist'})")
+
+    while True:
+        for key, _ in sel.select(timeout=1.0):
+            kind, _node = key.data
+            if kind == "gpio":
+                line = proc.stdout.readline()
+                if not line:
+                    log("gpiomon exited")
+                    return proc.poll() or 0
+                if "FALLING EDGE" not in line or f"offset: {LINE}" not in line:
+                    continue
+                now = time.time()
+                if now - started < STARTUP_IGNORE_S or now - last_pulse < DEBOUNCE_S:
+                    continue
+                last_pulse = now
+                state = not state
+                write_state(state)
+                log(f"pulse -> keyboard_present={int(state)}")
+            else:
+                fd = kb_fds.get(_node)
+                if fd is None:
+                    continue
+                try:
+                    data = os.read(fd, 24 * 64)
+                except BlockingIOError:
+                    data = b""
+                if data and not state:
+                    state = True
+                    write_state(state)
+                    log(f"input activity -> keyboard_present=1 ({_node})")
+        if time.time() - last_scan >= RESCAN_S:
+            last_scan = time.time()
+            refresh_kb()
 
 
 if __name__ == "__main__":

@@ -17,9 +17,12 @@
   13:18:01 插回 → 全部回 0。SW 当秒生效，IME 约 2 s（watcher 轮询）。
 - **注意**：脉冲翻转法在“服务停过且期间拔插”或“唤醒复位”时可能错位，可用
   `elish-keyboard-detect --set 0|1` 校准、`--status` 查看。
-- **初始状态**：实测 USB 始终枚举（拔着键盘冷启动也出现 `3206:3ffc`）、GPIO83 电平恒高、
-  GPIO46 被 gps-ldo 占用、I2C 0x4c 不可达、霍尔不随拔插变化 —— **没有可靠的自动初值判据**；
-  因此沿用持久化状态，错位时用 `elish-keyboard-detect --set 0|1` 校准。
+- **厂商驱动源码**：`elish-r-oss` 的 `drivers/input/misc/xiaomi_keyboard/xiaomi_keyboard.c` 证实其也是
+  IRQ 上升沿翻转（初值 0，无电平/I2C 绝对探测），并 `sysfs_notify` 给 MIUI 框架。
+- **初始状态**：实测 USB 始终枚举、GPIO83 电平恒高、GPIO46 被 gps-ldo 占用、I2C 0x4c 不可达、
+  霍尔不随拔插变化；因此冷启动默认“未连接”(0)，运行中重启沿用持久化状态。
+- **输入校准**：监听 `Xiaomi Pad Keyboard` 的 evdev 键盘事件，任何按键都强制校准为“已连接”
+  （本机键盘无触摸板，Mouse/Pad 幻影接口不监听）；配合拔插脉冲翻转，错位最多持续到第一次按键。
 - **打包**：新增 `utils/waydroid/` 子包（watcher + systemd + install/uninstall/verify + README）；
   watcher 优化为空闲只读 evdev、仅状态变化时调 `waydroid shell`（实测 CPU 931ms/10s → 1ms/10s）。
 

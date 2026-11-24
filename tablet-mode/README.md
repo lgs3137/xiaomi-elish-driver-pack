@@ -29,9 +29,12 @@
 `elish-keyboard-detect` 用 `gpiomon` 捕获脉冲并翻转状态，结果写到
 `/run/elish-keyboard-present`（键盘在=1，拔出=0），状态持久化在 `/var/lib/elish-keyboard-present`。
 
-- **初始状态**：沿用持久化状态 `/var/lib/elish-keyboard-present`。本机实测：USB 始终枚举
-  （拔着开机也会出现 `3206:3ffc`）、GPIO83 电平恒高、霍尔不随拔插变化，因此**没有可靠的自动初值判据**；
-  关机时拔插过导致错位时，用 `--set 0|1` 校准（或直接切「平板模式」手动覆盖）；
+- **初始状态**：冷启动默认“未连接”(0)；运行中重启服务沿用 `/var/lib/elish-keyboard-present`。
+  本机实测 USB 始终枚举、GPIO83 电平恒高、霍尔不随拔插变化，没有绝对电平信号（厂商驱动也只是
+  IRQ 翻转，见 `docs/HISTORY.md`）；
+- **输入校准**：监听 pogo 键盘自身的 evdev 键盘节点（`Xiaomi Pad Keyboard`），**任何按键输入都强制
+  校准为“已连接”**；本机键盘没有触摸板，`Xiaomi Pad Mouse`/`Xiaomi Pad` 是幻影接口，不参与校准；
+- 手动校准：`elish-keyboard-detect --set 0|1`，查看 `--status`；
 - 手动校准：`elish-keyboard-detect --set 0|1`；查看：`elish-keyboard-detect --status`
   （服务停过且期间拔插过、或唤醒复位导致错位时用）
 
