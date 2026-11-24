@@ -29,7 +29,9 @@
 `elish-keyboard-detect` 用 `gpiomon` 捕获脉冲并翻转状态，结果写到
 `/run/elish-keyboard-present`（键盘在=1，拔出=0），状态持久化在 `/var/lib/elish-keyboard-present`。
 
-- **初始状态**：冷启动默认“未连接”(0)；运行中重启服务沿用 `/var/lib/elish-keyboard-present`。
+- **初始状态**：冷启动默认“未连接”(0)（配置 `/etc/default/elish-keyboard-detect`
+  的 `COLD_BOOT_STATE=detached|attached`）；运行中重启服务沿用 `/var/lib/elish-keyboard-present`。
+  开机前 10 秒忽略 USB 重枚举脉冲（避免幻影设备误翻状态）。
   本机实测 USB 始终枚举、GPIO83 电平恒高、霍尔不随拔插变化，没有绝对电平信号（厂商驱动也只是
   IRQ 翻转，见 `docs/HISTORY.md`）；
 - **输入校准**：监听 pogo 键盘自身的 evdev 键盘节点（`Xiaomi Pad Keyboard`），**任何按键输入都强制

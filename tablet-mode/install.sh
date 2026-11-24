@@ -108,6 +108,10 @@ step "3b) 安装键盘检测服务（GPIO83 → /run/elish-keyboard-present）"
 have gpiomon || warn "缺少 gpiomon（apt install gpiod）：键盘检测服务将无法工作"
 run install -D -m 0755 "$C/elish-keyboard-detect.py" "$KDETECT"
 run install -D -m 0644 "$C/systemd/elish-keyboard-detect.service" "$KUNIT"
+# 冷启动默认状态配置（已存在则不覆盖，保留用户选择）
+if [ ! -e /etc/default/elish-keyboard-detect ]; then
+    run install -D -m 0644 "$C/elish-keyboard-detect.conf" /etc/default/elish-keyboard-detect
+fi
 run systemctl daemon-reload
 run systemctl enable --now elish-keyboard-detect.service
 run systemctl restart elish-tablet-mode.service

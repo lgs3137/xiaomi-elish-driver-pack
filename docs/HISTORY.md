@@ -47,6 +47,9 @@
   `ENODEV`（重枚举）不再崩溃。实测唤醒后屏幕方向稳定。
 - **注意**：拔着键盘唤醒**同样**有重枚举脉冲（幻影 USB 设备每次唤醒都会重枚举），因此该脉冲
   **不能**作为“唤醒后键盘是否接着”的判据。
+- **冷启动默认**：保持“未连接”(0)（`/etc/default/elish-keyboard-detect`
+  `COLD_BOOT_STATE=detached|attached`）；未连接→已连接只需按一下键盘，反向在没有键盘时很难操作，
+  所以默认选 detached。开机 10 秒内忽略 USB 重枚举脉冲，避免幻影设备误翻状态。
 - **打包**：新增 `utils/waydroid/` 子包（watcher + systemd + install/uninstall/verify + README）；
   watcher 优化为空闲只读 evdev、仅状态变化时调 `waydroid shell`（实测 CPU 931ms/10s → 1ms/10s）。
 

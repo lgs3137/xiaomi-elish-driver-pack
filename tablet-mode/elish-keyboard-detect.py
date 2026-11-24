@@ -25,10 +25,11 @@ import time
 
 LINE = 83
 RUN = "/run/elish-keyboard-present"
+CONFIG = "/etc/default/elish-keyboard-detect"
 PERSIST = "/var/lib/elish-keyboard-present"
 TLMM_LABEL = "f100000.pinctrl"
 DEBOUNCE_S = 0.3
-STARTUP_IGNORE_S = 2.0
+STARTUP_IGNORE_S = 10.0  # 开机瞬间 USB 重枚举会打脉冲，忽略这段时间
 RESCAN_S = 5.0
 RESUME_SUPPRESS_S = 8.0   # 唤醒后 USB 重枚举会打脉冲，忽略这段时间免误翻平板模式
 KB_NAME_HINTS = ("Xiaomi Pad Keyboard",)  # 本机键盘无触摸板；Mouse/Pad 是幻影接口，不参与校准
@@ -71,10 +72,23 @@ def boot_uptime():
         return 0.0
 
 
+def cold_boot_state():
+    """冷启动默认状态：attached（默认，键盘通常接着）|detached。"""
+    want = "attached"
+    try:
+        for line in open(CONFIG):
+            line = line.split("#", 1)[0].strip()
+            if line.upper().startswith("COLD_BOOT_STATE="):
+                want = line.split("=", 1)[1].strip().strip('"').lower()
+    except OSError:
+        pass
+    return want != "detached"
+
+
 def initial_state():
-    """冷启动默认未连接；运行中重启沿用持久化状态。"""
+    """冷启动按 COLD_BOOT_STATE（默认 attached）；运行中重启沿用持久化状态。"""
     if boot_uptime() < 180:
-        return False
+        return cold_boot_state()
     return load_state()
 
 
