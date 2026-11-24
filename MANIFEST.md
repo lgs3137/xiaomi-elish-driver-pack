@@ -31,6 +31,7 @@ pogo/          默认组件：pogo 键盘唤醒自动复位（sleep hook + 脉�
 torch/         可选：GNOME 46 手电筒 Quick Settings 扩展 + torch CLI（默认不装；--with-torch 或单独 install.sh）
 tablet-mode/   可选：平板模式开关（开/关/自动）+ GNOME 46 控制中心扩展；uinput helper + 键盘拔插检测 + systemd 服务
 pps-charger/   可选：受控 11V PPS 快充服务（8s keep-alive、温度分档；装后默认启用；--with-pps-charger）+ 控制中心「充电功率」扩展
+utils/         小工具集合（waydroid/: Waydroid 软键盘跟随 elish 平板模式）
 ```
 
 ## kernel/
@@ -182,6 +183,12 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 | `install.sh` / `uninstall.sh` / `verify.sh` | 安装并启用（含扩展）/ 卸载并回 9V、移除扩展 / 自检（未装 SKIP） |
 | `charge-meter@elish/` | 控制中心「充电功率」GNOME 46 扩展：3 秒刷新，显示 充电 XX.XW / 放电 -X.XW / 已充满；点击打开设置→电源（纯用户级） |
 
+## utils/（小工具，按需安装）
+
+| 子目录 | 内容 |
+|---|---|
+| `waydroid/` | `elish-waydroid-ime-watch` + systemd 服务：按 `SW_TABLET_MODE` 设置 Android 的 `show_ime_with_hard_keyboard`（平板模式=1 允许软键盘，笔记本=0 抑制）；安装/卸载/自检脚本 + README |
+
 ## 明确不包含 / 需现场获取
 
 | 内容 | 原因 | 获取方式 |
@@ -197,5 +204,5 @@ helper 源码复用 `camera/elish-camera/tools/tablet_mode_switch.c`（uinput �
 
 ## 统计
 
-**345 个文件；源文件合计约 5.2 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
-唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（345 条，`sha256sum -c` 通过）。
+**354 个文件；源文件合计约 5.3 MB**（不含 `SHA256SUMS`）。**无 ELF/固件/日志/TA/指纹模板/单机校准 dump**；
+唯一二进制是已合并 Hi556 的模型级联合 DTB；`SHA256SUMS` 已按最终树生成（354 条，`sha256sum -c` 通过）。

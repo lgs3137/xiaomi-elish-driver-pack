@@ -99,6 +99,13 @@ else
   echo "  WARN  当前内核未启用 CONFIG_ANDROID_BINDERFS（Waydroid 无法启动；见 kernel/README.md「Waydroid / Android 容器」）"
 fi
 
+step "4e. Waydroid 软键盘联动（可选组件；未安装则跳过）"
+if [ -x "$HERE/utils/waydroid/verify.sh" ]; then
+  "$HERE/utils/waydroid/verify.sh" || FAIL=1
+else
+  echo "  WARN  缺少 utils/waydroid/verify.sh"
+fi
+
 step "5. apt 状态（防止被升级破坏）"
 for p in linux-image-current-sm8250 linux-dtb-current-sm8250 linux-headers-current-sm8250 \
          armbian-firmware-full libfprint-2-2; do

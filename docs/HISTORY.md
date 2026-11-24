@@ -17,6 +17,8 @@
   13:18:01 插回 → 全部回 0。SW 当秒生效，IME 约 2 s（watcher 轮询）。
 - **注意**：脉冲翻转法在“服务停过且期间拔插”或“唤醒复位”时可能错位，可用
   `elish-keyboard-detect --set 0|1` 校准、`--status` 查看。
+- **打包**：新增 `utils/waydroid/` 子包（watcher + systemd + install/uninstall/verify + README）；
+  watcher 优化为空闲只读 evdev、仅状态变化时调 `waydroid shell`（实测 CPU 931ms/10s → 1ms/10s）。
 
 ## 2026-11-24 — 内核启用 binderfs（Waydroid / Android 容器前置）
 

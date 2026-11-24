@@ -187,7 +187,7 @@
 
 ```
 README.md / README.en.md / QUICKSTART.md / INSTALL.md / NOTES.md / PATCHES.md / VERSIONS.md / MANIFEST.md
-LICENSE / SHA256SUMS / install.sh（一键安装入口 = install/turnkey.sh 包装）
+LICENSE / SHA256SUMS / install.sh（一键安装入口 = install/turnkey.sh 包装）；utils/ 小工具（waydroid 软键盘联动）
 kernel/        统一内核：驱动源码/补丁、内核配置、initramfs hook、模型级联合 DTB（含 Hi556）、
                一键内核构建安装脚本（build-and-install.sh）、Linux 启动槽重建脚本（自动检测）
 sensors/       传感器子包：systemd/udev/D-Bus 集成、启动/唤醒脚本、hexrpc/libssc/iio 补丁与
