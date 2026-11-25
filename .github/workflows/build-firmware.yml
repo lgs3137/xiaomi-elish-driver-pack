@@ -3,10 +3,25 @@ name: Build Xiaomi Pad 5 Pro (elish) Fastboot Firmware
 on:
   workflow_dispatch:
     inputs:
+      build_mode:
+        description: "构建模式（image-only 可直接复用历史构建的内核与用户态，无需重编）"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - image-only
+          - kernel-only
+          - userspace-only
+      reuse_run_id:
+        description: "image-only 模式复用哪次 Workflow Run ID（留空则自动查找最近一次成功产物）"
+        required: false
+        default: ""
+        type: string
       base_image_url:
         description: "Armbian noble GNOME 底包下载 URL（可自行修改，留空则使用默认地址）"
         required: false
-        default: "https://armbian.lv.auroradev.org/archive/xiaomi-elish/archive/Armbian_25.2.2_Xiaomi-elish_noble_current_6.12.13_gnome_desktop.rootfs.img.xz"
+        default: "https://fi.mirror.armbian.de/oldarchive/xiaomi-elish/archive/Armbian_24.8.1_Xiaomi-elish_noble_current_6.9.12_gnome_desktop.rootfs.img.xz"
         type: string
       boot_slot:
         description: "Linux 启动槽位（写入 boot.img cmdline 与 armbianEnv.txt）"
@@ -27,13 +42,14 @@ on:
         default: "db44df750"
         type: string
       build_userspace:
-        description: "是否同时编译用户态二进制并打入完整固件"
+        description: "full 模式下是否同时编译用户态二进制"
         required: true
         default: true
         type: boolean
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,6 +66,7 @@ jobs:
   build-kernel:
     name: Build Kernel, Modules & DTBs (CSOT + BOE)
     runs-on: ubuntu-24.04
+    if: ${{ inputs.build_mode == 'full' || inputs.build_mode == 'kernel-only' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -245,7 +262,6 @@ jobs:
         run: |
           set -euo pipefail
           make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" Image modules
-          # 同时编出内核树内的 BOE DTB（共用同一 Image，无需重编内核）
           make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- qcom/sm8250-xiaomi-elish-boe.dtb || true
 
           echo "== ABI 三件套检查 =="
@@ -316,7 +332,7 @@ jobs:
   build-userspace:
     name: Build Userspace Binaries (QEMU arm64 Ubuntu 24.04)
     runs-on: ubuntu-24.04
-    if: ${{ inputs.build_userspace }}
+    if: ${{ (inputs.build_mode == 'full' && inputs.build_userspace) || inputs.build_mode == 'userspace-only' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -452,17 +468,40 @@ jobs:
   build-image:
     name: Assemble Fastboot Images (boot-csot.img, boot-boe.img, rootfs.img)
     needs: [build-kernel, build-userspace]
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && (inputs.build_mode == 'full' || inputs.build_mode == 'image-only') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve artifact source run ID
+        id: resolve-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.build_mode }}" = "full" ]; then
+            echo "run_id=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RID="${{ inputs.reuse_run_id }}"
+          if [ -z "$RID" ]; then
+            RID=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '
+              [.artifacts[] | select(.expired == false and .name == "elish-kernel-'"${EXPECTED_KREL}"'-arm64")]
+              | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty
+            ')
+          fi
+          [ -n "$RID" ] || { echo "::error::未找到可复用的历史内核构建产物，请先运行一次 full 构建或手动填写 reuse_run_id"; exit 1; }
+          echo "Reusing artifacts from Workflow Run ID: $RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
 
       - name: Download kernel and userspace artifacts
         uses: actions/download-artifact@v4
         with:
           path: /tmp/artifacts
           merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.resolve-run.outputs.run_id }}
 
       - name: Set up QEMU for arm64
         uses: docker/setup-qemu-action@v3
@@ -481,13 +520,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/base-img
-          DEFAULT_URL="https://armbian.lv.auroradev.org/archive/xiaomi-elish/archive/Armbian_25.2.2_Xiaomi-elish_noble_current_6.12.13_gnome_desktop.rootfs.img.xz"
+          DEFAULT_URL="https://fi.mirror.armbian.de/oldarchive/xiaomi-elish/archive/Armbian_24.8.1_Xiaomi-elish_noble_current_6.9.12_gnome_desktop.rootfs.img.xz"
           URL="${{ inputs.base_image_url }}"
           if [ -z "$URL" ]; then
             URL="$DEFAULT_URL"
           fi
           echo "Using Armbian base image URL: $URL"
-          echo "BASE_URL=$URL" >> "$GITHUB_ENV"
 
           fname="/tmp/base-img/$(basename "${URL%%\?*}")"
           curl -fL --retry 3 -o "$fname" "$URL"
@@ -511,20 +549,39 @@ jobs:
           SRC_MNT="/tmp/src-mnt"
           mkdir -p "$STAGE" "$SRC_MNT"
 
-          # 挂载底包镜像（兼容整盘分区镜像与裸 ext4 rootfs.img）
-          LOOP=""
+          # 智能查找并挂载真正的 rootfs 分区（避免整盘镜像有多个 ext4 分区时误挂到 /boot）
+          FOUND_ROOTFS=0
           if blkid -s TYPE -o value "$BASE_IMG" 2>/dev/null | grep -q ext4; then
             sudo mount -o loop,ro "$BASE_IMG" "$SRC_MNT"
-          else
-            LOOP=$(sudo losetup -fP --show "$BASE_IMG")
-            PART=$(lsblk -ln -o PATH,FSTYPE "$LOOP" | awk '$2=="ext4" {print $1; exit}')
-            [ -n "$PART" ] || PART="${LOOP}p1"
-            sudo mount -o ro "$PART" "$SRC_MNT"
+            if [ -f "$SRC_MNT/etc/os-release" ]; then
+              sudo cp -a "$SRC_MNT/." "$STAGE/"
+              FOUND_ROOTFS=1
+            fi
+            sudo umount "$SRC_MNT"
           fi
 
-          sudo cp -a "$SRC_MNT/." "$STAGE/"
-          sudo umount "$SRC_MNT"
-          [ -n "$LOOP" ] && sudo losetup -d "$LOOP"
+          if [ "$FOUND_ROOTFS" = 0 ]; then
+            LOOP=$(sudo losetup -fP --show "$BASE_IMG")
+            for PART in $(lsblk -ln -o PATH,FSTYPE "$LOOP" | awk '$2=="ext4" {print $1}'); do
+              sudo mount -o ro "$PART" "$SRC_MNT"
+              if [ -f "$SRC_MNT/etc/os-release" ]; then
+                echo "Found rootfs partition: $PART"
+                sudo cp -a "$SRC_MNT/." "$STAGE/"
+                FOUND_ROOTFS=1
+                sudo umount "$SRC_MNT"
+                break
+              fi
+              sudo umount "$SRC_MNT"
+            done
+            sudo losetup -d "$LOOP"
+          fi
+
+          [ "$FOUND_ROOTFS" = 1 ] || { echo "::error::在底包镜像中未找到包含 /etc/os-release 的 ext4 rootfs 分区"; exit 1; }
+          [ -e "$STAGE/lib/ld-linux-aarch64.so.1" ] || [ -e "$STAGE/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" ] || {
+            echo "::error::底包 rootfs 中缺少 ld-linux-aarch64.so.1"
+            ls -la "$STAGE" "$STAGE/lib" 2>/dev/null || true
+            exit 1
+          }
 
           # 1) 注入本次编译的内核、模块与 initramfs hook
           KEXTR="/tmp/k-unpack"
@@ -542,7 +599,6 @@ jobs:
           sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" \
             "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
 
-          # BOE DTB：优先用内核编译产物，若无则保留底包自带 BOE DTB
           if [ -f "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" ]; then
             sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" \
               "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
@@ -555,12 +611,12 @@ jobs:
           printf 'goodix_fp_spi\n' | sudo tee "$STAGE/etc/modules-load.d/goodix-fp.conf" >/dev/null
           printf 'airoha_gps\n'    | sudo tee "$STAGE/etc/modules-load.d/airoha-gps.conf" >/dev/null
 
-          # 2) 注入本次编译的全部用户态二进制（如启用）
+          # 2) 注入编译好的全部用户态二进制
           if [ -f /tmp/artifacts/elish-userspace-arm64.tar.gz ]; then
             sudo tar --no-overwrite-dir -xzf /tmp/artifacts/elish-userspace-arm64.tar.gz -C "$STAGE"
           fi
 
-          # 3) 将本驱动包随镜像放入 /opt/xiaomi-elish-driver-pack，方便开机后直接运行 install-data.sh / check-all.sh
+          # 3) 将本驱动包随镜像放入 /opt/xiaomi-elish-driver-pack
           sudo mkdir -p "$STAGE/opt/xiaomi-elish-driver-pack"
           sudo cp -a "${GITHUB_WORKSPACE}/." "$STAGE/opt/xiaomi-elish-driver-pack/"
 
