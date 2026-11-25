@@ -1,8 +1,21 @@
-name: Build Xiaomi Pad 5 Pro (elish) Firmware
+name: Build Xiaomi Pad 5 Pro (elish) Fastboot Firmware
 
 on:
   workflow_dispatch:
     inputs:
+      base_image_url:
+        description: "Armbian noble GNOME 底包下载 URL（可自行修改，留空则使用默认地址）"
+        required: false
+        default: "https://armbian.lv.auroradev.org/archive/xiaomi-elish/archive/Armbian_25.2.2_Xiaomi-elish_noble_current_6.12.13_gnome_desktop.rootfs.img.xz"
+        type: string
+      boot_slot:
+        description: "Linux 启动槽位（写入 boot.img cmdline 与 armbianEnv.txt）"
+        required: true
+        default: "boot_b"
+        type: choice
+        options:
+          - boot_a
+          - boot_b
       kernel_version:
         description: "Linux 内核版本（需与 kernel/config-used-* 匹配）"
         required: true
@@ -14,7 +27,7 @@ on:
         default: "db44df750"
         type: string
       build_userspace:
-        description: "是否同时通过 QEMU arm64 容器编译用户态二进制"
+        description: "是否同时编译用户态二进制并打入完整固件"
         required: true
         default: true
         type: boolean
@@ -31,10 +44,11 @@ env:
   KERNEL_TARBALL_SHA256: "0f72d938f06828e82c90405174fe572287db7bfe089e2fc46572a99a7f240d43"
   ARMBIAN_COMMIT: ${{ inputs.armbian_commit || 'db44df750' }}
   EXPECTED_KREL: "6.18.44-current-sm8250"
+  BOOT_SLOT: ${{ inputs.boot_slot || 'boot_b' }}
 
 jobs:
   build-kernel:
-    name: Build Kernel, Modules & Verify DTB (arm64 cross)
+    name: Build Kernel, Modules & DTBs (CSOT + BOE)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -107,7 +121,6 @@ jobs:
           KSRC="/tmp/kbuild/linux-${KERNEL_VERSION}"
           echo "KSRC=${KSRC}" >> "$GITHUB_ENV"
 
-          # 防止 make 生成额外的 '+' 或 '-dirty' 后缀导致 ABI 版本号变化
           touch "$KSRC/.scmversion"
 
           PATCH_DIR="/tmp/armbian-build/patch/kernel/archive/sm8250-6.18"
@@ -116,7 +129,6 @@ jobs:
             exit 1
           fi
 
-          # 按 kernel/ARMBIAN-BASELINE.md 说明：跳过 0063（USB gadget NCM 生命周期重构）及 0 字节文件
           for p in "$PATCH_DIR"/*.patch; do
             [ -f "$p" ] || continue
             base=$(basename "$p")
@@ -126,12 +138,8 @@ jobs:
                 continue
                 ;;
             esac
-            if [ ! -s "$p" ]; then
-              echo "Skipping empty patch $base"
-              continue
-            fi
+            [ -s "$p" ] || continue
             if patch -p1 -d "$KSRC" --dry-run --forward --batch < "$p" >/dev/null 2>&1; then
-              echo "Applying Armbian patch: $base"
               patch -p1 -d "$KSRC" --forward --batch < "$p"
             elif patch -p1 -d "$KSRC" --dry-run --reverse --batch < "$p" >/dev/null 2>&1; then
               echo "Already applied Armbian patch: $base"
@@ -164,15 +172,11 @@ jobs:
         run: |
           set -euo pipefail
           TAGK="${GITHUB_WORKSPACE}/kernel"
-          # 复用仓库自带的 patch_content_present 幂等判定逻辑
           . "$TAGK/patch-lib.sh"
 
           apply_kpatch() {
             local p=$1
-            if [ ! -f "$p" ]; then
-              echo "::error::Missing patch: $p"
-              exit 1
-            fi
+            [ -f "$p" ] || { echo "::error::Missing patch: $p"; exit 1; }
             if patch -p1 -d "$KSRC" --dry-run --forward --batch < "$p" >/dev/null 2>&1; then
               echo "Applying: $(basename "$p")"
               patch -p1 -d "$KSRC" --forward --batch < "$p"
@@ -187,26 +191,29 @@ jobs:
           }
 
           P="$TAGK/patches"
-          apply_kpatch "$P/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch"
-          apply_kpatch "$P/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch"
+          for pf in \
+            0001-fastrpc-sdsp-vmid-and-sensors-pd.patch \
+            0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch \
+            0004-smb5-typec-legacy-reset-resume.patch \
+            0005-ov8856-bggr-vflip.patch \
+            0006-ov13b10-of-supplies-reset.patch \
+            0007-cn3927v.patch \
+            0008-hi556-of.patch \
+            0009-fastrpc-listener-unfreezable.patch \
+            0010-smb5-fast-charge-current-vbus.patch \
+            0011-charger-taper-stepdown.patch \
+            0012-charger-soc-step-charging.patch \
+            0013-charger-ignore-fullon-flag.patch \
+            0014-bq2597x-probe-typec-notifier.patch \
+            0015-bq2597x-soc-gated-charging.patch \
+            0016-bq27xxx-discharging-status.patch \
+            0017-pwrkey-post-resume-grace.patch \
+            fingerprint/qseecom-pool-compact-retry.patch; do
+            apply_kpatch "$P/$pf"
+          done
           if ! grep -q 'tristate "Qualcomm MDT firmware loader"' "$KSRC/drivers/soc/qcom/Kconfig"; then
             apply_kpatch "$P/0003-qcom-mdt-loader-user-selectable.patch"
           fi
-          apply_kpatch "$P/0004-smb5-typec-legacy-reset-resume.patch"
-          apply_kpatch "$P/0005-ov8856-bggr-vflip.patch"
-          apply_kpatch "$P/0006-ov13b10-of-supplies-reset.patch"
-          apply_kpatch "$P/0007-cn3927v.patch"
-          apply_kpatch "$P/0008-hi556-of.patch"
-          apply_kpatch "$P/0009-fastrpc-listener-unfreezable.patch"
-          apply_kpatch "$P/0010-smb5-fast-charge-current-vbus.patch"
-          apply_kpatch "$P/0011-charger-taper-stepdown.patch"
-          apply_kpatch "$P/0012-charger-soc-step-charging.patch"
-          apply_kpatch "$P/0013-charger-ignore-fullon-flag.patch"
-          apply_kpatch "$P/0014-bq2597x-probe-typec-notifier.patch"
-          apply_kpatch "$P/0015-bq2597x-soc-gated-charging.patch"
-          apply_kpatch "$P/0016-bq27xxx-discharging-status.patch"
-          apply_kpatch "$P/0017-pwrkey-post-resume-grace.patch"
-          apply_kpatch "$P/fingerprint/qseecom-pool-compact-retry.patch"
 
       - name: Ensure qcom_q6v5_pas auto_boot=true
         run: |
@@ -214,9 +221,6 @@ jobs:
           Q6="$KSRC/drivers/remoteproc/qcom_q6v5_pas.c"
           if grep -q 'sdm845_slpi_resource_init = {' "$Q6"; then
             sed -i '/sdm845_slpi_resource_init = {/,/};/ s/\.auto_boot = false/.auto_boot = true/' "$Q6"
-            grep -A12 'sdm845_slpi_resource_init = {' "$Q6"
-          else
-            echo "::warning::sdm845_slpi_resource_init not found in qcom_q6v5_pas.c"
           fi
 
       - name: Configure kernel and verify required options
@@ -229,24 +233,20 @@ jobs:
                    CONFIG_QCOM_MDT_LOADER=y CONFIG_QCOM_FASTRPC=m \
                    CONFIG_DEBUG_INFO_BTF=y CONFIG_MODULE_ALLOW_BTF_MISMATCH=y \
                    CONFIG_ANDROID_BINDERFS=y; do
-            if ! grep -q "^${c}$" "$KSRC/.config"; then
-              echo "::error::Missing required config option: $c"
-              exit 1
-            fi
+            grep -q "^${c}$" "$KSRC/.config" || { echo "::error::Missing config: $c"; exit 1; }
           done
           grep -q '^CONFIG_LOCALVERSION="-current-sm8250"$' "$KSRC/.config"
 
           KREL=$(make -s -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- kernelrelease)
           echo "Built kernelrelease: $KREL"
-          if [ "$KREL" != "$EXPECTED_KREL" ]; then
-            echo "::error::kernelrelease ($KREL) != expected ($EXPECTED_KREL)"
-            exit 1
-          fi
+          [ "$KREL" = "$EXPECTED_KREL" ] || { echo "::error::kernelrelease ($KREL) != $EXPECTED_KREL"; exit 1; }
 
-      - name: Build kernel Image, modules & check ABI
+      - name: Build kernel Image, modules, BOE fallback DTB & check ABI
         run: |
           set -euo pipefail
           make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" Image modules
+          # 同时编出内核树内的 BOE DTB（共用同一 Image，无需重编内核）
+          make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- qcom/sm8250-xiaomi-elish-boe.dtb || true
 
           echo "== ABI 三件套检查 =="
           strings "$KSRC/vmlinux" | grep -m1 mod_unload || true
@@ -260,7 +260,7 @@ jobs:
           make -C "$KSRC" M="${GITHUB_WORKSPACE}/gnss/kernel" \
             ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules
 
-      - name: Verify bundled combined DTB
+      - name: Verify bundled combined DTB (CSOT)
         run: |
           set -euo pipefail
           bash "${GITHUB_WORKSPACE}/kernel/dtb/verify-combined-dtb.sh" \
@@ -276,13 +276,13 @@ jobs:
           cp -a "$KSRC/.config" "$OUT/boot/config-${EXPECTED_KREL}"
           cp -a "$KSRC/System.map" "$OUT/boot/System.map-${EXPECTED_KREL}"
 
-          DTB="${GITHUB_WORKSPACE}/kernel/dtb/sm8250-xiaomi-elish-csot.dtb"
-          cp -a "$DTB" "$OUT/dtb/sm8250-xiaomi-elish-csot.dtb"
+          CSOT_DTB="${GITHUB_WORKSPACE}/kernel/dtb/sm8250-xiaomi-elish-csot.dtb"
+          cp -a "$CSOT_DTB" "$OUT/dtb/sm8250-xiaomi-elish-csot.dtb"
 
-          # 预拼接 Image.gz-dtb-csot 供参考/手工 mkbootimg 使用
-          gzip -c "$KSRC/arch/arm64/boot/Image" > /tmp/Image.gz
-          cat /tmp/Image.gz "$DTB" > "$OUT/boot/Image.gz-dtb-csot"
-          rm -f /tmp/Image.gz
+          BOE_DTB="$KSRC/arch/arm64/boot/dts/qcom/sm8250-xiaomi-elish-boe.dtb"
+          if [ -f "$BOE_DTB" ]; then
+            cp -a "$BOE_DTB" "$OUT/dtb/sm8250-xiaomi-elish-boe.dtb"
+          fi
 
           cp -a "$KSRC/drivers/misc/fastrpc.ko" "$OUT/modules-extra/fastrpc.ko"
           cp -a "${GITHUB_WORKSPACE}/kernel/goodix_fp_spi/goodix_fp_spi.ko" "$OUT/modules-extra/goodix_fp_spi.ko"
@@ -291,7 +291,6 @@ jobs:
           make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             INSTALL_MOD_PATH="$OUT/rootfs" INSTALL_MOD_STRIP=1 modules_install
 
-          # 将 out-of-tree 模块也安装到标准 extra/ 目录
           install -D -m 0644 "$OUT/modules-extra/goodix_fp_spi.ko" \
             "$OUT/rootfs/lib/modules/${EXPECTED_KREL}/extra/goodix_fp_spi.ko"
           install -D -m 0644 "$OUT/modules-extra/airoha_gps.ko" \
@@ -300,11 +299,7 @@ jobs:
           cp -a "${GITHUB_WORKSPACE}/kernel/initramfs/hooks/xiaomi-elish-firmware" \
             "$OUT/initramfs-hooks/xiaomi-elish-firmware"
 
-          (
-            cd "$OUT"
-            find boot dtb modules-extra initramfs-hooks -type f | sort | xargs sha256sum > SHA256SUMS
-          )
-
+          (cd "$OUT" && find boot dtb modules-extra initramfs-hooks -type f | sort | xargs sha256sum > SHA256SUMS)
           mkdir -p "${GITHUB_WORKSPACE}/dist"
           tar -C "$OUT" -czf "${GITHUB_WORKSPACE}/dist/elish-kernel-${EXPECTED_KREL}-arm64.tar.gz" .
           cp -a "$OUT/SHA256SUMS" "${GITHUB_WORKSPACE}/dist/kernel-SHA256SUMS.txt"
@@ -321,7 +316,7 @@ jobs:
   build-userspace:
     name: Build Userspace Binaries (QEMU arm64 Ubuntu 24.04)
     runs-on: ubuntu-24.04
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_userspace }}
+    if: ${{ inputs.build_userspace }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -346,12 +341,12 @@ jobs:
                 build-essential gcc make git meson ninja-build pkg-config ca-certificates \
                 python3 python3-pip gobject-introspection libglib2.0-dev libgudev-1.0-dev \
                 libpolkit-gobject-1-dev libqmi-glib-dev libmbim-glib-dev libqrtr-glib-dev \
-                libprotobuf-c-dev protobuf-c-compiler protobuf-compiler libnss3-dev libgusb-dev libusb-1.0-0-dev \
-                libpixman-1-dev libcairo2-dev libgirepository1.0-dev libssl-dev \
-                libegl-dev libgles-dev libdrm-dev libgbm-dev libpipewire-0.3-dev \
-                zlib1g-dev libpam0g-dev libsystemd-dev systemd-dev udev
+                libprotobuf-c-dev protobuf-c-compiler protobuf-compiler libnss3-dev \
+                libgusb-dev libusb-1.0-0-dev libpixman-1-dev libcairo2-dev \
+                libgirepository1.0-dev libssl-dev libegl-dev libgles-dev libdrm-dev \
+                libgbm-dev libpipewire-0.3-dev zlib1g-dev libpam0g-dev libsystemd-dev \
+                systemd-dev udev
 
-              # 关键修复：Ubuntu 24.04 apt 自带 meson 1.3.2，libssc 需要 >= 1.4.0
               pip3 install --break-system-packages --upgrade "meson>=1.4.0"
               hash -r
               meson --version
@@ -385,7 +380,7 @@ jobs:
               install -D -m 0755 "$BUILD/hexagonrpc-regver/build/hexagonrpcd/hexagonrpcd" \
                 "$OUT/opt/hexrpc-032b/bin/hexagonrpcd.regver-v1"
 
-              # 2) libssc (4e4c6c8cc702a754bd700506c01961aaf971a23b；仅当存在 introspection 选项时传入)
+              # 2) libssc
               git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"
               git -C "$BUILD/libssc" checkout -f 4e4c6c8cc702a754bd700506c01961aaf971a23b
               LIBSSC_OPTS=(--prefix=/usr/local)
@@ -399,7 +394,7 @@ jobs:
               ldconfig
               export PKG_CONFIG_PATH="/usr/local/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-              # 3) iio-sensor-proxy (ca0d5b0 + hotplug-stayalive)
+              # 3) iio-sensor-proxy
               git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"
               git -C "$BUILD/iio-sensor-proxy" checkout -f ca0d5b0
               git -C "$BUILD/iio-sensor-proxy" apply \
@@ -409,12 +404,12 @@ jobs:
               ninja -C "$BUILD/iio-sensor-proxy/build"
               DESTDIR="$OUT" ninja -C "$BUILD/iio-sensor-proxy/build" install
 
-              # 4) qsee-supplicant & qsee-app-loader (随包源码)
+              # 4) qsee-supplicant & qsee-app-loader
               make -C /work/fingerprint/src/qsee-supplicant
               make -C /work/fingerprint/src/qsee-supplicant check
               make -C /work/fingerprint/src/qsee-supplicant DESTDIR="$OUT" install-bin install-systemd install-doc
 
-              # 5) libfprint (wrobelda goodix-qsee @430e24e5 + logging patch)
+              # 5) libfprint (goodixqsee)
               git clone https://github.com/wrobelda/libfprint.git "$BUILD/libfprint"
               git -C "$BUILD/libfprint" checkout -f 430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a
               git -C "$BUILD/libfprint" apply \
@@ -425,30 +420,22 @@ jobs:
               ninja -C "$BUILD/libfprint/build"
               DESTDIR="$OUT" ninja -C "$BUILD/libfprint/build" install
 
-              # 6) GNSS userspace (airoha-gnssd & gps-nmea-share)
+              # 6) GNSS userspace
               make -C /work/gnss/userspace
               make -C /work/gnss/userspace DESTDIR="$OUT" install
 
-              # 7) Camera userspace (elish-camera & tools，无私有 tuning bin 时自动使用中性 LSC/CCM)
+              # 7) Camera userspace
               make -C /work/camera/elish-camera
               install -D -m 0755 /work/camera/elish-camera/build/elish-camera "$OUT/usr/local/bin/elish-camera"
               for t in debayer_test enc_test loopback_test capture_test; do
                 install -D -m 0755 "/work/camera/elish-camera/build/$t" "$OUT/usr/local/lib/elish-camera/$t"
               done
 
-              # 8) bioauth (pam_bioauth.so)
+              # 8) bioauth
               make -C /work/bioauth
               make -C /work/bioauth DESTDIR="$OUT" install
 
-              # 9) 随包预置可选/默认组件（flash-led / pogo / torch / tablet-mode / pps-charger / utils）
-              mkdir -p "$OUT/usr/local/share/elish-extras"
-              cp -a /work/flash-led /work/pogo /work/torch /work/tablet-mode /work/pps-charger /work/utils \
-                "$OUT/usr/local/share/elish-extras/"
-
-              (
-                cd "$OUT"
-                find . -type f | sed "s|^\./||" | sort | xargs sha256sum > SHA256SUMS
-              )
+              (cd "$OUT" && find . -type f | sed "s|^\./||" | sort | xargs sha256sum > SHA256SUMS)
               tar -C "$OUT" -czf /work/dist/elish-userspace-arm64.tar.gz .
               cp -a "$OUT/SHA256SUMS" /work/dist/userspace-SHA256SUMS.txt
             '
@@ -462,20 +449,218 @@ jobs:
             dist/userspace-SHA256SUMS.txt
           retention-days: 30
 
-  release:
-    name: Publish GitHub Release
+  build-image:
+    name: Assemble Fastboot Images (boot-csot.img, boot-boe.img, rootfs.img)
     needs: [build-kernel, build-userspace]
-    if: ${{ !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Download all build artifacts
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download kernel and userspace artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-assets
+          path: /tmp/artifacts
           merge-multiple: true
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Set up QEMU for arm64
+        uses: docker/setup-qemu-action@v3
         with:
-          files: release-assets/*
-          generate_release_notes: true
+          platforms: arm64
+
+      - name: Install host image-building tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            curl xz-utils zstd unzip tar e2fsprogs mkbootimg android-sdk-libsparse-utils \
+            util-linux parted kpartx qemu-user-static binfmt-support uuid-runtime python3
+
+      - name: Download Armbian noble GNOME base image
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/base-img
+          DEFAULT_URL="https://armbian.lv.auroradev.org/archive/xiaomi-elish/archive/Armbian_25.2.2_Xiaomi-elish_noble_current_6.12.13_gnome_desktop.rootfs.img.xz"
+          URL="${{ inputs.base_image_url }}"
+          if [ -z "$URL" ]; then
+            URL="$DEFAULT_URL"
+          fi
+          echo "Using Armbian base image URL: $URL"
+          echo "BASE_URL=$URL" >> "$GITHUB_ENV"
+
+          fname="/tmp/base-img/$(basename "${URL%%\?*}")"
+          curl -fL --retry 3 -o "$fname" "$URL"
+
+          case "$fname" in
+            *.img.xz) xz -d -T0 "$fname"; IMG="${fname%.xz}" ;;
+            *.img.zst) zstd -d --rm "$fname"; IMG="${fname%.zst}" ;;
+            *.img.gz) gzip -d "$fname"; IMG="${fname%.gz}" ;;
+            *.tar.xz) tar -xf "$fname" -C /tmp/base-img; IMG=$(find /tmp/base-img -maxdepth 2 -name '*.img' | head -n1) ;;
+            *.zip) unzip -o "$fname" -d /tmp/base-img; IMG=$(find /tmp/base-img -maxdepth 2 -name '*.img' | head -n1) ;;
+            *.img) IMG="$fname" ;;
+            *) echo "::error::不支持的底包格式: $fname"; exit 1 ;;
+          esac
+          [ -n "${IMG:-}" ] && [ -f "$IMG" ] || { echo "::error::解压后未找到 .img 文件"; exit 1; }
+          echo "BASE_IMG=$IMG" >> "$GITHUB_ENV"
+
+      - name: Inject kernel, modules, userspace & assemble boot-csot.img, boot-boe.img, rootfs.img
+        run: |
+          set -euo pipefail
+          STAGE="/tmp/elish-rootfs"
+          SRC_MNT="/tmp/src-mnt"
+          mkdir -p "$STAGE" "$SRC_MNT"
+
+          # 挂载底包镜像（兼容整盘分区镜像与裸 ext4 rootfs.img）
+          LOOP=""
+          if blkid -s TYPE -o value "$BASE_IMG" 2>/dev/null | grep -q ext4; then
+            sudo mount -o loop,ro "$BASE_IMG" "$SRC_MNT"
+          else
+            LOOP=$(sudo losetup -fP --show "$BASE_IMG")
+            PART=$(lsblk -ln -o PATH,FSTYPE "$LOOP" | awk '$2=="ext4" {print $1; exit}')
+            [ -n "$PART" ] || PART="${LOOP}p1"
+            sudo mount -o ro "$PART" "$SRC_MNT"
+          fi
+
+          sudo cp -a "$SRC_MNT/." "$STAGE/"
+          sudo umount "$SRC_MNT"
+          [ -n "$LOOP" ] && sudo losetup -d "$LOOP"
+
+          # 1) 注入本次编译的内核、模块与 initramfs hook
+          KEXTR="/tmp/k-unpack"
+          mkdir -p "$KEXTR"
+          tar -xzf "/tmp/artifacts/elish-kernel-${EXPECTED_KREL}-arm64.tar.gz" -C "$KEXTR"
+
+          sudo cp -a "$KEXTR/boot/vmlinuz-${EXPECTED_KREL}" "$STAGE/boot/vmlinuz-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/boot/config-${EXPECTED_KREL}"  "$STAGE/boot/config-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/boot/System.map-${EXPECTED_KREL}" "$STAGE/boot/System.map-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/"
+
+          sudo install -d "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom"
+          sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" \
+            "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
+          sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" \
+            "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
+
+          # BOE DTB：优先用内核编译产物，若无则保留底包自带 BOE DTB
+          if [ -f "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" ]; then
+            sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" \
+              "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
+            sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" \
+              "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
+          fi
+
+          sudo install -D -m 0755 "$KEXTR/initramfs-hooks/xiaomi-elish-firmware" \
+            "$STAGE/etc/initramfs-tools/hooks/xiaomi-elish-firmware"
+          printf 'goodix_fp_spi\n' | sudo tee "$STAGE/etc/modules-load.d/goodix-fp.conf" >/dev/null
+          printf 'airoha_gps\n'    | sudo tee "$STAGE/etc/modules-load.d/airoha-gps.conf" >/dev/null
+
+          # 2) 注入本次编译的全部用户态二进制（如启用）
+          if [ -f /tmp/artifacts/elish-userspace-arm64.tar.gz ]; then
+            sudo tar --no-overwrite-dir -xzf /tmp/artifacts/elish-userspace-arm64.tar.gz -C "$STAGE"
+          fi
+
+          # 3) 将本驱动包随镜像放入 /opt/xiaomi-elish-driver-pack，方便开机后直接运行 install-data.sh / check-all.sh
+          sudo mkdir -p "$STAGE/opt/xiaomi-elish-driver-pack"
+          sudo cp -a "${GITHUB_WORKSPACE}/." "$STAGE/opt/xiaomi-elish-driver-pack/"
+
+          # 4) 生成统一 ext4 UUID 并写入 /etc/fstab 与 /boot/armbianEnv.txt
+          ROOT_UUID=$(uuidgen)
+          echo "Generated rootfs UUID: $ROOT_UUID (slot=$BOOT_SLOT)"
+          if [ -f "$STAGE/etc/fstab" ]; then
+            sudo sed -i -E "s|^UUID=[^[:space:]]+[[:space:]]+/([[:space:]])|UUID=${ROOT_UUID} /\\1|" "$STAGE/etc/fstab"
+          fi
+          if [ -f "$STAGE/boot/armbianEnv.txt" ]; then
+            if grep -q '^abl_boot_partition_label=' "$STAGE/boot/armbianEnv.txt"; then
+              sudo sed -i "s|^abl_boot_partition_label=.*|abl_boot_partition_label=${BOOT_SLOT}|" "$STAGE/boot/armbianEnv.txt"
+            else
+              printf '\nabl_boot_partition_label=%s\n' "$BOOT_SLOT" | sudo tee -a "$STAGE/boot/armbianEnv.txt" >/dev/null
+            fi
+          fi
+
+          # 5) 在 arm64 chroot 内运行 depmod、ldconfig、生成 initrd.img
+          sudo cp -a /usr/bin/qemu-aarch64-static "$STAGE/usr/bin/qemu-aarch64-static"
+          sudo mount --bind /proc "$STAGE/proc"
+          sudo mount --bind /sys "$STAGE/sys"
+          sudo mount --bind /dev "$STAGE/dev"
+          sudo mount --bind /dev/pts "$STAGE/dev/pts"
+          sudo chroot "$STAGE" /bin/bash -euo pipefail -c "
+            ldconfig
+            depmod -a ${EXPECTED_KREL}
+            update-initramfs -c -k ${EXPECTED_KREL}
+          "
+          sudo umount -lf "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"
+
+          INITRD="$STAGE/boot/initrd.img-${EXPECTED_KREL}"
+          [ -f "$INITRD" ] || { echo "::error::缺少生成的 initrd: $INITRD"; exit 1; }
+          if lsinitramfs "$INITRD" 2>/dev/null | grep -Eq 'elish/slpi(\.mbn|\.b[0-9]+)$'; then
+            echo "::error::initramfs 意外包含了 SLPI 固件！"
+            exit 1
+          fi
+
+          # 6) 打包 boot-csot.img 与 boot-boe.img（共享同一内核与 initrd，仅 DTB 不同）
+          OUT_FW="${GITHUB_WORKSPACE}/dist/fastboot-firmware"
+          mkdir -p "$OUT_FW"
+          EXTRA_ARGS=""
+          if [ -f "$STAGE/boot/armbianEnv.txt" ]; then
+            EXTRA_ARGS=$(sed -n 's/^[[:space:]]*extraargs[[:space:]]*=[[:space:]]*//p' "$STAGE/boot/armbianEnv.txt" | tail -1 | tr -d '\r' || true)
+          fi
+          CMDLINE="root=UUID=${ROOT_UUID} slot_suffix=${BOOT_SLOT#boot} ${EXTRA_ARGS}"
+
+          gzip -c "$STAGE/boot/vmlinuz-${EXPECTED_KREL}" > /tmp/Image.gz
+          for panel in csot boe; do
+            DTB_PATH="$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-${panel}.dtb"
+            if [ -f "$DTB_PATH" ]; then
+              cat /tmp/Image.gz "$DTB_PATH" > "/tmp/Image.gz-dtb-${panel}"
+              mkbootimg \
+                --kernel "/tmp/Image.gz-dtb-${panel}" \
+                --ramdisk "$INITRD" \
+                --base 0x0 \
+                --second_offset 0x00f00000 \
+                --cmdline "$CMDLINE" \
+                --kernel_offset 0x8000 \
+                --ramdisk_offset 0x1000000 \
+                --tags_offset 0x100 \
+                --pagesize 4096 \
+                -o "$OUT_FW/boot-${panel}.img"
+              rm -f "/tmp/Image.gz-dtb-${panel}"
+            fi
+          done
+          rm -f /tmp/Image.gz
+
+          # 7) 生成 rootfs.img（ext4，含余量空间后转为 fastboot 可刷镜像）
+          USED_MB=$(sudo du -sm "$STAGE" | awk '{print $1}')
+          IMG_MB=$((USED_MB + 1024))
+          truncate -s "${IMG_MB}M" "$OUT_FW/rootfs.raw.img"
+          sudo mkfs.ext4 -F -U "$ROOT_UUID" -L armbian_root -d "$STAGE" "$OUT_FW/rootfs.raw.img"
+          sudo e2fsck -fy "$OUT_FW/rootfs.raw.img" || true
+          img2simg "$OUT_FW/rootfs.raw.img" "$OUT_FW/rootfs.img"
+          rm -f "$OUT_FW/rootfs.raw.img"
+
+          cat > "$OUT_FW/FLASH-README.txt" <<EOF
+          Xiaomi Pad 5 Pro (elish) Fastboot 刷机说明
+          =========================================
+          1. 根据你的屏幕面板选择 boot-csot.img（CSOT，项目已实测）或 boot-boe.img（BOE，未实测）：
+             fastboot flash ${BOOT_SLOT} boot-csot.img
+             # 若为 BOE 面板：
+             # fastboot flash ${BOOT_SLOT} boot-boe.img
+
+          2. 刷入根文件系统（rootfs.img 为 Android sparse ext4 格式，UUID=${ROOT_UUID}）：
+             fastboot flash linux rootfs.img
+
+          3. 重启：
+             fastboot reboot
+
+          注意：专有设备固件（slpi.mbn、vendor 传感器配置、gfenu.* 指纹 TA）不随公开构建提供；
+          开机后可直接在 /opt/xiaomi-elish-driver-pack 下按 README.md 提取并运行安装/自检。
+          EOF
+
+          (cd "$OUT_FW" && sha256sum *.img FLASH-README.txt > SHA256SUMS)
+          tar -C "$OUT_FW" -czf "${GITHUB_WORKSPACE}/dist/elish-fastboot-firmware-${BOOT_SLOT}.tar.gz" .
+
+      - name: Upload complete fastboot firmware package
+        uses: actions/upload-artifact@v4
+        with:
+          name: elish-fastboot-firmware-${{ env.BOOT_SLOT }}
+          path: dist/elish-fastboot-firmware-*.tar.gz
+          retention-days: 30
