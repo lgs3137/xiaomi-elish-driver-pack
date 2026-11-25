@@ -514,7 +514,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             curl xz-utils zstd unzip tar e2fsprogs mkbootimg android-sdk-libsparse-utils \
-            util-linux parted kpartx qemu-user-static binfmt-support uuid-runtime python3
+            util-linux parted kpartx qemu-user-static binfmt-support uuid-runtime initramfs-tools python3
 
       - name: Download Armbian noble GNOME base image
         run: |
@@ -638,8 +638,13 @@ jobs:
           echo "== 检查 chroot 动态链接器 =="
           ls -ld "$STAGE/lib" "$STAGE/usr/lib" "$STAGE/lib/ld-linux-aarch64.so.1" "$STAGE/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" 2>/dev/null || true
           if [ ! -e "$STAGE/lib/ld-linux-aarch64.so.1" ] && [ -e "$STAGE/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" ]; then
-            echo "修复 $STAGE/lib/ld-linux-aarch64.so.1 相对符号链接..."
-            sudo ln -sf aarch64-linux-gnu/ld-linux-aarch64.so.1 "$STAGE/lib/ld-linux-aarch64.so.1"
+            if [ -L "$STAGE/lib" ]; then
+              echo "修复 $STAGE/lib/ld-linux-aarch64.so.1 -> aarch64-linux-gnu/ld-linux-aarch64.so.1"
+              sudo ln -sf aarch64-linux-gnu/ld-linux-aarch64.so.1 "$STAGE/lib/ld-linux-aarch64.so.1"
+            else
+              echo "修复 $STAGE/lib/ld-linux-aarch64.so.1 -> ../usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+              sudo ln -sf ../usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 "$STAGE/lib/ld-linux-aarch64.so.1"
+            fi
           fi
           sudo cp -a /usr/bin/qemu-aarch64-static "$STAGE/usr/bin/qemu-aarch64-static"
           sudo mount --bind /proc "$STAGE/proc"
@@ -649,7 +654,8 @@ jobs:
           sudo chroot "$STAGE" /bin/bash -euo pipefail -c "
             ldconfig
             depmod -a ${EXPECTED_KREL}
-            update-initramfs -c -k ${EXPECTED_KREL}
+            rm -f "/boot/initrd.img-${EXPECTED_KREL}"
+            update-initramfs -c -k "${EXPECTED_KREL}"
           "
           sudo umount -lf "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"
 
@@ -691,6 +697,7 @@ jobs:
           rm -f /tmp/Image.gz
 
           # 7) 生成 rootfs.img（ext4，含余量空间后转为 fastboot 可刷镜像）
+          sudo rm -f "$STAGE/usr/bin/qemu-aarch64-static"
           USED_MB=$(sudo du -sm "$STAGE" | awk '{print $1}')
           IMG_MB=$((USED_MB + 1024))
           truncate -s "${IMG_MB}M" "$OUT_FW/rootfs.raw.img"
@@ -698,6 +705,7 @@ jobs:
           sudo e2fsck -fy "$OUT_FW/rootfs.raw.img" || true
           img2simg "$OUT_FW/rootfs.raw.img" "$OUT_FW/rootfs.img"
           rm -f "$OUT_FW/rootfs.raw.img"
+          sudo rm -rf "$STAGE" "$BASE_IMG"
 
           cat > "$OUT_FW/FLASH-README.txt" <<EOF
           Xiaomi Pad 5 Pro (elish) Fastboot 刷机说明
