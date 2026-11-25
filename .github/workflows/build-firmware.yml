@@ -29,8 +29,8 @@ on:
         default: "boot_b"
         type: choice
         options:
-          - boot_a
           - boot_b
+          - boot_a
       kernel_version:
         description: "Linux 内核版本（需与 kernel/config-used-* 匹配）"
         required: true
@@ -634,7 +634,13 @@ jobs:
             fi
           fi
 
-          # 5) 在 arm64 chroot 内运行 depmod、ldconfig、生成 initrd.img
+          # 5) 确保 chroot 内 /lib/ld-linux-aarch64.so.1 存在且为有效的相对路径符号链接
+          echo "== 检查 chroot 动态链接器 =="
+          ls -ld "$STAGE/lib" "$STAGE/usr/lib" "$STAGE/lib/ld-linux-aarch64.so.1" "$STAGE/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" 2>/dev/null || true
+          if [ ! -e "$STAGE/lib/ld-linux-aarch64.so.1" ] && [ -e "$STAGE/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" ]; then
+            echo "修复 $STAGE/lib/ld-linux-aarch64.so.1 相对符号链接..."
+            sudo ln -sf aarch64-linux-gnu/ld-linux-aarch64.so.1 "$STAGE/lib/ld-linux-aarch64.so.1"
+          fi
           sudo cp -a /usr/bin/qemu-aarch64-static "$STAGE/usr/bin/qemu-aarch64-static"
           sudo mount --bind /proc "$STAGE/proc"
           sudo mount --bind /sys "$STAGE/sys"
