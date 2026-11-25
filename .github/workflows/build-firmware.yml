@@ -706,90 +706,109 @@ jobs:
           # 确保 /usr/local/lib/aarch64-linux-gnu 在动态库搜索路径中（iio-sensor-proxy 依赖 libssc.so.2）
           printf '%s\n' "/usr/local/lib/aarch64-linux-gnu" "/usr/local/lib" | sudo tee "$STAGE/etc/ld.so.conf.d/elish-local.conf" >/dev/null
 
-          sudo chroot "$STAGE" /bin/bash -euo pipefail -c '
-            export EXPECTED_KREL="'"${EXPECTED_KREL}"'"
-            ls -ld /lib /lib/modules /usr/lib/modules "/lib/modules/${EXPECTED_KREL}" "/usr/lib/modules/${EXPECTED_KREL}" 2>/dev/null || true
-            ldconfig
+          # 使用独立 heredoc 写入垫片、蓝牙 MAC 脚本/服务与 chroot 脚本，避免多层单引号嵌套截断
+          sudo tee "$STAGE/usr/local/sbin/systemctl" >/dev/null <<'SHIM'
+          #!/bin/bash
+          case "${1:-}" in
+            enable|disable|is-enabled|mask|unmask) exec /usr/bin/systemctl "$@" ;;
+            daemon-reload|start|stop|restart|reload|try-restart) exit 0 ;;
+            *) /usr/bin/systemctl "$@" 2>/dev/null || exit 0 ;;
+          esac
+          SHIM
+          sudo chmod +x "$STAGE/usr/local/sbin/systemctl"
 
-            # 安装用户态运行库与 GNSS/指纹/虚拟相机运行时依赖（修复 iio-sensor-proxy 缺少 libprotobuf-c.so.1 及 gpsd 缺失）
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update -qq || true
-            apt-get install -y --no-install-recommends               libprotobuf-c1 libqmi-glib5 libqrtr-glib0 gpsd gpsd-clients fprintd libpam-fprintd || true
+          sudo tee "$STAGE/usr/local/sbin/elish-bt-mac.sh" >/dev/null <<'BTMAC'
+          #!/bin/bash
+          set -eu
+          for _ in $(seq 1 30); do [ -e /sys/class/bluetooth/hci0 ] && break; sleep 0.5; done
+          [ -e /sys/class/bluetooth/hci0 ] || exit 0
+          CUR=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || true)
+          case "${CUR,,}" in 00:00:00:00:5a:ad|00:00:00:00:00:00|"") ;; *) exit 0 ;; esac
+          MID=$(cat /etc/machine-id 2>/dev/null || echo 112233445566778899aabbccddeeff00)
+          python3 - "$MID" <<'PY' || true
+          import socket, struct, sys
+          m = sys.argv[1].strip()
+          s = socket.socket(31, 3, 1)
+          s.bind((0xffff, 3))
+          s.settimeout(3)
+          mac = bytes([int(m[8:10], 16), int(m[6:8], 16), int(m[4:6], 16), int(m[2:4], 16), int(m[0:2], 16), 0x02])
+          s.sendall(struct.pack("<HHH6s", 0x0039, 0, 6, mac))
+          s.recv(1024)
+          PY
+          hciconfig hci0 up >/dev/null 2>&1 || true
+          BTMAC
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-bt-mac.sh"
+          sudo rm -f "$STAGE/etc/udev/rules.d/90-elish-bt-mac.rules"
 
-            # 临时 systemctl 离线垫片：enable/disable 走真实 systemctl，start/restart/daemon-reload 在 chroot 内安全跳过
-            printf "%s\n" \
-              "#!/bin/bash" \
-              "case \"\${1:-}\" in" \
-              "  enable|disable|is-enabled|mask|unmask) exec /usr/bin/systemctl \"\$@\" ;;" \
-              "  daemon-reload|start|stop|restart|reload|try-restart) exit 0 ;;" \
-              "  *) /usr/bin/systemctl \"\$@\" 2>/dev/null || exit 0 ;;" \
-              "esac" > /usr/local/sbin/systemctl
-            chmod +x /usr/local/sbin/systemctl
+          sudo tee "$STAGE/etc/systemd/system/elish-bt-mac.service" >/dev/null <<'BTSVC'
+          [Unit]
+          Description=Set valid QCA6390 Bluetooth MAC from machine-id
+          Before=bluetooth.service
+          After=local-fs.target
 
-            # 运行驱动包官方系统集成脚本（传感器/指纹/GNSS/闪光灯/pogo/相机服务与规则）
-            PACK=/opt/xiaomi-elish-driver-pack
-            bash "$PACK/sensors/install/install-system-files.sh" || true
-            bash "$PACK/fingerprint/install/install-fingerprint-files.sh" || true
-            bash "$PACK/gnss/install/install.sh" || true
-            bash "$PACK/flash-led/install.sh" || true
-            bash "$PACK/pogo/install.sh" --yes || true
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=20
+          ExecStart=/usr/local/sbin/elish-bt-mac.sh
+          RemainAfterExit=yes
 
-            # 相机全套脚本/桌面自启/udev/modules/resume 服务集成
-            for f in elish-camera-ctl elish-camera-init elish-camera-scan elish-camera-color                      elish-camera-rear-color elish-camera-rear-init elish-camera-rear-autofocus                      elish-camera-vcam elish-camera-switch elish-camera-gui elish-check-usb                      elish-camera-autostart; do
-              [ -f "$PACK/camera/$f" ] && install -D -m 0755 "$PACK/camera/$f" "/usr/local/bin/$f"
-            done
-            [ -f "$PACK/camera/elish-camera-autoserve.desktop" ] && install -D -m 0644 "$PACK/camera/elish-camera-autoserve.desktop" /etc/xdg/autostart/elish-camera-autoserve.desktop
-            [ -f "$PACK/camera/elish-camera-panel.desktop" ] && install -D -m 0644 "$PACK/camera/elish-camera-panel.desktop" /usr/share/applications/elish-camera-panel.desktop
-            if [ ! -e /etc/elish-orientation.conf ]; then
-              printf "# elish orientation settings\ntablet_mode=auto\nrebuild_mode=idle\n" > /etc/elish-orientation.conf
-              chmod 0664 /etc/elish-orientation.conf
-            fi
-            install -D -m 0644 "$PACK/camera/99-elish-vcm.rules" /etc/udev/rules.d/99-elish-vcm.rules
-            install -D -m 0644 "$PACK/camera/99-elish-dma-heap.rules" /etc/udev/rules.d/99-elish-dma-heap.rules
-            install -D -m 0644 "$PACK/camera/elish-vcam.modules-load.conf" /etc/modules-load.d/elish-vcam.conf
-            install -D -m 0644 "$PACK/camera/elish-vcam.modprobe.conf" /etc/modprobe.d/elish-vcam.conf
-            install -D -m 0755 "$PACK/camera/system/elish-sensors-resume" /usr/local/sbin/elish-sensors-resume
-            install -D -m 0755 "$PACK/camera/system/elish-sensors-resume-worker" /usr/local/sbin/elish-sensors-resume-worker
-            install -D -m 0644 "$PACK/camera/system/elish-sensors-resume.service" /etc/systemd/system/elish-sensors-resume.service
-            /usr/bin/systemctl enable elish-sensors-resume.service || true
-            /usr/bin/systemctl enable bioauthd.service 2>/dev/null || true
+          [Install]
+          WantedBy=bluetooth.target multi-user.target
+          BTSVC
 
-            # 修复 QCA6390 蓝牙默认无效 MAC (00:00:00:00:5A:AD)：直接通过内核 MGMT_OP_SET_PUBLIC_ADDRESS (0x0039) 设置，避免 btmgmt 卡死
-            printf "%s\n" \
-              "#!/bin/bash" \
-              "set -eu" \
-              "for _ in \$(seq 1 30); do [ -e /sys/class/bluetooth/hci0 ] && break; sleep 0.5; done" \
-              "[ -e /sys/class/bluetooth/hci0 ] || exit 0" \
-              "CUR=\$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || true)" \
-              "case \"\${CUR,,}\" in 00:00:00:00:5a:ad|00:00:00:00:00:00) ;; *) [ -z \"\$CUR\" ] || exit 0 ;; esac" \
-              "MID=\$(cat /etc/machine-id 2>/dev/null || echo 112233445566778899aabbccddeeff00)" \
-              "python3 -c \"import socket,struct; s=socket.socket(31,3,1); s.bind((0xffff,3)); s.settimeout(3); mac=bytes([int('\${MID:8:2}',16),int('\${MID:6:2}',16),int('\${MID:4:2}',16),int('\${MID:2:2}',16),int('\${MID:0:2}',16),0x02]); s.sendall(struct.pack('<HHH6s',0x0039,0,6,mac)); s.recv(1024)\" || true" \
-              "hciconfig hci0 up >/dev/null 2>&1 || true" \
-              > /usr/local/sbin/elish-bt-mac.sh
-            chmod 0755 /usr/local/sbin/elish-bt-mac.sh
-            rm -f /etc/udev/rules.d/90-elish-bt-mac.rules
-            printf "%s\n" \
-              "[Unit]" \
-              "Description=Set valid QCA6390 Bluetooth MAC from machine-id" \
-              "Before=bluetooth.service" \
-              "After=local-fs.target" \
-              "[Service]" \
-              "Type=oneshot" \
-              "TimeoutStartSec=20" \
-              "ExecStart=/usr/local/sbin/elish-bt-mac.sh" \
-              "RemainAfterExit=yes" \
-              "[Install]" \
-              "WantedBy=bluetooth.target multi-user.target" \
-              > /etc/systemd/system/elish-bt-mac.service
-            /usr/bin/systemctl enable elish-bt-mac.service || true
-            /usr/bin/systemctl set-default graphical.target || true
+          sudo tee "$STAGE/tmp/elish-chroot-setup.sh" >/dev/null <<'CHROOT_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          EXPECTED_KREL="$1"
 
-            rm -f /usr/local/sbin/systemctl
+          ls -ld /lib /lib/modules /usr/lib/modules "/lib/modules/${EXPECTED_KREL}" "/usr/lib/modules/${EXPECTED_KREL}" 2>/dev/null || true
+          ldconfig
 
-            depmod -a "${EXPECTED_KREL}"
-            rm -f "/boot/initrd.img-${EXPECTED_KREL}"
-            update-initramfs -c -k "${EXPECTED_KREL}"
-          ' 
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq || true
+          apt-get install -y --no-install-recommends \
+            libprotobuf-c1 libqmi-glib5 libqrtr-glib0 gpsd gpsd-clients fprintd libpam-fprintd || true
+
+          PACK=/opt/xiaomi-elish-driver-pack
+          bash "$PACK/sensors/install/install-system-files.sh" || true
+          bash "$PACK/fingerprint/install/install-fingerprint-files.sh" || true
+          bash "$PACK/gnss/install/install.sh" || true
+          bash "$PACK/flash-led/install.sh" || true
+          bash "$PACK/pogo/install.sh" --yes || true
+
+          for f in elish-camera-ctl elish-camera-init elish-camera-scan elish-camera-color \
+                   elish-camera-rear-color elish-camera-rear-init elish-camera-rear-autofocus \
+                   elish-camera-vcam elish-camera-switch elish-camera-gui elish-check-usb \
+                   elish-camera-autostart; do
+            [ -f "$PACK/camera/$f" ] && install -D -m 0755 "$PACK/camera/$f" "/usr/local/bin/$f"
+          done
+          [ -f "$PACK/camera/elish-camera-autoserve.desktop" ] && install -D -m 0644 "$PACK/camera/elish-camera-autoserve.desktop" /etc/xdg/autostart/elish-camera-autoserve.desktop
+          [ -f "$PACK/camera/elish-camera-panel.desktop" ] && install -D -m 0644 "$PACK/camera/elish-camera-panel.desktop" /usr/share/applications/elish-camera-panel.desktop
+          if [ ! -e /etc/elish-orientation.conf ]; then
+            printf '# elish orientation settings\ntablet_mode=auto\nrebuild_mode=idle\n' > /etc/elish-orientation.conf
+            chmod 0664 /etc/elish-orientation.conf
+          fi
+          install -D -m 0644 "$PACK/camera/99-elish-vcm.rules" /etc/udev/rules.d/99-elish-vcm.rules
+          install -D -m 0644 "$PACK/camera/99-elish-dma-heap.rules" /etc/udev/rules.d/99-elish-dma-heap.rules
+          install -D -m 0644 "$PACK/camera/elish-vcam.modules-load.conf" /etc/modules-load.d/elish-vcam.conf
+          install -D -m 0644 "$PACK/camera/elish-vcam.modprobe.conf" /etc/modprobe.d/elish-vcam.conf
+          install -D -m 0755 "$PACK/camera/system/elish-sensors-resume" /usr/local/sbin/elish-sensors-resume
+          install -D -m 0755 "$PACK/camera/system/elish-sensors-resume-worker" /usr/local/sbin/elish-sensors-resume-worker
+          install -D -m 0644 "$PACK/camera/system/elish-sensors-resume.service" /etc/systemd/system/elish-sensors-resume.service
+          /usr/bin/systemctl enable elish-sensors-resume.service || true
+          /usr/bin/systemctl enable bioauthd.service 2>/dev/null || true
+          /usr/bin/systemctl enable elish-bt-mac.service || true
+          /usr/bin/systemctl set-default graphical.target || true
+
+          rm -f /usr/local/sbin/systemctl
+
+          depmod -a "${EXPECTED_KREL}"
+          rm -f "/boot/initrd.img-${EXPECTED_KREL}"
+          update-initramfs -c -k "${EXPECTED_KREL}"
+          CHROOT_SCRIPT
+          sudo chmod +x "$STAGE/tmp/elish-chroot-setup.sh"
+          sudo chroot "$STAGE" /bin/bash /tmp/elish-chroot-setup.sh "${EXPECTED_KREL}"
+          sudo rm -f "$STAGE/tmp/elish-chroot-setup.sh"
           sudo umount -lf "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"
 
           INITRD="$STAGE/boot/initrd.img-${EXPECTED_KREL}"
