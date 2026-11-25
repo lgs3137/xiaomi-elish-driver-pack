@@ -690,6 +690,17 @@ jobs:
           fi
           CMDLINE="root=UUID=${ROOT_UUID} slot_suffix=${BOOT_SLOT#boot} ${EXTRA_ARGS}"
 
+          # 修复 Ubuntu 24.04 mkbootimg 包缺少 PYTHONPATH/gki 模块的已知打包 bug
+          GKI_FILE=$(find /usr -name generate_gki_certificate.py 2>/dev/null | head -n1 || true)
+          if [ -n "$GKI_FILE" ]; then
+            export PYTHONPATH="$(dirname "$(dirname "$GKI_FILE")")${PYTHONPATH:+:$PYTHONPATH}"
+          fi
+          if ! mkbootimg --help >/dev/null 2>&1; then
+            echo "使用 AOSP mkbootimg.py 作为回退..."
+            git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg /tmp/aosp-mkbootimg
+            mkbootimg() { python3 /tmp/aosp-mkbootimg/mkbootimg.py "$@"; }
+          fi
+
           gzip -c "$STAGE/boot/vmlinuz-${EXPECTED_KREL}" > /tmp/Image.gz
           for panel in csot boe; do
             DTB_PATH="$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-${panel}.dtb"
