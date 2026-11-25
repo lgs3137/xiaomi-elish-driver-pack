@@ -1,0 +1,463 @@
+name: Build Xiaomi Pad 5 Pro (elish) Firmware
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: "Linux 内核版本（需与 kernel/config-used-* 匹配）"
+        required: true
+        default: "6.18.44"
+        type: string
+      armbian_commit:
+        description: "Armbian build 仓库基线 commit（参见 kernel/ARMBIAN-BASELINE.md）"
+        required: true
+        default: "db44df750"
+        type: string
+      build_userspace:
+        description: "是否同时通过 QEMU arm64 容器编译用户态二进制"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KERNEL_VERSION: ${{ inputs.kernel_version || '6.18.44' }}
+  KERNEL_TARBALL_SHA256: "0f72d938f06828e82c90405174fe572287db7bfe089e2fc46572a99a7f240d43"
+  ARMBIAN_COMMIT: ${{ inputs.armbian_commit || 'db44df750' }}
+  EXPECTED_KREL: "6.18.44-current-sm8250"
+
+jobs:
+  build-kernel:
+    name: Build Kernel, Modules & Verify DTB (arm64 cross)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure >= 4GB swap for BTF (pahole)
+        run: |
+          set -euo pipefail
+          swap_mb=$(free -m | awk '/^Swap:/ {print $2}')
+          echo "Current swap: ${swap_mb} MB"
+          if [ "${swap_mb:-0}" -lt 4096 ]; then
+            sudo fallocate -l 4G /swapfile.elish || sudo dd if=/dev/zero of=/swapfile.elish bs=1M count=4096 status=none
+            sudo chmod 600 /swapfile.elish
+            sudo mkswap /swapfile.elish
+            sudo swapon /swapfile.elish
+            free -h
+          fi
+
+      - name: Install kernel cross-compile dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bc bison flex libssl-dev libelf-dev dwarves device-tree-compiler \
+            xz-utils curl git python3 cpio zstd kmod ca-certificates
+
+      - name: Cache Linux source tarball
+        id: cache-linux
+        uses: actions/cache@v4
+        with:
+          path: /tmp/dl/linux-${{ env.KERNEL_VERSION }}.tar.xz
+          key: linux-src-${{ env.KERNEL_VERSION }}
+
+      - name: Download and verify Linux ${{ env.KERNEL_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dl
+          TARBALL="/tmp/dl/linux-${KERNEL_VERSION}.tar.xz"
+          if [ ! -f "$TARBALL" ]; then
+            MAJOR="${KERNEL_VERSION%%.*}"
+            curl -fL --retry 3 -o "$TARBALL" \
+              "https://cdn.kernel.org/pub/linux/kernel/v${MAJOR}.x/linux-${KERNEL_VERSION}.tar.xz"
+          fi
+          if [ "$KERNEL_VERSION" = "6.18.44" ]; then
+            echo "${KERNEL_TARBALL_SHA256}  ${TARBALL}" | sha256sum -c -
+          fi
+
+      - name: Cache Armbian build baseline
+        id: cache-armbian
+        uses: actions/cache@v4
+        with:
+          path: /tmp/armbian-build
+          key: armbian-build-${{ env.ARMBIAN_COMMIT }}
+
+      - name: Fetch Armbian build repo at ${{ env.ARMBIAN_COMMIT }}
+        run: |
+          set -euo pipefail
+          if [ ! -d /tmp/armbian-build/.git ]; then
+            git clone --filter=blob:none --no-checkout https://github.com/armbian/build.git /tmp/armbian-build
+          fi
+          git -C /tmp/armbian-build fetch --depth 1 origin "${ARMBIAN_COMMIT}" || git -C /tmp/armbian-build fetch origin
+          git -C /tmp/armbian-build checkout -f "${ARMBIAN_COMMIT}"
+
+      - name: Extract kernel and apply Armbian sm8250 baseline patches
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/kbuild
+          tar -xf "/tmp/dl/linux-${KERNEL_VERSION}.tar.xz" -C /tmp/kbuild
+          KSRC="/tmp/kbuild/linux-${KERNEL_VERSION}"
+          echo "KSRC=${KSRC}" >> "$GITHUB_ENV"
+
+          # 防止 make 生成额外的 '+' 或 '-dirty' 后缀导致 ABI 版本号变化
+          touch "$KSRC/.scmversion"
+
+          PATCH_DIR="/tmp/armbian-build/patch/kernel/archive/sm8250-6.18"
+          if [ ! -d "$PATCH_DIR" ]; then
+            echo "::error::找不到 Armbian 补丁目录: $PATCH_DIR"
+            exit 1
+          fi
+
+          # 按 kernel/ARMBIAN-BASELINE.md 说明：跳过 0063（USB gadget NCM 生命周期重构）及 0 字节文件
+          for p in "$PATCH_DIR"/*.patch; do
+            [ -f "$p" ] || continue
+            base=$(basename "$p")
+            case "$base" in
+              0063*)
+                echo "Skipping Armbian patch $base (per kernel/ARMBIAN-BASELINE.md)"
+                continue
+                ;;
+            esac
+            if [ ! -s "$p" ]; then
+              echo "Skipping empty patch $base"
+              continue
+            fi
+            if patch -p1 -d "$KSRC" --dry-run --forward --batch < "$p" >/dev/null 2>&1; then
+              echo "Applying Armbian patch: $base"
+              patch -p1 -d "$KSRC" --forward --batch < "$p"
+            elif patch -p1 -d "$KSRC" --dry-run --reverse --batch < "$p" >/dev/null 2>&1; then
+              echo "Already applied Armbian patch: $base"
+            else
+              echo "::warning::Armbian patch did not apply cleanly: $base"
+            fi
+          done
+
+      - name: Integrate fingerprint kernel files and headers
+        run: |
+          set -euo pipefail
+          TAGK="${GITHUB_WORKSPACE}/kernel"
+          cp -a "$TAGK/include/linux/firmware/qcom/qcom_scm.h" "$KSRC/include/linux/firmware/qcom/qcom_scm.h"
+          cp -a "$TAGK/include/linux/soc/qcom/mdt_loader.h"   "$KSRC/include/linux/soc/qcom/mdt_loader.h"
+          cp -a "$TAGK/include/uapi/linux/tee.h"              "$KSRC/include/uapi/linux/tee.h"
+
+          mkdir -p "$KSRC/drivers/tee/qseecom"
+          cp -a "$TAGK/qseecom/." "$KSRC/drivers/tee/qseecom/"
+          cp -a "$TAGK/mdt_loader.c" "$KSRC/drivers/soc/qcom/mdt_loader.c"
+          cp -a "$TAGK/qcom_scm.c"   "$KSRC/drivers/firmware/qcom/qcom_scm.c"
+
+          if ! grep -q 'drivers/tee/qseecom/Kconfig' "$KSRC/drivers/tee/Kconfig"; then
+            printf '\nsource "drivers/tee/qseecom/Kconfig"\n' >> "$KSRC/drivers/tee/Kconfig"
+          fi
+          if ! grep -q 'CONFIG_TEE_QSEECOM' "$KSRC/drivers/tee/Makefile"; then
+            printf 'obj-$(CONFIG_TEE_QSEECOM) += qseecom/\n' >> "$KSRC/drivers/tee/Makefile"
+          fi
+
+      - name: Apply project kernel patches (0001-0017 + qseecom-pool-compact-retry)
+        run: |
+          set -euo pipefail
+          TAGK="${GITHUB_WORKSPACE}/kernel"
+          # 复用仓库自带的 patch_content_present 幂等判定逻辑
+          . "$TAGK/patch-lib.sh"
+
+          apply_kpatch() {
+            local p=$1
+            if [ ! -f "$p" ]; then
+              echo "::error::Missing patch: $p"
+              exit 1
+            fi
+            if patch -p1 -d "$KSRC" --dry-run --forward --batch < "$p" >/dev/null 2>&1; then
+              echo "Applying: $(basename "$p")"
+              patch -p1 -d "$KSRC" --forward --batch < "$p"
+            elif patch -p1 -d "$KSRC" --dry-run --reverse --batch < "$p" >/dev/null 2>&1; then
+              echo "Already applied: $(basename "$p")"
+            elif patch_content_present "$KSRC" "$p"; then
+              echo "Already present (context drift $PATCH_PRESENT_STATS): $(basename "$p")"
+            else
+              echo "::error::Patch failed to apply: $(basename "$p")"
+              exit 1
+            fi
+          }
+
+          P="$TAGK/patches"
+          apply_kpatch "$P/0001-fastrpc-sdsp-vmid-and-sensors-pd.patch"
+          apply_kpatch "$P/0002-pinctrl-lpass-lpi-defer-on-clock-timeout.patch"
+          if ! grep -q 'tristate "Qualcomm MDT firmware loader"' "$KSRC/drivers/soc/qcom/Kconfig"; then
+            apply_kpatch "$P/0003-qcom-mdt-loader-user-selectable.patch"
+          fi
+          apply_kpatch "$P/0004-smb5-typec-legacy-reset-resume.patch"
+          apply_kpatch "$P/0005-ov8856-bggr-vflip.patch"
+          apply_kpatch "$P/0006-ov13b10-of-supplies-reset.patch"
+          apply_kpatch "$P/0007-cn3927v.patch"
+          apply_kpatch "$P/0008-hi556-of.patch"
+          apply_kpatch "$P/0009-fastrpc-listener-unfreezable.patch"
+          apply_kpatch "$P/0010-smb5-fast-charge-current-vbus.patch"
+          apply_kpatch "$P/0011-charger-taper-stepdown.patch"
+          apply_kpatch "$P/0012-charger-soc-step-charging.patch"
+          apply_kpatch "$P/0013-charger-ignore-fullon-flag.patch"
+          apply_kpatch "$P/0014-bq2597x-probe-typec-notifier.patch"
+          apply_kpatch "$P/0015-bq2597x-soc-gated-charging.patch"
+          apply_kpatch "$P/0016-bq27xxx-discharging-status.patch"
+          apply_kpatch "$P/0017-pwrkey-post-resume-grace.patch"
+          apply_kpatch "$P/fingerprint/qseecom-pool-compact-retry.patch"
+
+      - name: Ensure qcom_q6v5_pas auto_boot=true
+        run: |
+          set -euo pipefail
+          Q6="$KSRC/drivers/remoteproc/qcom_q6v5_pas.c"
+          if grep -q 'sdm845_slpi_resource_init = {' "$Q6"; then
+            sed -i '/sdm845_slpi_resource_init = {/,/};/ s/\.auto_boot = false/.auto_boot = true/' "$Q6"
+            grep -A12 'sdm845_slpi_resource_init = {' "$Q6"
+          else
+            echo "::warning::sdm845_slpi_resource_init not found in qcom_q6v5_pas.c"
+          fi
+
+      - name: Configure kernel and verify required options
+        run: |
+          set -euo pipefail
+          cp -a "${GITHUB_WORKSPACE}/kernel/config-used-6.18.44" "$KSRC/.config"
+          make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+          for c in CONFIG_TEE=y CONFIG_TEE_QSEECOM=y CONFIG_QCOM_QSEECOM=y \
+                   CONFIG_QCOM_MDT_LOADER=y CONFIG_QCOM_FASTRPC=m \
+                   CONFIG_DEBUG_INFO_BTF=y CONFIG_MODULE_ALLOW_BTF_MISMATCH=y \
+                   CONFIG_ANDROID_BINDERFS=y; do
+            if ! grep -q "^${c}$" "$KSRC/.config"; then
+              echo "::error::Missing required config option: $c"
+              exit 1
+            fi
+          done
+          grep -q '^CONFIG_LOCALVERSION="-current-sm8250"$' "$KSRC/.config"
+
+          KREL=$(make -s -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- kernelrelease)
+          echo "Built kernelrelease: $KREL"
+          if [ "$KREL" != "$EXPECTED_KREL" ]; then
+            echo "::error::kernelrelease ($KREL) != expected ($EXPECTED_KREL)"
+            exit 1
+          fi
+
+      - name: Build kernel Image, modules & check ABI
+        run: |
+          set -euo pipefail
+          make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" Image modules
+
+          echo "== ABI 三件套检查 =="
+          strings "$KSRC/vmlinux" | grep -m1 mod_unload || true
+          pahole -C module "$KSRC/vmlinux" | grep 'size:' || true
+
+      - name: Build out-of-tree kernel modules (goodix_fp_spi & airoha_gps)
+        run: |
+          set -euo pipefail
+          make -C "$KSRC" M="${GITHUB_WORKSPACE}/kernel/goodix_fp_spi" \
+            ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules
+          make -C "$KSRC" M="${GITHUB_WORKSPACE}/gnss/kernel" \
+            ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules
+
+      - name: Verify bundled combined DTB
+        run: |
+          set -euo pipefail
+          bash "${GITHUB_WORKSPACE}/kernel/dtb/verify-combined-dtb.sh" \
+            "${GITHUB_WORKSPACE}/kernel/dtb/sm8250-xiaomi-elish-csot.dtb"
+
+      - name: Stage and package kernel firmware artifacts
+        run: |
+          set -euo pipefail
+          OUT="/tmp/elish-kernel-out"
+          mkdir -p "$OUT/boot" "$OUT/dtb" "$OUT/modules-extra" "$OUT/initramfs-hooks"
+
+          cp -a "$KSRC/arch/arm64/boot/Image" "$OUT/boot/vmlinuz-${EXPECTED_KREL}"
+          cp -a "$KSRC/.config" "$OUT/boot/config-${EXPECTED_KREL}"
+          cp -a "$KSRC/System.map" "$OUT/boot/System.map-${EXPECTED_KREL}"
+
+          DTB="${GITHUB_WORKSPACE}/kernel/dtb/sm8250-xiaomi-elish-csot.dtb"
+          cp -a "$DTB" "$OUT/dtb/sm8250-xiaomi-elish-csot.dtb"
+
+          # 预拼接 Image.gz-dtb-csot 供参考/手工 mkbootimg 使用
+          gzip -c "$KSRC/arch/arm64/boot/Image" > /tmp/Image.gz
+          cat /tmp/Image.gz "$DTB" > "$OUT/boot/Image.gz-dtb-csot"
+          rm -f /tmp/Image.gz
+
+          cp -a "$KSRC/drivers/misc/fastrpc.ko" "$OUT/modules-extra/fastrpc.ko"
+          cp -a "${GITHUB_WORKSPACE}/kernel/goodix_fp_spi/goodix_fp_spi.ko" "$OUT/modules-extra/goodix_fp_spi.ko"
+          cp -a "${GITHUB_WORKSPACE}/gnss/kernel/airoha_gps.ko" "$OUT/modules-extra/airoha_gps.ko"
+
+          make -C "$KSRC" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            INSTALL_MOD_PATH="$OUT/rootfs" INSTALL_MOD_STRIP=1 modules_install
+
+          # 将 out-of-tree 模块也安装到标准 extra/ 目录
+          install -D -m 0644 "$OUT/modules-extra/goodix_fp_spi.ko" \
+            "$OUT/rootfs/lib/modules/${EXPECTED_KREL}/extra/goodix_fp_spi.ko"
+          install -D -m 0644 "$OUT/modules-extra/airoha_gps.ko" \
+            "$OUT/rootfs/lib/modules/${EXPECTED_KREL}/extra/airoha_gps.ko"
+
+          cp -a "${GITHUB_WORKSPACE}/kernel/initramfs/hooks/xiaomi-elish-firmware" \
+            "$OUT/initramfs-hooks/xiaomi-elish-firmware"
+
+          (
+            cd "$OUT"
+            find boot dtb modules-extra initramfs-hooks -type f | sort | xargs sha256sum > SHA256SUMS
+          )
+
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
+          tar -C "$OUT" -czf "${GITHUB_WORKSPACE}/dist/elish-kernel-${EXPECTED_KREL}-arm64.tar.gz" .
+          cp -a "$OUT/SHA256SUMS" "${GITHUB_WORKSPACE}/dist/kernel-SHA256SUMS.txt"
+
+      - name: Upload kernel build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: elish-kernel-${{ env.EXPECTED_KREL }}-arm64
+          path: |
+            dist/elish-kernel-*.tar.gz
+            dist/kernel-SHA256SUMS.txt
+          retention-days: 30
+
+  build-userspace:
+    name: Build Userspace Binaries (QEMU arm64 Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_userspace }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU for arm64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build userspace components inside arm64 Ubuntu 24.04 container
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
+          docker run --rm --platform linux/arm64 \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            ubuntu:24.04 \
+            bash -euo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y --no-install-recommends \
+                build-essential gcc make git meson ninja-build pkg-config ca-certificates \
+                python3 gobject-introspection libglib2.0-dev libgudev-1.0-dev \
+                libpolkit-gobject-1-dev libqmi-glib-dev libqrtr-glib-dev \
+                libprotobuf-c-dev protobuf-c-compiler libgusb-dev libusb-1.0-0-dev \
+                libpixman-1-dev libcairo2-dev libgirepository1.0-dev \
+                libegl-dev libgles-dev libdrm-dev libgbm-dev libpipewire-0.3-dev \
+                zlib1g-dev libpam0g-dev libsystemd-dev
+
+              OUT=/tmp/elish-userspace-out
+              BUILD=/tmp/elish-userspace-build
+              mkdir -p "$OUT" "$BUILD"
+
+              # 1) hexagonrpcd (v0.3.2 + warm-attach + M2 writable registry)
+              git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"
+              for p in \
+                0001-hexrpc-0.3.2-warm-attach.patch \
+                0003-hexagonrpcd-add-writable-hexagonfs.patch \
+                0004-hexagonrpcd-support-writable-sensor-registry.patch \
+                0005-hexagonrpcd-support-large-and-extended-callbacks.patch; do
+                git -C "$BUILD/hexagonrpc" apply "/work/sensors/userspace/hexrpc/patches/$p"
+              done
+              meson setup "$BUILD/hexagonrpc/build" "$BUILD/hexagonrpc" --prefix=/opt/hexrpc-032b
+              ninja -C "$BUILD/hexagonrpc/build"
+              DESTDIR="$OUT" ninja -C "$BUILD/hexagonrpc/build" install
+              install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" \
+                "$OUT/opt/hexrpc-032b/bin/hexagonrpcd.writable-v1"
+              install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" \
+                "$OUT/opt/hexrpc-032b/bin/hexagonrpcd"
+
+              # 2) libssc (4e4c6c8cc702a754bd700506c01961aaf971a23b)
+              git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"
+              git -C "$BUILD/libssc" checkout -f 4e4c6c8cc702a754bd700506c01961aaf971a23b
+              meson setup "$BUILD/libssc/build" "$BUILD/libssc" --prefix=/usr/local -Dintrospection=false
+              ninja -C "$BUILD/libssc/build"
+              ninja -C "$BUILD/libssc/build" install
+              DESTDIR="$OUT" ninja -C "$BUILD/libssc/build" install
+              ldconfig
+
+              # 3) iio-sensor-proxy (ca0d5b0 + hotplug-stayalive)
+              git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"
+              git -C "$BUILD/iio-sensor-proxy" checkout -f ca0d5b0
+              git -C "$BUILD/iio-sensor-proxy" apply \
+                /work/sensors/userspace/iio-sensor-proxy/patches/0001-iio-sensor-proxy-hotplug-stayalive.patch
+              meson setup "$BUILD/iio-sensor-proxy/build" "$BUILD/iio-sensor-proxy" \
+                --prefix=/usr -Dssc-support=enabled
+              ninja -C "$BUILD/iio-sensor-proxy/build"
+              DESTDIR="$OUT" ninja -C "$BUILD/iio-sensor-proxy/build" install
+
+              # 4) qsee-supplicant & qsee-app-loader (随包源码)
+              make -C /work/fingerprint/src/qsee-supplicant
+              make -C /work/fingerprint/src/qsee-supplicant check
+              make -C /work/fingerprint/src/qsee-supplicant DESTDIR="$OUT" install-bin install-systemd install-doc
+
+              # 5) libfprint (wrobelda goodix-qsee @430e24e5 + logging patch)
+              git clone https://github.com/wrobelda/libfprint.git "$BUILD/libfprint"
+              git -C "$BUILD/libfprint" checkout -f 430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a
+              git -C "$BUILD/libfprint" apply \
+                /work/fingerprint/src/libfprint/patches/libfprint-goodixqsee-logging.patch
+              meson setup "$BUILD/libfprint/build" "$BUILD/libfprint" --prefix=/usr \
+                -Ddrivers=goodixqsee -Ddoc=false -Dinstalled-tests=false \
+                -Dgtk-examples=false -Dintrospection=true
+              ninja -C "$BUILD/libfprint/build"
+              DESTDIR="$OUT" ninja -C "$BUILD/libfprint/build" install
+
+              # 6) GNSS userspace (airoha-gnssd & gps-nmea-share)
+              make -C /work/gnss/userspace
+              make -C /work/gnss/userspace DESTDIR="$OUT" install
+
+              # 7) Camera userspace (elish-camera & tools，无私有 tuning bin 时自动使用中性 LSC/CCM)
+              make -C /work/camera/elish-camera
+              install -D -m 0755 /work/camera/elish-camera/build/elish-camera "$OUT/usr/local/bin/elish-camera"
+              for t in debayer_test enc_test loopback_test capture_test; do
+                install -D -m 0755 "/work/camera/elish-camera/build/$t" "$OUT/usr/local/lib/elish-camera/$t"
+              done
+
+              # 8) bioauth (pam_bioauth.so)
+              make -C /work/bioauth
+              make -C /work/bioauth DESTDIR="$OUT" install
+
+              (
+                cd "$OUT"
+                find . -type f | sed "s|^\./||" | sort | xargs sha256sum > SHA256SUMS
+              )
+              tar -C "$OUT" -czf /work/dist/elish-userspace-arm64.tar.gz .
+              cp -a "$OUT/SHA256SUMS" /work/dist/userspace-SHA256SUMS.txt
+            '
+
+      - name: Upload userspace build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: elish-userspace-arm64
+          path: |
+            dist/elish-userspace-arm64.tar.gz
+            dist/userspace-SHA256SUMS.txt
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-kernel, build-userspace]
+    if: ${{ !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
