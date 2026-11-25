@@ -46,6 +46,11 @@ on:
         required: true
         default: true
         type: boolean
+      publish_release:
+        description: "是否自动发布到 GitHub Releases（含分卷与刷机说明）"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -752,11 +757,97 @@ jobs:
           EOF
 
           (cd "$OUT_FW" && sha256sum *.img FLASH-README.txt > SHA256SUMS)
-          tar -C "$OUT_FW" -czf "${GITHUB_WORKSPACE}/dist/elish-fastboot-firmware-${BOOT_SLOT}.tar.gz" .
 
-      - name: Upload complete fastboot firmware package
+          # 分别打包 boot-csot.img.tar.gz、boot-boe.img.tar.gz、elish-fastboot-firmware-${BOOT_SLOT}.tar.gz（仅含 rootfs.img 等）
+          REL_DIR="${GITHUB_WORKSPACE}/dist/release-files"
+          mkdir -p "$REL_DIR"
+
+          if [ -f "$OUT_FW/boot-csot.img" ]; then
+            tar -C "$OUT_FW" -czf "$REL_DIR/boot-csot.img.tar.gz" boot-csot.img FLASH-README.txt
+          fi
+          if [ -f "$OUT_FW/boot-boe.img" ]; then
+            tar -C "$OUT_FW" -czf "$REL_DIR/boot-boe.img.tar.gz" boot-boe.img FLASH-README.txt
+          fi
+
+          ROOTFS_TGZ="$REL_DIR/elish-fastboot-firmware-${BOOT_SLOT}.tar.gz"
+          tar -C "$OUT_FW" -czf "$ROOTFS_TGZ" rootfs.img FLASH-README.txt SHA256SUMS
+
+          # GitHub Releases 单文件上限 2 GiB；超过 1900 MiB 自动拆分为 .part00 / .part01 ...
+          SIZE_BYTES=$(stat -c%s "$ROOTFS_TGZ")
+          LIMIT_BYTES=$((1900 * 1024 * 1024))
+          if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "rootfs 压缩包大小 ${SIZE_BYTES} B > 1900 MiB，自动按 1900M 分卷..."
+            split -b 1900M -d -a 2 "$ROOTFS_TGZ" "${ROOTFS_TGZ}.part"
+            rm -f "$ROOTFS_TGZ"
+          fi
+
+          (cd "$REL_DIR" && sha256sum * > SHA256SUMS.txt)
+
+          cat > "$REL_DIR/RELEASE-NOTES.md" <<EOF
+          ## Xiaomi Pad 5 Pro (elish) Fastboot 完整固件
+
+          - **内核版本**：\`${EXPECTED_KREL}\`
+          - **目标启动槽位**：\`${BOOT_SLOT}\`（已写入 \`boot-*.img\` cmdline 与 \`/boot/armbianEnv.txt\`）
+          - **rootfs ext4 UUID**：\`${ROOT_UUID}\`
+
+          ### 1. 解压固件
+          - 若 \`elish-fastboot-firmware-${BOOT_SLOT}.tar.gz\` 被拆分为多个分卷（\`.part00\`、\`.part01\`...），请先合并再解压：
+            - **Linux / macOS / WSL**：
+              \`\`\`bash
+              cat elish-fastboot-firmware-${BOOT_SLOT}.tar.gz.part* > elish-fastboot-firmware-${BOOT_SLOT}.tar.gz
+              tar -xzf elish-fastboot-firmware-${BOOT_SLOT}.tar.gz
+              \`\`\`
+            - **Windows CMD**：
+              \`\`\`cmd
+              copy /b elish-fastboot-firmware-${BOOT_SLOT}.tar.gz.part00 + elish-fastboot-firmware-${BOOT_SLOT}.tar.gz.part01 elish-fastboot-firmware-${BOOT_SLOT}.tar.gz
+              tar -xzf elish-fastboot-firmware-${BOOT_SLOT}.tar.gz
+              \`\`\`
+          - 解压对应屏幕面板的引导镜像（CSOT 已实测，BOE 未实测）：
+            \`\`\`bash
+            tar -xzf boot-csot.img.tar.gz
+            # 或 BOE 面板：
+            # tar -xzf boot-boe.img.tar.gz
+            \`\`\`
+
+          ### 2. Fastboot 刷入平板并启动
+          \`\`\`bash
+          fastboot set_active b
+          fastboot erase dtbo_b
+          fastboot flash ${BOOT_SLOT} boot-csot.img
+          fastboot flash linux rootfs.img
+          fastboot reboot
+          \`\`\`
+
+          ### 3. 开机后补充专有固件（传感器 / 指纹）
+          公开构建不含小米原厂专有固件（\`slpi.mbn\`、\`vendor\` 传感器配置、指纹 TA \`gfenu.*\`）。刷入后可直接开机进入 Armbian 桌面，驱动包已预置在 \`/opt/xiaomi-elish-driver-pack\`，按 \`README.md\` 提取补充即可。
+          EOF
+
+      - name: Upload release package artifacts
         uses: actions/upload-artifact@v4
         with:
           name: elish-fastboot-firmware-${{ env.BOOT_SLOT }}
-          path: dist/elish-fastboot-firmware-*.tar.gz
+          path: dist/release-files/*
           retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-image]
+    if: ${{ !failure() && !cancelled() && inputs.publish_release }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: elish-fastboot-firmware-${{ env.BOOT_SLOT }}
+          path: release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: firmware-${{ env.BOOT_SLOT }}-r${{ github.run_number }}
+          name: "Xiaomi Pad 5 Pro (elish) Fastboot 固件 (${{ env.EXPECTED_KREL }} / ${{ env.BOOT_SLOT }})"
+          body_path: release-assets/RELEASE-NOTES.md
+          files: |
+            release-assets/boot-*.img.tar.gz
+            release-assets/elish-fastboot-firmware-*.tar.gz*
+            release-assets/SHA256SUMS.txt
