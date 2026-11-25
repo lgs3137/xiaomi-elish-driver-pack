@@ -677,6 +677,35 @@ jobs:
             fi
           done
 
+          # 注入 slpi.mbn 与固件路径不变量（如提供 slpi_mbn_url）
+          SLPI_URL="https://raw.githubusercontent.com/lujianhua/xiaomi-elish-firmware/refs/heads/master/sm8250/slpi.mbn"
+          if [ -n "$SLPI_URL" ]; then
+            echo "下载 slpi.mbn: $SLPI_URL"
+            sudo mkdir -p "$STAGE/usr/share/qcom-ssc-elish"
+            sudo curl -fL --retry 3 -o "$STAGE/usr/share/qcom-ssc-elish/slpi.mbn" "$SLPI_URL"
+            sudo chmod 0444 "$STAGE/usr/share/qcom-ssc-elish/slpi.mbn"
+          fi
+          FW_ELISH="$STAGE/usr/lib/firmware/qcom/sm8250/xiaomi/elish"
+          if [ -d "$FW_ELISH" ]; then
+            for d in sensors socinfo; do
+              if [ -d "$FW_ELISH/$d" ] && [ ! -d "$STAGE/usr/share/qcom-ssc-elish/$d" ]; then
+                sudo mkdir -p "$STAGE/usr/share/qcom-ssc-elish"
+                sudo cp -a "$FW_ELISH/$d" "$STAGE/usr/share/qcom-ssc-elish/"
+              fi
+            done
+            sudo mkdir -p "$FW_ELISH/slpi-disabled"
+            for f in "$FW_ELISH"/slpi.b*; do
+              [ -e "$f" ] && sudo mv -f "$f" "$FW_ELISH/slpi-disabled/" || true
+            done
+            if [ -e "$FW_ELISH/slpi.mbn" ] && [ ! -L "$FW_ELISH/slpi.mbn" ]; then
+              sudo mv -f "$FW_ELISH/slpi.mbn" "$FW_ELISH/slpi.mbn.disabled"
+            fi
+            sudo ln -sfn /run/sensor-fw/slpi.mbn "$FW_ELISH/slpi.mbn"
+          fi
+
+          # 确保 /usr/local/lib/aarch64-linux-gnu 在动态库搜索路径中（iio-sensor-proxy 依赖 libssc.so.2）
+          printf '%s\n' "/usr/local/lib/aarch64-linux-gnu" "/usr/local/lib" | sudo tee "$STAGE/etc/ld.so.conf.d/elish-local.conf" >/dev/null
+
           sudo chroot "$STAGE" /bin/bash -euo pipefail -c '
             export EXPECTED_KREL="'"${EXPECTED_KREL}"'"
             ls -ld /lib /lib/modules /usr/lib/modules "/lib/modules/${EXPECTED_KREL}" "/usr/lib/modules/${EXPECTED_KREL}" 2>/dev/null || true
@@ -820,6 +849,13 @@ jobs:
             rm -f "$ROOTFS_TGZ"
           fi
 
+          if [ -f /tmp/artifacts/elish-userspace-arm64.tar.gz ]; then
+            cp -a /tmp/artifacts/elish-userspace-arm64.tar.gz "$REL_DIR/"
+          fi
+          if [ -f /tmp/artifacts/userspace-SHA256SUMS.txt ]; then
+            cp -a /tmp/artifacts/userspace-SHA256SUMS.txt "$REL_DIR/"
+          fi
+
           (cd "$REL_DIR" && sha256sum * > SHA256SUMS.txt)
 
           cat > "$REL_DIR/RELEASE-NOTES.md" <<EOF
@@ -889,4 +925,6 @@ jobs:
           files: |
             release-assets/boot-*.img.tar.gz
             release-assets/elish-fastboot-firmware-*.tar.gz*
+            release-assets/elish-userspace-arm64.tar.gz
+            release-assets/userspace-SHA256SUMS.txt
             release-assets/SHA256SUMS.txt
