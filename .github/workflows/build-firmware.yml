@@ -670,13 +670,52 @@ jobs:
           sudo mount --bind /sys "$STAGE/sys"
           sudo mount --bind /dev "$STAGE/dev"
           sudo mount --bind /dev/pts "$STAGE/dev/pts"
-          sudo chroot "$STAGE" /bin/bash -euo pipefail -c "
+          # 解压可能被 zstd 压缩的 WiFi/BT 固件（config-used-6.18.44 未开启 FW_LOADER_COMPRESS_ZSTD）
+          for fwdir in "$STAGE/usr/lib/firmware/ath11k" "$STAGE/usr/lib/firmware/qca"; do
+            if [ -d "$fwdir" ]; then
+              find "$fwdir" -type f -name '*.zst' -exec sudo zstd -d --rm -f {} + 2>/dev/null || true
+            fi
+          done
+
+          sudo chroot "$STAGE" /bin/bash -euo pipefail -c '
+            export EXPECTED_KREL="'"${EXPECTED_KREL}"'"
             ls -ld /lib /lib/modules /usr/lib/modules "/lib/modules/${EXPECTED_KREL}" "/usr/lib/modules/${EXPECTED_KREL}" 2>/dev/null || true
             ldconfig
+
+            # 临时 systemctl 离线垫片：enable/disable 走真实 systemctl，start/restart/daemon-reload 在 chroot 内安全跳过
+            printf "%s\n" \
+              "#!/bin/bash" \
+              "case \"\${1:-}\" in" \
+              "  enable|disable|is-enabled|mask|unmask) exec /usr/bin/systemctl \"\$@\" ;;" \
+              "  daemon-reload|start|stop|restart|reload|try-restart) exit 0 ;;" \
+              "  *) /usr/bin/systemctl \"\$@\" 2>/dev/null || exit 0 ;;" \
+              "esac" > /usr/local/sbin/systemctl
+            chmod +x /usr/local/sbin/systemctl
+
+            # 运行驱动包官方系统集成脚本（传感器/指纹/GNSS/闪光灯/pogo/相机服务与规则）
+            PACK=/opt/xiaomi-elish-driver-pack
+            bash "$PACK/sensors/install/install-system-files.sh" || true
+            bash "$PACK/fingerprint/install/install-fingerprint-files.sh" || true
+            bash "$PACK/gnss/install/install.sh" || true
+            bash "$PACK/flash-led/install.sh" || true
+            bash "$PACK/pogo/install.sh" --yes || true
+
+            # 相机 udev/modules/resume 服务集成
+            install -D -m 0644 "$PACK/camera/99-elish-vcm.rules" /etc/udev/rules.d/99-elish-vcm.rules
+            install -D -m 0644 "$PACK/camera/99-elish-dma-heap.rules" /etc/udev/rules.d/99-elish-dma-heap.rules
+            install -D -m 0644 "$PACK/camera/elish-vcam.modules-load.conf" /etc/modules-load.d/elish-vcam.conf
+            install -D -m 0644 "$PACK/camera/elish-vcam.modprobe.conf" /etc/modprobe.d/elish-vcam.conf
+            install -D -m 0755 "$PACK/camera/system/elish-sensors-resume" /usr/local/sbin/elish-sensors-resume
+            install -D -m 0755 "$PACK/camera/system/elish-sensors-resume-worker" /usr/local/sbin/elish-sensors-resume-worker
+            install -D -m 0644 "$PACK/camera/system/elish-sensors-resume.service" /etc/systemd/system/elish-sensors-resume.service
+            /usr/bin/systemctl enable elish-sensors-resume.service || true
+
+            rm -f /usr/local/sbin/systemctl
+
             depmod -a "${EXPECTED_KREL}"
             rm -f "/boot/initrd.img-${EXPECTED_KREL}"
             update-initramfs -c -k "${EXPECTED_KREL}"
-          "
+          ' 
           sudo umount -lf "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"
 
           INITRD="$STAGE/boot/initrd.img-${EXPECTED_KREL}"
