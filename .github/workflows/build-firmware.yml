@@ -591,7 +591,14 @@ jobs:
           sudo cp -a "$KEXTR/boot/vmlinuz-${EXPECTED_KREL}" "$STAGE/boot/vmlinuz-${EXPECTED_KREL}"
           sudo cp -a "$KEXTR/boot/config-${EXPECTED_KREL}"  "$STAGE/boot/config-${EXPECTED_KREL}"
           sudo cp -a "$KEXTR/boot/System.map-${EXPECTED_KREL}" "$STAGE/boot/System.map-${EXPECTED_KREL}"
-          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/"
+
+          sudo mkdir -p "$STAGE/usr/lib/modules"
+          sudo rm -rf "$STAGE/usr/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/usr/lib/modules/"
+          if [ ! -L "$STAGE/lib" ]; then
+            sudo mkdir -p "$STAGE/lib/modules"
+            sudo ln -sfn "../../usr/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
+          fi
 
           sudo install -d "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom"
           sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" \
