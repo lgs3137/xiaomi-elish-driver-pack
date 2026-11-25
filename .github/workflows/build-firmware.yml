@@ -591,13 +591,16 @@ jobs:
           sudo cp -a "$KEXTR/boot/vmlinuz-${EXPECTED_KREL}" "$STAGE/boot/vmlinuz-${EXPECTED_KREL}"
           sudo cp -a "$KEXTR/boot/config-${EXPECTED_KREL}"  "$STAGE/boot/config-${EXPECTED_KREL}"
           sudo cp -a "$KEXTR/boot/System.map-${EXPECTED_KREL}" "$STAGE/boot/System.map-${EXPECTED_KREL}"
-
+          # 兼容 /lib/modules 为软链（绝对/相对）或独立目录的两种情况，绝不覆盖软链目标
+          echo "== 检查 modules 目录布局 =="
+          ls -ld "$STAGE/lib" "$STAGE/lib/modules" "$STAGE/usr/lib/modules" 2>/dev/null || true
           sudo mkdir -p "$STAGE/usr/lib/modules"
-          sudo rm -rf "$STAGE/usr/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
-          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/usr/lib/modules/"
-          if [ ! -L "$STAGE/lib" ]; then
+          sudo rm -rf "$STAGE/usr/lib/modules/${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/usr/lib/modules/${EXPECTED_KREL}"
+          if [ ! -L "$STAGE/lib" ] && [ ! -L "$STAGE/lib/modules" ]; then
             sudo mkdir -p "$STAGE/lib/modules"
-            sudo ln -sfn "../../usr/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
+            sudo rm -rf "$STAGE/lib/modules/${EXPECTED_KREL}"
+            sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
           fi
 
           sudo install -d "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom"
@@ -659,8 +662,9 @@ jobs:
           sudo mount --bind /dev "$STAGE/dev"
           sudo mount --bind /dev/pts "$STAGE/dev/pts"
           sudo chroot "$STAGE" /bin/bash -euo pipefail -c "
+            ls -ld /lib /lib/modules /usr/lib/modules "/lib/modules/${EXPECTED_KREL}" "/usr/lib/modules/${EXPECTED_KREL}" 2>/dev/null || true
             ldconfig
-            depmod -a ${EXPECTED_KREL}
+            depmod -a "${EXPECTED_KREL}"
             rm -f "/boot/initrd.img-${EXPECTED_KREL}"
             update-initramfs -c -k "${EXPECTED_KREL}"
           "
