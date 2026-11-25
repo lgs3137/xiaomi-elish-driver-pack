@@ -583,7 +583,11 @@ jobs:
             exit 1
           }
 
-          # 1) 注入本次编译的内核、模块与 initramfs hook
+          # 1) 清理底包旧内核/模块（避免体积膨胀及后续 zz-update-abl-kernel 通配符冲突），再注入本次编译的内核与模块
+          sudo rm -rf "$STAGE"/boot/vmlinuz-* "$STAGE"/boot/initrd.img-* "$STAGE"/boot/System.map-* \
+                      "$STAGE"/boot/config-* "$STAGE"/boot/dtb-* "$STAGE"/boot/armbian-kernel-*.img \
+                      "$STAGE"/usr/lib/modules/* "$STAGE"/usr/lib/linux-image-*
+
           KEXTR="/tmp/k-unpack"
           mkdir -p "$KEXTR"
           tar -xzf "/tmp/artifacts/elish-kernel-${EXPECTED_KREL}-arm64.tar.gz" -C "$KEXTR"
@@ -623,7 +627,7 @@ jobs:
 
           # 2) 注入编译好的全部用户态二进制
           if [ -f /tmp/artifacts/elish-userspace-arm64.tar.gz ]; then
-            sudo tar --no-overwrite-dir -xzf /tmp/artifacts/elish-userspace-arm64.tar.gz -C "$STAGE"
+            sudo tar --keep-directory-symlink --no-overwrite-dir -xzf /tmp/artifacts/elish-userspace-arm64.tar.gz -C "$STAGE"
           fi
 
           # 3) 将本驱动包随镜像放入 /opt/xiaomi-elish-driver-pack
