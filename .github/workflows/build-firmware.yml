@@ -346,7 +346,7 @@ jobs:
                 build-essential gcc make git meson ninja-build pkg-config ca-certificates \
                 python3 python3-pip gobject-introspection libglib2.0-dev libgudev-1.0-dev \
                 libpolkit-gobject-1-dev libqmi-glib-dev libmbim-glib-dev libqrtr-glib-dev \
-                libprotobuf-c-dev protobuf-c-compiler libgusb-dev libusb-1.0-0-dev \
+                libprotobuf-c-dev protobuf-c-compiler protobuf-compiler libnss3-dev libgusb-dev libusb-1.0-0-dev \
                 libpixman-1-dev libcairo2-dev libgirepository1.0-dev libssl-dev \
                 libegl-dev libgles-dev libdrm-dev libgbm-dev libpipewire-0.3-dev \
                 zlib1g-dev libpam0g-dev libsystemd-dev systemd-dev udev
