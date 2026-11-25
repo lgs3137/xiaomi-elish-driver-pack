@@ -754,7 +754,7 @@ jobs:
             /usr/bin/systemctl enable elish-sensors-resume.service || true
             /usr/bin/systemctl enable bioauthd.service 2>/dev/null || true
 
-            # 修复 QCA6390 蓝牙默认无效 MAC (00:00:00:00:5A:AD) 导致 hci0 DOWN RAW 的问题
+            # 修复 QCA6390 蓝牙默认无效 MAC (00:00:00:00:5A:AD)：直接通过内核 MGMT_OP_SET_PUBLIC_ADDRESS (0x0039) 设置，避免 btmgmt 卡死
             printf "%s\n" \
               "#!/bin/bash" \
               "set -eu" \
@@ -763,14 +763,11 @@ jobs:
               "CUR=\$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || true)" \
               "case \"\${CUR,,}\" in 00:00:00:00:5a:ad|00:00:00:00:00:00) ;; *) [ -z \"\$CUR\" ] || exit 0 ;; esac" \
               "MID=\$(cat /etc/machine-id 2>/dev/null || echo 112233445566778899aabbccddeeff00)" \
-              "MAC=02:\${MID:0:2}:\${MID:2:2}:\${MID:4:2}:\${MID:6:2}:\${MID:8:2}" \
-              "btmgmt --index 0 public-addr \"\$MAC\" >/dev/null 2>&1 || true" \
-              "btmgmt --index 0 power on >/dev/null 2>&1 || true" \
+              "python3 -c \"import socket,struct; s=socket.socket(31,3,1); s.bind((0xffff,3)); s.settimeout(3); mac=bytes([int('\${MID:8:2}',16),int('\${MID:6:2}',16),int('\${MID:4:2}',16),int('\${MID:2:2}',16),int('\${MID:0:2}',16),0x02]); s.sendall(struct.pack('<HHH6s',0x0039,0,6,mac)); s.recv(1024)\" || true" \
+              "hciconfig hci0 up >/dev/null 2>&1 || true" \
               > /usr/local/sbin/elish-bt-mac.sh
             chmod 0755 /usr/local/sbin/elish-bt-mac.sh
-            printf "%s\n" \
-              "ACTION==\"add\", SUBSYSTEM==\"bluetooth\", KERNEL==\"hci0\", RUN+=\"/usr/local/sbin/elish-bt-mac.sh\"" \
-              > /etc/udev/rules.d/90-elish-bt-mac.rules
+            rm -f /etc/udev/rules.d/90-elish-bt-mac.rules
             printf "%s\n" \
               "[Unit]" \
               "Description=Set valid QCA6390 Bluetooth MAC from machine-id" \
@@ -778,6 +775,7 @@ jobs:
               "After=local-fs.target" \
               "[Service]" \
               "Type=oneshot" \
+              "TimeoutStartSec=20" \
               "ExecStart=/usr/local/sbin/elish-bt-mac.sh" \
               "RemainAfterExit=yes" \
               "[Install]" \
