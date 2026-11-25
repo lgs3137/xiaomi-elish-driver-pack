@@ -1,11 +1,6 @@
 name: Build Xiaomi Pad 5 Pro (elish) Firmware
 
 on:
-  push:
-    branches: [main, master]
-    tags: ["v*"]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
     inputs:
       kernel_version:
@@ -349,18 +344,23 @@ jobs:
               apt-get update -qq
               apt-get install -y --no-install-recommends \
                 build-essential gcc make git meson ninja-build pkg-config ca-certificates \
-                python3 gobject-introspection libglib2.0-dev libgudev-1.0-dev \
+                python3 python3-pip gobject-introspection libglib2.0-dev libgudev-1.0-dev \
                 libpolkit-gobject-1-dev libqmi-glib-dev libqrtr-glib-dev \
                 libprotobuf-c-dev protobuf-c-compiler libgusb-dev libusb-1.0-0-dev \
                 libpixman-1-dev libcairo2-dev libgirepository1.0-dev \
                 libegl-dev libgles-dev libdrm-dev libgbm-dev libpipewire-0.3-dev \
                 zlib1g-dev libpam0g-dev libsystemd-dev
 
+              # 关键修复：Ubuntu 24.04 apt 自带 meson 1.3.2，libssc 需要 >= 1.4.0
+              pip3 install --break-system-packages --upgrade "meson>=1.4.0"
+              hash -r
+              meson --version
+
               OUT=/tmp/elish-userspace-out
               BUILD=/tmp/elish-userspace-build
               mkdir -p "$OUT" "$BUILD"
 
-              # 1) hexagonrpcd (v0.3.2 + warm-attach + M2 writable registry)
+              # 1) hexagonrpcd (v0.3.2 + warm-attach + M2 writable registry + regver-v1)
               git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"
               for p in \
                 0001-hexrpc-0.3.2-warm-attach.patch \
@@ -376,6 +376,14 @@ jobs:
                 "$OUT/opt/hexrpc-032b/bin/hexagonrpcd.writable-v1"
               install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" \
                 "$OUT/opt/hexrpc-032b/bin/hexagonrpcd"
+
+              git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc-regver"
+              git -C "$BUILD/hexagonrpc-regver" apply /work/sensors/userspace/hexrpc/patches/0001-hexrpc-0.3.2-warm-attach.patch
+              git -C "$BUILD/hexagonrpc-regver" apply /work/sensors/userspace/hexrpc/patches/0002-hexrpc-0.3.2-registry-version.patch
+              meson setup "$BUILD/hexagonrpc-regver/build" "$BUILD/hexagonrpc-regver" --prefix=/opt/hexrpc-032b
+              ninja -C "$BUILD/hexagonrpc-regver/build"
+              install -D -m 0755 "$BUILD/hexagonrpc-regver/build/hexagonrpcd/hexagonrpcd" \
+                "$OUT/opt/hexrpc-032b/bin/hexagonrpcd.regver-v1"
 
               # 2) libssc (4e4c6c8cc702a754bd700506c01961aaf971a23b)
               git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"
@@ -426,6 +434,11 @@ jobs:
               # 8) bioauth (pam_bioauth.so)
               make -C /work/bioauth
               make -C /work/bioauth DESTDIR="$OUT" install
+
+              # 9) 随包预置可选/默认组件（flash-led / pogo / torch / tablet-mode / pps-charger / utils）
+              mkdir -p "$OUT/usr/local/share/elish-extras"
+              cp -a /work/flash-led /work/pogo /work/torch /work/tablet-mode /work/pps-charger /work/utils \
+                "$OUT/usr/local/share/elish-extras/"
 
               (
                 cd "$OUT"
