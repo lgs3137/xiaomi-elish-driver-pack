@@ -21,7 +21,7 @@ on:
       base_image_url:
         description: "Armbian noble GNOME 底包下载 URL（可自行修改，留空则使用默认地址）"
         required: false
-        default: "https://fi.mirror.armbian.de/oldarchive/xiaomi-elish/archive/Armbian_24.8.1_Xiaomi-elish_noble_current_6.9.12_gnome_desktop.rootfs.img.xz"
+        default: "https://armbian.lv.auroradev.org/archive/xiaomi-elish/archive/Armbian_25.2.2_Xiaomi-elish_noble_current_6.12.13_gnome_desktop.rootfs.img.xz"
         type: string
       boot_slot:
         description: "Linux 启动槽位（写入 boot.img cmdline 与 armbianEnv.txt）"
@@ -520,7 +520,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/base-img
-          DEFAULT_URL="https://fi.mirror.armbian.de/oldarchive/xiaomi-elish/archive/Armbian_24.8.1_Xiaomi-elish_noble_current_6.9.12_gnome_desktop.rootfs.img.xz"
+          DEFAULT_URL="https://armbian.lv.auroradev.org/archive/xiaomi-elish/archive/Armbian_25.2.2_Xiaomi-elish_noble_current_6.12.13_gnome_desktop.rootfs.img.xz"
           URL="${{ inputs.base_image_url }}"
           if [ -z "$URL" ]; then
             URL="$DEFAULT_URL"
