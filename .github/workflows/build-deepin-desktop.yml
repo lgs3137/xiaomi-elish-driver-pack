@@ -593,12 +593,23 @@ jobs:
           CMDLINE="root=UUID=${ROOT_UUID} slot_suffix=${BOOT_SLOT#boot} console=tty0 rw"
           GKI_FILE=$(find /usr -name generate_gki_certificate.py 2>/dev/null | head -n1 || true)
           [ -n "$GKI_FILE" ] && export PYTHONPATH="$(dirname "$(dirname "$GKI_FILE")")${PYTHONPATH:+:$PYTHONPATH}"
+          if mkbootimg --help >/dev/null 2>&1; then
+            MKBOOTIMG="mkbootimg"
+          else
+            clone_mkbootimg() {
+              rm -rf "$WORK/mkbootimg-repo"
+              git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$WORK/mkbootimg-repo"
+            }
+            retry_cmd clone_mkbootimg
+            MKBOOTIMG="python3 $WORK/mkbootimg-repo/mkbootimg.py"
+            $MKBOOTIMG --help >/dev/null
+          fi
           gzip -9 -c "$STAGE/boot/vmlinuz-${EXPECTED_KREL}" > "$WORK/Image.gz"
           for panel in csot boe; do
             DTB="$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-${panel}.dtb"
             [ -f "$DTB" ] || continue
             cat "$WORK/Image.gz" "$DTB" > "$WORK/kernel-dtb-${panel}"
-            mkbootimg \
+            $MKBOOTIMG \
               --kernel "$WORK/kernel-dtb-${panel}" \
               --ramdisk "$INITRD" \
               --cmdline "$CMDLINE" \
