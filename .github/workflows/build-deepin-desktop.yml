@@ -1,0 +1,621 @@
+name: Build Xiaomi Pad 5 Pro (elish) Deepin 25 Desktop Fastboot Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      deepin_image_url:
+        description: "Deepin 25 arm64 高通官方镜像下载 URL（.tar.xz 或 .img）"
+        required: true
+        default: "https://ci.deepin.com/repo/deepin/deepin-ports/cdimage/20260818/arm64/deepin-25-crimson-preview-arm64-qcom-20260818-144621.tar.xz"
+        type: string
+      reuse_kernel_run_id:
+        description: "复用历史 build-kernel 产物的 Workflow Run ID（留空则自动查找最近一次成功产物）"
+        required: false
+        default: ""
+        type: string
+      boot_slot:
+        description: "Linux 启动槽位"
+        required: true
+        default: "boot_b"
+        type: choice
+        options:
+          - boot_b
+          - boot_a
+      with_drivers:
+        description: "是否编译并安装完整用户态驱动（传感器/GNSS/指纹/pogo；取消勾选可先测纯桌面启动）"
+        required: true
+        default: true
+        type: boolean
+      default_password:
+        description: "默认 root / deepin 用户登录密码"
+        required: true
+        default: "deepin"
+        type: string
+      publish_release:
+        description: "是否自动发布到 GitHub Releases（分片 < 2 GiB）"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_KREL: "6.18.44-current-sm8250"
+  BOOT_SLOT: ${{ inputs.boot_slot || 'boot_b' }}
+
+jobs:
+  build-deepin-desktop:
+    name: Build Deepin 25 Desktop Fastboot Firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free runner disk space
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve kernel artifact run ID
+        id: resolve-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RID="${{ inputs.reuse_kernel_run_id }}"
+          if [ -z "$RID" ]; then
+            RID=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '
+              [.artifacts[] | select(.expired == false and .name == "elish-kernel-'"${EXPECTED_KREL}"'-arm64")]
+              | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty
+            ')
+          fi
+          [ -n "$RID" ] || { echo "::error::未找到可复用的内核构建产物，请先运行 build-firmware.yml 或手动填写 reuse_kernel_run_id"; exit 1; }
+          echo "Reusing kernel artifact from Workflow Run ID: $RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: elish-kernel-${{ env.EXPECTED_KREL }}-arm64
+          path: /tmp/artifacts
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.resolve-run.outputs.run_id }}
+
+      - name: Set up QEMU for arm64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Install host image-building tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-user-static binfmt-support e2fsprogs mkbootimg \
+            android-sdk-libsparse-utils util-linux uuid-runtime \
+            squashfs-tools parted xz-utils zstd curl git python3 cpio kmod gzip
+
+      - name: Download Deepin QCOM image, extract Linux partition via dd, and build firmware
+        env:
+          DEEPIN_IMAGE_URL: ${{ inputs.deepin_image_url }}
+          WITH_DRIVERS: ${{ inputs.with_drivers && '1' || '0' }}
+          DEFAULT_PASS: ${{ inputs.default_password }}
+        run: |
+          set -euo pipefail
+          WORK=/tmp/elish-deepin-desktop
+          STAGE="$WORK/rootfs"
+          IMG_MNT="$WORK/img-mnt"
+          OUT_FW="$WORK/out-fw"
+          RAW_IMG="$OUT_FW/rootfs.raw.img"
+          REL_DIR="${GITHUB_WORKSPACE}/dist/deepin-desktop-release"
+          LOOPDEV=""
+          DIRECT_EXT4=0
+
+          cleanup_chroot_mounts() {
+            for mp in "$STAGE/dev/shm" "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"; do
+              mountpoint -q "$mp" 2>/dev/null && sudo umount -lf "$mp" 2>/dev/null || true
+            done
+            if [ -e "$STAGE/etc/resolv.conf.elish-bak" ] || [ -L "$STAGE/etc/resolv.conf.elish-bak" ]; then
+              sudo mv -f "$STAGE/etc/resolv.conf.elish-bak" "$STAGE/etc/resolv.conf" 2>/dev/null || true
+            fi
+          }
+
+          cleanup_all() {
+            cleanup_chroot_mounts
+            mountpoint -q "$STAGE" 2>/dev/null && sudo umount -lf "$STAGE" 2>/dev/null || true
+            mountpoint -q "$IMG_MNT" 2>/dev/null && sudo umount -lf "$IMG_MNT" 2>/dev/null || true
+            [ -n "$LOOPDEV" ] && sudo losetup -d "$LOOPDEV" 2>/dev/null || true
+          }
+          trap cleanup_all EXIT INT TERM
+
+          sudo rm -rf "$WORK" "$REL_DIR"
+          mkdir -p "$WORK" "$STAGE" "$IMG_MNT" "$OUT_FW" "$REL_DIR"
+
+          echo "== 1) 下载并解压 Deepin 官方镜像 =="
+          case "$DEEPIN_IMAGE_URL" in
+            *.tar.xz|*.txz)
+              curl -fL --retry 3 -o "$WORK/deepin.tar.xz" "$DEEPIN_IMAGE_URL"
+              tar -I xz -xf "$WORK/deepin.tar.xz" -C "$WORK"
+              rm -f "$WORK/deepin.tar.xz"
+              ;;
+            *.xz)
+              curl -fL --retry 3 -o "$WORK/deepin.img.xz" "$DEEPIN_IMAGE_URL"
+              xz -d "$WORK/deepin.img.xz"
+              ;;
+            *)
+              curl -fL --retry 3 -o "$WORK/deepin.img" "$DEEPIN_IMAGE_URL"
+              ;;
+          esac
+
+          IMG_FILE=$(find "$WORK" -maxdepth 3 -type f -name '*.img' | head -n1)
+          [ -n "$IMG_FILE" ] || { echo "::error::解压后未找到 .img 镜像文件"; exit 1; }
+          ls -lh "$IMG_FILE"
+
+          echo "== 2) 使用 dd 提取第 2 分区（Linux 文件系统） =="
+          LOOPDEV=$(sudo losetup -fP --show --read-only "$IMG_FILE")
+          sudo udevadm settle 2>/dev/null || sleep 1
+          ROOT_PART=$(lsblk -lnpo NAME,FSTYPE,SIZE -b "$LOOPDEV" | awk '$1 != "'"$LOOPDEV"'" && ($2 == "ext4" || $2 == "btrfs" || $2 == "xfs") {print $3, $1}' | sort -nr | head -n1 | awk '{print $2}')
+          [ -n "$ROOT_PART" ] || ROOT_PART="${LOOPDEV}p2"
+          [ -b "$ROOT_PART" ] || { echo "::error::未找到第 2 分区: $ROOT_PART"; exit 1; }
+          PART_FSTYPE=$(lsblk -npo FSTYPE "$ROOT_PART" | head -n1)
+
+          sudo mount -o ro "$ROOT_PART" "$IMG_MNT"
+          if [ -f "$IMG_MNT/live/filesystem.squashfs" ]; then
+            sudo unsquashfs -f -d "$STAGE" "$IMG_MNT/live/filesystem.squashfs"
+            sudo umount "$IMG_MNT"
+          elif [ -f "$IMG_MNT/casper/filesystem.squashfs" ]; then
+            sudo unsquashfs -f -d "$STAGE" "$IMG_MNT/casper/filesystem.squashfs"
+            sudo umount "$IMG_MNT"
+          elif [ -d "$IMG_MNT/usr" ] && [ -d "$IMG_MNT/etc" ] && [ "$PART_FSTYPE" = "ext4" ]; then
+            sudo umount "$IMG_MNT"
+            DIRECT_EXT4=1
+            sudo dd if="$ROOT_PART" of="$RAW_IMG" bs=16M status=none conv=fsync
+            sudo losetup -d "$LOOPDEV"
+            LOOPDEV=""
+            rm -f "$IMG_FILE"
+            truncate -s +1536M "$RAW_IMG"
+            sudo e2fsck -fy "$RAW_IMG" || true
+            sudo resize2fs "$RAW_IMG"
+            sudo mount -o loop "$RAW_IMG" "$STAGE"
+          else
+            sudo tar -C "$IMG_MNT" --xattrs --acls --numeric-owner -cf - . | sudo tar -C "$STAGE" --xattrs --acls --numeric-owner --keep-directory-symlink -xf -
+            sudo umount "$IMG_MNT"
+          fi
+          [ -n "$LOOPDEV" ] && { sudo losetup -d "$LOOPDEV"; LOOPDEV=""; }
+          rm -f "$IMG_FILE"
+
+          echo "== 3) 清理原开发板内核/模块并注入 elish 内核与固件 =="
+          sudo rm -rf "$STAGE/boot/"*
+          if [ -L "$STAGE/lib" ]; then
+            sudo rm -rf "$STAGE/usr/lib/modules/"*
+          else
+            sudo rm -rf "$STAGE/lib/modules/"* "$STAGE/usr/lib/modules/"*
+          fi
+          sudo rm -rf "$STAGE/usr/lib/linux-image-"* "$STAGE/usr/lib/firmware/qcom/sm8250" \
+                      "$STAGE/lib/firmware/qcom/sm8250" 2>/dev/null || true
+
+          KTAR=$(find /tmp/artifacts -name "elish-kernel-${EXPECTED_KREL}*.tar.gz" | head -n1)
+          [ -n "$KTAR" ] || { echo "::error::未找到内核产物压缩包"; exit 1; }
+          KEXTR="$WORK/k-unpack"
+          mkdir -p "$KEXTR"
+          tar -xzf "$KTAR" -C "$KEXTR"
+
+          sudo mkdir -p "$STAGE/boot" "$STAGE/usr/lib/modules" "$STAGE/etc/modules-load.d" \
+            "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom" \
+            "$STAGE/opt/xiaomi-elish-driver-pack"
+          sudo cp -a "$KEXTR/boot/vmlinuz-${EXPECTED_KREL}" "$STAGE/boot/vmlinuz-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/boot/config-${EXPECTED_KREL}"  "$STAGE/boot/config-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/boot/System.map-${EXPECTED_KREL}" "$STAGE/boot/System.map-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/usr/lib/modules/${EXPECTED_KREL}"
+          if [ ! -L "$STAGE/lib" ] && [ ! -L "$STAGE/lib/modules" ]; then
+            sudo mkdir -p "$STAGE/lib/modules"
+            sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
+          fi
+          sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
+          sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
+          if [ -f "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" ]; then
+            sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
+            sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
+          fi
+          sudo install -D -m 0755 "$KEXTR/initramfs-hooks/xiaomi-elish-firmware" "$STAGE/etc/initramfs-tools/hooks/xiaomi-elish-firmware"
+          printf 'qcom_q6v5_pas\npinctrl_sm8250_lpass_lpi\nphy_qcom_qusb2\nhid_multitouch\n' | sudo tee "$STAGE/etc/modules-load.d/elish-hid.conf" >/dev/null
+
+          git clone --depth 1 --filter=blob:none --no-checkout https://gitlab.com/kernel-firmware/linux-firmware.git "$WORK/linux-fw"
+          git -C "$WORK/linux-fw" sparse-checkout set --no-cone /ath11k/QCA6390/ /qca/ /qcom/a650_sqe.fw /qcom/a650_gmu.bin /regulatory.db /regulatory.db.p7s
+          git -C "$WORK/linux-fw" checkout
+          git clone --depth 1 https://github.com/lujianhua/xiaomi-elish-firmware.git "$WORK/elish-fw"
+
+          FW_DST="$STAGE/usr/lib/firmware"
+          [ -L "$STAGE/lib" ] || FW_DST="$STAGE/lib/firmware"
+          sudo mkdir -p "$FW_DST/ath11k" "$FW_DST/qca" "$FW_DST/qcom/sm8250/xiaomi/elish"
+          sudo cp -a "$WORK/linux-fw/ath11k/QCA6390" "$FW_DST/ath11k/"
+          sudo cp -a "$WORK/linux-fw/qca/"* "$FW_DST/qca/"
+          sudo cp -a "$WORK/linux-fw/qcom/a650_"* "$FW_DST/qcom/"
+          sudo cp -a "$WORK/linux-fw/regulatory.db"* "$FW_DST/" || true
+          for fwpat in adsp cdsp venus a650_zap; do
+            sudo cp -a "$WORK/elish-fw/sm8250/${fwpat}"* "$FW_DST/qcom/sm8250/xiaomi/elish/" 2>/dev/null || true
+          done
+          sudo ln -sfn /run/sensor-fw/slpi.mbn "$FW_DST/qcom/sm8250/xiaomi/elish/slpi.mbn"
+          rm -rf "$WORK/linux-fw" "$WORK/elish-fw"
+
+          if [ "$DIRECT_EXT4" = 1 ]; then
+            ROOT_UUID=$(sudo blkid -s UUID -o value "$RAW_IMG")
+            [ -n "$ROOT_UUID" ] || ROOT_UUID=$(uuidgen)
+          else
+            ROOT_UUID=$(uuidgen)
+          fi
+          printf 'xiaomi-elish\n' | sudo tee "$STAGE/etc/hostname" >/dev/null
+          printf '127.0.0.1\tlocalhost\n127.0.1.1\txiaomi-elish\n' | sudo tee "$STAGE/etc/hosts" >/dev/null
+          printf 'UUID=%s\t/\text4\tdefaults,noatime,commit=600,errors=remount-ro\t0\t1\n' "$ROOT_UUID" | sudo tee "$STAGE/etc/fstab" >/dev/null
+          printf 'abl_boot_partition_label=%s\nextraargs=console=tty0\n' "$BOOT_SLOT" | sudo tee "$STAGE/boot/armbianEnv.txt" >/dev/null
+          printf '%s\n' "/usr/local/lib/aarch64-linux-gnu" "/usr/local/lib" | sudo tee "$STAGE/etc/ld.so.conf.d/elish-local.conf" >/dev/null
+          tar -C "${GITHUB_WORKSPACE}" --exclude="./dist" --exclude="./dist/*" --exclude="./.git" -cf - . | sudo tar -C "$STAGE/opt/xiaomi-elish-driver-pack" -xf -
+
+          echo "== 4) 写入辅助服务并在隔离 chroot 内配置 =="
+          sudo tee "$STAGE/usr/local/sbin/systemctl" >/dev/null <<'SHIM'
+          #!/bin/bash
+          case "${1:-}" in
+            enable|disable|is-enabled|mask|unmask|set-default) exec /usr/bin/systemctl "$@" ;;
+            daemon-reload|start|stop|restart|reload|try-restart) exit 0 ;;
+            *) /usr/bin/systemctl "$@" 2>/dev/null || exit 0 ;;
+          esac
+          SHIM
+          sudo chmod +x "$STAGE/usr/local/sbin/systemctl"
+
+          sudo tee "$STAGE/usr/local/sbin/elish-bt-mac.sh" >/dev/null <<'BTMAC'
+          #!/bin/bash
+          set -eu
+          for _ in $(seq 1 30); do [ -e /sys/class/bluetooth/hci0 ] && break; sleep 0.5; done
+          [ -e /sys/class/bluetooth/hci0 ] || exit 0
+          MAC_FILE=/var/lib/elish-bt-mac
+          [ -s "$MAC_FILE" ] || {
+            python3 - <<'PY' > "$MAC_FILE"
+          import uuid
+          b = bytearray(uuid.getnode().to_bytes(6, 'big'))
+          b[0] = (b[0] | 0x02) & 0xfe; b[5] ^= 0x17
+          print(':'.join(f'{x:02X}' for x in b))
+          PY
+          }
+          BT_MAC=$(cat "$MAC_FILE")
+          rfkill unblock bluetooth || true
+          python3 - "$BT_MAC" <<'PY'
+          import socket, struct, sys
+          mac_bytes = bytes(int(x, 16) for x in reversed(sys.argv[1].split(':')))
+          s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+          s.bind((0xFFFF, 1))
+          s.settimeout(5)
+          s.sendall(struct.pack('<HHH6s', 0x0039, 0, 6, mac_bytes))
+          s.recv(64)
+          s.close()
+          PY
+          hciconfig hci0 up || true
+          BTMAC
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-bt-mac.sh"
+
+          sudo tee "$STAGE/etc/systemd/system/elish-bt-mac.service" >/dev/null <<'BTSVC'
+          [Unit]
+          Description=Set fixed Bluetooth MAC for QCA6390
+          After=bluetooth.service
+          Before=bluetooth.target
+
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=20
+          ExecStart=/usr/local/sbin/elish-bt-mac.sh
+
+          [Install]
+          WantedBy=multi-user.target
+          BTSVC
+
+          sudo tee "$STAGE/usr/local/sbin/elish-wifi-mac.sh" >/dev/null <<'WIFIMAC'
+          #!/bin/bash
+          set -eu
+          MAC_FILE=/var/lib/elish-wifi-mac
+          [ -s "$MAC_FILE" ] || {
+            python3 - <<'PY' > "$MAC_FILE"
+          import uuid
+          m = bytearray(uuid.getnode().to_bytes(6, 'big'))
+          m[0] = (m[0] | 0x02) & 0xfe
+          print(':'.join(f'{x:02x}' for x in m))
+          PY
+          }
+          WIFI_MAC=$(cat "$MAC_FILE")
+          IFACE=$(ls /sys/class/net 2>/dev/null | grep -E '^wl' | head -n1 || true)
+          [ -n "$IFACE" ] || exit 0
+          ip link set "$IFACE" down 2>/dev/null || true
+          ip link set "$IFACE" address "$WIFI_MAC" 2>/dev/null || true
+          ip link set "$IFACE" up 2>/dev/null || true
+          WIFIMAC
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-wifi-mac.sh"
+
+          sudo tee "$STAGE/etc/systemd/system/elish-wifi-mac.service" >/dev/null <<'WIFISVC'
+          [Unit]
+          Description=Set fixed WiFi MAC for QCA6390
+          Before=NetworkManager.service
+
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=15
+          ExecStart=/usr/local/sbin/elish-wifi-mac.sh
+
+          [Install]
+          WantedBy=multi-user.target
+          WIFISVC
+
+          sudo tee "$STAGE/usr/local/sbin/elish-usb-gadget.sh" >/dev/null <<'USBGADGET'
+          #!/bin/bash
+          set -eu
+          modprobe libcomposite 2>/dev/null || true
+          mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config 2>/dev/null || true
+          G=/sys/kernel/config/usb_gadget/elish
+          if [ ! -d "$G" ]; then
+            mkdir -p "$G"
+            echo 0x1d6b > "$G/idVendor"
+            echo 0x0104 > "$G/idProduct"
+            echo 0x0100 > "$G/bcdDevice"
+            echo 0x0200 > "$G/bcdUSB"
+            mkdir -p "$G/strings/0x409" "$G/configs/c.1/strings/0x409"
+            echo "elish-usb0" > "$G/strings/0x409/serialnumber"
+            echo "Xiaomi" > "$G/strings/0x409/manufacturer"
+            echo "Mi Pad 5 Pro USB Net" > "$G/strings/0x409/product"
+            echo "RNDIS" > "$G/configs/c.1/strings/0x409/configuration"
+            echo 250 > "$G/configs/c.1/MaxPower"
+            echo 1 > "$G/os_desc/use"
+            echo 0xcd > "$G/os_desc/b_vendor_code"
+            echo "MSFT100" > "$G/os_desc/qw_sign"
+            mkdir -p "$G/functions/rndis.usb0"
+            echo "02:11:22:33:44:55" > "$G/functions/rndis.usb0/host_addr"
+            echo "02:11:22:33:44:56" > "$G/functions/rndis.usb0/dev_addr"
+            mkdir -p "$G/functions/rndis.usb0/os_desc/interface.rndis"
+            echo "RNDIS" > "$G/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
+            echo "5162001" > "$G/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
+            ln -sfn "$G/functions/rndis.usb0" "$G/configs/c.1/rndis.usb0"
+            ln -sfn "$G/configs/c.1" "$G/os_desc/c.1"
+          fi
+          UDC=$(ls /sys/class/udc 2>/dev/null | head -n1 || true)
+          [ -n "$UDC" ] && [ "$(cat "$G/UDC" 2>/dev/null || true)" != "$UDC" ] && echo "$UDC" > "$G/UDC" || true
+          for _ in $(seq 1 20); do ip link show usb0 >/dev/null 2>&1 && break; sleep 0.2; done
+          if ip link show usb0 >/dev/null 2>&1; then
+            ip addr replace 172.16.42.1/24 dev usb0
+            ip link set usb0 up
+            command -v dnsmasq >/dev/null 2>&1 && dnsmasq --interface=usb0 --bind-interfaces --dhcp-range=172.16.42.2,172.16.42.20,12h --no-resolv --no-hosts --pid-file=/run/dnsmasq-usb0.pid 2>/dev/null || true
+          fi
+          USBGADGET
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-usb-gadget.sh"
+
+          sudo tee "$STAGE/etc/systemd/system/elish-usb-gadget.service" >/dev/null <<'USBSVC'
+          [Unit]
+          Description=USB RNDIS Gadget Network (172.16.42.1 for SSH over USB)
+          After=local-fs.target systemd-udev-settle.service
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/sbin/elish-usb-gadget.sh
+          Restart=on-failure
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+          USBSVC
+
+          sudo tee "$STAGE/etc/systemd/system/elish-pogo-boot.service" >/dev/null <<'POGOBOOT'
+          [Unit]
+          Description=Reset Xiaomi Pogo Keyboard GPIO on boot
+          After=local-fs.target systemd-udev-settle.service
+
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=10
+          ExecStart=/usr/local/sbin/elish-pogo-kb-reset --force
+
+          [Install]
+          WantedBy=multi-user.target
+          POGOBOOT
+
+          sudo tee "$STAGE/tmp/deepin-desktop-chroot.sh" >/dev/null <<'CHROOT_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          EXPECTED_KREL="$1"
+          DEFAULT_PASS="$2"
+          WITH_DRIVERS="$3"
+          JOBS=$(nproc 2>/dev/null || echo 4)
+
+          export DEBIAN_FRONTEND=noninteractive
+          APT_OPTS=(-y --no-install-recommends -o 'DPkg::Options::=--force-unsafe-io')
+          dpkg -l 'linux-image-*' 'linux-headers-*' 'grub*' 'flash-kernel' 2>/dev/null | awk '/^ii/{print $2}' | xargs -r apt-get purge -y || true
+          apt-get update
+          apt-get install "${APT_OPTS[@]}" \
+            initramfs-tools busybox zstd kmod e2fsprogs openssh-server \
+            usbutils pciutils python3 dnsmasq-base rfkill
+
+          PACK=/opt/xiaomi-elish-driver-pack
+          if [ "$WITH_DRIVERS" = 1 ]; then
+            apt-get install -y -o 'DPkg::Options::=--force-unsafe-io' \
+              build-essential gcc make git meson ninja-build pkg-config python3-pip \
+              libglib2.0-dev libgudev-1.0-dev libpolkit-gobject-1-dev libqmi-glib-dev \
+              libmbim-glib-dev libqrtr-glib-dev libprotobuf-c-dev protobuf-c-compiler \
+              protobuf-compiler libssl-dev libsystemd-dev systemd-dev gpsd gpsd-clients \
+              libprotobuf-c1 libqmi-glib5 libqrtr-glib0 fprintd || true
+            pip3 install --break-system-packages --upgrade "meson>=1.4.0" || true
+            hash -r
+            BUILD=/tmp/deepin-build
+            mkdir -p "$BUILD"
+            git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"
+            for p in 0001-hexrpc-0.3.2-warm-attach.patch 0003-hexagonrpcd-add-writable-hexagonfs.patch \
+                     0004-hexagonrpcd-support-writable-sensor-registry.patch 0005-hexagonrpcd-support-large-and-extended-callbacks.patch; do
+              git -C "$BUILD/hexagonrpc" apply "$PACK/sensors/userspace/hexrpc/patches/$p"
+            done
+            meson setup "$BUILD/hexagonrpc/build" "$BUILD/hexagonrpc" --prefix=/opt/hexrpc-032b
+            ninja -C "$BUILD/hexagonrpc/build" -j"$JOBS" install
+            install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" /opt/hexrpc-032b/bin/hexagonrpcd.writable-v1
+
+            git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"
+            git -C "$BUILD/libssc" checkout -f 4e4c6c8cc702a754bd700506c01961aaf971a23b
+            meson setup "$BUILD/libssc/build" "$BUILD/libssc" --prefix=/usr/local
+            ninja -C "$BUILD/libssc/build" -j"$JOBS" install
+            ldconfig
+            export PKG_CONFIG_PATH="/usr/local/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
+            git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"
+            git -C "$BUILD/iio-sensor-proxy" checkout -f ca0d5b0
+            git -C "$BUILD/iio-sensor-proxy" apply "$PACK/sensors/userspace/iio-sensor-proxy/patches/0001-iio-sensor-proxy-hotplug-stayalive.patch"
+            meson setup "$BUILD/iio-sensor-proxy/build" "$BUILD/iio-sensor-proxy" --prefix=/usr -Dssc-support=enabled
+            ninja -C "$BUILD/iio-sensor-proxy/build" -j"$JOBS" install
+
+            make -C "$PACK/fingerprint/src/qsee-supplicant" -j"$JOBS" install-bin install-systemd install-doc || true
+            make -C "$PACK/gnss/userspace" -j"$JOBS" install || true
+            bash "$PACK/sensors/install/install-system-files.sh" || true
+            bash "$PACK/gnss/install/install.sh" || true
+            rm -rf "$BUILD"
+          fi
+
+          if [ -f "$PACK/pogo/elish-pogo-kb-reset" ]; then
+            install -D -m 0755 "$PACK/pogo/elish-pogo-kb-reset" /usr/local/sbin/elish-pogo-kb-reset
+            install -D -m 0755 "$PACK/pogo/system-sleep/69-elish-pogo-kb.sh" /usr/lib/systemd/system-sleep/69-elish-pogo-kb.sh
+            [ -e /etc/default/elish-pogo-kb ] || install -D -m 0644 "$PACK/pogo/elish-pogo-kb.conf" /etc/default/elish-pogo-kb
+            touch /var/log/elish-pogo-kb.log
+          fi
+
+          mkdir -p /etc/NetworkManager/conf.d /etc/ssh/sshd_config.d
+          printf '[device]\nwifi.scan-rand-mac-address=no\n\n[connection]\nwifi.cloned-mac-address=preserve\n' \
+            > /etc/NetworkManager/conf.d/99-elish-wifi-mac.conf
+          printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/99-elish.conf
+
+          echo "root:${DEFAULT_PASS}" | chpasswd
+          if id -u deepin >/dev/null 2>&1; then
+            echo "deepin:${DEFAULT_PASS}" | chpasswd
+          fi
+
+          /usr/bin/systemctl mask NetworkManager-wait-online.service || true
+          /usr/bin/systemctl enable NetworkManager.service bluetooth.service ssh.service \
+            elish-bt-mac.service elish-wifi-mac.service elish-usb-gadget.service elish-pogo-boot.service || true
+
+          rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /usr/local/sbin/systemctl
+          ldconfig
+          mkdir -p /etc/initramfs-tools/conf.d
+          printf 'BUSYBOX=y\nMODULES=most\nCOMPRESS=gzip\n' > /etc/initramfs-tools/conf.d/elish.conf
+          for m in ufshcd-qcom phy-qcom-qmp-ufs ext4 usbhid hid-generic qcom_q6v5_pas pinctrl_sm8250_lpass_lpi phy_qcom_qusb2; do
+            grep -qxF "$m" /etc/initramfs-tools/modules 2>/dev/null || echo "$m" >> /etc/initramfs-tools/modules
+          done
+
+          depmod -a "${EXPECTED_KREL}"
+          rm -f "/boot/initrd.img-${EXPECTED_KREL}"
+          update-initramfs -c -k "${EXPECTED_KREL}"
+          CHROOT_SCRIPT
+          sudo chmod +x "$STAGE/tmp/deepin-desktop-chroot.sh"
+
+          if [ -L "$STAGE/etc/resolv.conf" ] || [ -f "$STAGE/etc/resolv.conf" ]; then
+            sudo mv -f "$STAGE/etc/resolv.conf" "$STAGE/etc/resolv.conf.elish-bak"
+          fi
+          sudo cp -L /etc/resolv.conf "$STAGE/etc/resolv.conf"
+          sudo cp -a /usr/bin/qemu-aarch64-static "$STAGE/usr/bin/qemu-aarch64-static"
+
+          sudo mkdir -p "$STAGE/proc" "$STAGE/sys" "$STAGE/dev"
+          sudo mount -t proc proc "$STAGE/proc"
+          sudo mount -t sysfs sysfs "$STAGE/sys"
+          sudo mount -t tmpfs -o mode=0755 tmpfs "$STAGE/dev"
+          sudo mkdir -p "$STAGE/dev/pts" "$STAGE/dev/shm"
+          sudo mknod -m 666 "$STAGE/dev/null" c 1 3
+          sudo mknod -m 666 "$STAGE/dev/zero" c 1 5
+          sudo mknod -m 666 "$STAGE/dev/full" c 1 7
+          sudo mknod -m 666 "$STAGE/dev/random" c 1 8
+          sudo mknod -m 666 "$STAGE/dev/urandom" c 1 9
+          sudo mknod -m 666 "$STAGE/dev/tty" c 5 0
+          sudo mknod -m 600 "$STAGE/dev/console" c 5 1
+          sudo mount -t devpts devpts "$STAGE/dev/pts" -o newinstance,ptmxmode=0666,mode=620,gid=5
+          sudo ln -sf pts/ptmx "$STAGE/dev/ptmx"
+          sudo mount -t tmpfs tmpfs "$STAGE/dev/shm"
+
+          sudo chroot "$STAGE" /bin/bash /tmp/deepin-desktop-chroot.sh "$EXPECTED_KREL" "$DEFAULT_PASS" "$WITH_DRIVERS"
+
+          sudo rm -f "$STAGE/tmp/deepin-desktop-chroot.sh" "$STAGE/usr/bin/qemu-aarch64-static"
+          cleanup_chroot_mounts
+
+          echo "== 5) 打包 boot-csot.img / boot-boe.img 与分片 rootfs.img =="
+          INITRD="$STAGE/boot/initrd.img-${EXPECTED_KREL}"
+          [ -f "$INITRD" ] || { echo "::error::缺少 initrd: $INITRD"; exit 1; }
+          ls -lh "$INITRD"
+          lsinitramfs "$INITRD" | grep -q 'bin/busybox' || echo "::warning::initrd 中未检测到 busybox"
+
+          CMDLINE="root=UUID=${ROOT_UUID} slot_suffix=${BOOT_SLOT#boot} console=tty0 rw"
+          GKI_FILE=$(find /usr -name generate_gki_certificate.py 2>/dev/null | head -n1 || true)
+          [ -n "$GKI_FILE" ] && export PYTHONPATH="$(dirname "$(dirname "$GKI_FILE")")${PYTHONPATH:+:$PYTHONPATH}"
+          gzip -9 -c "$STAGE/boot/vmlinuz-${EXPECTED_KREL}" > "$WORK/Image.gz"
+          for panel in csot boe; do
+            DTB="$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-${panel}.dtb"
+            [ -f "$DTB" ] || continue
+            cat "$WORK/Image.gz" "$DTB" > "$WORK/kernel-dtb-${panel}"
+            mkbootimg \
+              --kernel "$WORK/kernel-dtb-${panel}" \
+              --ramdisk "$INITRD" \
+              --cmdline "$CMDLINE" \
+              --base 0x0 \
+              --second_offset 0x00f00000 \
+              --kernel_offset 0x8000 \
+              --ramdisk_offset 0x1000000 \
+              --tags_offset 0x100 \
+              --pagesize 4096 \
+              -o "$OUT_FW/boot-${panel}.img"
+            rm -f "$WORK/kernel-dtb-${panel}"
+          done
+          rm -f "$WORK/Image.gz"
+
+          if [ "$DIRECT_EXT4" = 1 ]; then
+            sync
+            sudo umount "$STAGE"
+            sudo e2fsck -fy "$RAW_IMG" || true
+            img2simg "$RAW_IMG" "$OUT_FW/rootfs.img"
+            sudo rm -f "$RAW_IMG"
+          else
+            USED_MB=$(sudo du -sm "$STAGE" | awk '{print $1}')
+            IMG_MB=$((USED_MB + 2048))
+            truncate -s "${IMG_MB}M" "$RAW_IMG"
+            sudo mkfs.ext4 -F -U "$ROOT_UUID" -L deepin_desktop -d "$STAGE" "$RAW_IMG"
+            sudo e2fsck -fy "$RAW_IMG" || true
+            img2simg "$RAW_IMG" "$OUT_FW/rootfs.img"
+            sudo rm -rf "$RAW_IMG" "$STAGE"
+          fi
+          trap - EXIT INT TERM
+
+          [ -f "$OUT_FW/boot-csot.img" ] && tar -C "$OUT_FW" -czf "$REL_DIR/boot-csot.img.tar.gz" boot-csot.img
+          [ -f "$OUT_FW/boot-boe.img" ]  && tar -C "$OUT_FW" -czf "$REL_DIR/boot-boe.img.tar.gz" boot-boe.img
+
+          echo "压缩并按 1800MiB 分片打包 rootfs.img（适配 GitHub Release 2 GiB 单文件限制）..."
+          tar -C "$OUT_FW" -cf - rootfs.img | gzip -1 | split -b 1800M - "$REL_DIR/elish-deepin-desktop-${BOOT_SLOT}.tar.gz.part-"
+          rm -f "$OUT_FW/rootfs.img"
+
+          cat > "$REL_DIR/FLASH-README.txt" <<EOF
+          Xiaomi Pad 5 Pro (elish) Deepin 25 Desktop Fastboot 刷机说明
+          ================================================================
+          1. 合并并解压 rootfs.img（Linux / macOS / WSL）：
+             cat elish-deepin-desktop-${BOOT_SLOT}.tar.gz.part-* | tar -xzf -
+             （Windows PowerShell：cmd /c copy /b elish-deepin-desktop-${BOOT_SLOT}.tar.gz.part-* elish-deepin-desktop.tar.gz && tar -xzf elish-deepin-desktop.tar.gz）
+
+          2. 刷机命令（默认槽位 ${BOOT_SLOT}）：
+             fastboot set_active ${BOOT_SLOT#boot_}
+             fastboot erase dtbo_${BOOT_SLOT#boot_}
+             fastboot flash ${BOOT_SLOT} boot-csot.img
+             fastboot flash linux rootfs.img
+             fastboot reboot
+
+          默认账户：root / ${DEFAULT_PASS} ，USB 网卡 SSH：ssh root@172.16.42.1
+          EOF
+          (cd "$REL_DIR" && sha256sum * > SHA256SUMS.txt)
+          ls -lh "$REL_DIR"
+
+      - name: Upload Deepin Desktop release assets
+        if: ${{ inputs.publish_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deepin-desktop-${{ env.BOOT_SLOT }}-run-${{ github.run_number }}
+          name: "Deepin 25 Desktop (${{ env.BOOT_SLOT }}) #${{ github.run_number }}"
+          files: dist/deepin-desktop-release/*
+          draft: false
+          prerelease: true
