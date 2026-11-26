@@ -100,7 +100,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             qemu-user-static binfmt-support e2fsprogs mkbootimg \
             android-sdk-libsparse-utils util-linux uuid-runtime \
-            squashfs-tools parted xz-utils zstd curl git python3 cpio kmod gzip
+            squashfs-tools parted xz-utils zstd curl aria2 git python3 cpio kmod gzip
 
       - name: Download Deepin QCOM image, extract Linux partition via dd, and build firmware
         env:
@@ -138,19 +138,44 @@ jobs:
           sudo rm -rf "$WORK" "$REL_DIR"
           mkdir -p "$WORK" "$STAGE" "$IMG_MNT" "$OUT_FW" "$REL_DIR"
 
-          echo "== 1) 下载并解压 Deepin 官方镜像 =="
+          download_resumable() {
+            local url="$1" out="$2"
+            local dir base
+            dir=$(dirname "$out")
+            base=$(basename "$out")
+            if command -v aria2c >/dev/null 2>&1; then
+              aria2c -c -x 8 -s 8 -k 4M --max-tries=10 --retry-wait=5                 --connect-timeout=30 --timeout=60 --file-allocation=none                 -d "$dir" -o "$base" "$url" && return 0
+              echo "::warning::aria2c 下载失败，回退到 curl 断点续传重试..."
+            fi
+            curl -fL -C - --retry 10 --retry-delay 5 --retry-all-errors               --connect-timeout 30 --speed-time 60 --speed-limit 1024               -o "$out" "$url"
+          }
+
+          retry_cmd() {
+            local n=1 max=5 delay=5
+            until "$@"; do
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::命令在重试 $max 次后仍失败: $*"
+                return 1
+              fi
+              echo "::warning::第 $n/$max 次尝试失败，${delay}s 后重试: $*"
+              n=$((n + 1))
+              sleep "$delay"
+            done
+          }
+
+          echo "== 1) 下载并解压 Deepin 官方镜像（支持断点续传与重试） =="
           case "$DEEPIN_IMAGE_URL" in
             *.tar.xz|*.txz)
-              curl -fL --retry 3 -o "$WORK/deepin.tar.xz" "$DEEPIN_IMAGE_URL"
+              download_resumable "$DEEPIN_IMAGE_URL" "$WORK/deepin.tar.xz"
               tar -I xz -xf "$WORK/deepin.tar.xz" -C "$WORK"
               rm -f "$WORK/deepin.tar.xz"
               ;;
             *.xz)
-              curl -fL --retry 3 -o "$WORK/deepin.img.xz" "$DEEPIN_IMAGE_URL"
+              download_resumable "$DEEPIN_IMAGE_URL" "$WORK/deepin.img.xz"
               xz -d "$WORK/deepin.img.xz"
               ;;
             *)
-              curl -fL --retry 3 -o "$WORK/deepin.img" "$DEEPIN_IMAGE_URL"
+              download_resumable "$DEEPIN_IMAGE_URL" "$WORK/deepin.img"
               ;;
           esac
 
@@ -227,10 +252,9 @@ jobs:
           sudo install -D -m 0755 "$KEXTR/initramfs-hooks/xiaomi-elish-firmware" "$STAGE/etc/initramfs-tools/hooks/xiaomi-elish-firmware"
           printf 'qcom_q6v5_pas\npinctrl_sm8250_lpass_lpi\nphy_qcom_qusb2\nhid_multitouch\n' | sudo tee "$STAGE/etc/modules-load.d/elish-hid.conf" >/dev/null
 
-          git clone --depth 1 --filter=blob:none --no-checkout https://gitlab.com/kernel-firmware/linux-firmware.git "$WORK/linux-fw"
-          git -C "$WORK/linux-fw" sparse-checkout set --no-cone /ath11k/QCA6390/ /qca/ /qcom/a650_sqe.fw /qcom/a650_gmu.bin /regulatory.db /regulatory.db.p7s
-          git -C "$WORK/linux-fw" checkout
-          git clone --depth 1 https://github.com/lujianhua/xiaomi-elish-firmware.git "$WORK/elish-fw"
+          rm -rf "$WORK/linux-fw" "$WORK/elish-fw"
+          retry_cmd bash -c 'rm -rf "'"$WORK"'/linux-fw" && git clone --depth 1 --filter=blob:none --no-checkout https://gitlab.com/kernel-firmware/linux-firmware.git "'"$WORK"'/linux-fw" && git -C "'"$WORK"'/linux-fw" sparse-checkout set --no-cone /ath11k/QCA6390/ /qca/ /qcom/a650_sqe.fw /qcom/a650_gmu.bin /regulatory.db /regulatory.db.p7s && git -C "'"$WORK"'/linux-fw" checkout'
+          retry_cmd bash -c 'rm -rf "'"$WORK"'/elish-fw" && git clone --depth 1 https://github.com/lujianhua/xiaomi-elish-firmware.git "'"$WORK"'/elish-fw"'
 
           FW_DST="$STAGE/usr/lib/firmware"
           [ -L "$STAGE/lib" ] || FW_DST="$STAGE/lib/firmware"
@@ -428,7 +452,15 @@ jobs:
           JOBS=$(nproc 2>/dev/null || echo 4)
 
           export DEBIAN_FRONTEND=noninteractive
-          APT_OPTS=(-y --no-install-recommends -o 'DPkg::Options::=--force-unsafe-io')
+          retry_git() {
+            local n=1 max=5
+            until "$@"; do
+              [ "$n" -ge "$max" ] && return 1
+              n=$((n + 1))
+              sleep 5
+            done
+          }
+          APT_OPTS=(-y --no-install-recommends -o 'DPkg::Options::=--force-unsafe-io' -o 'Acquire::Retries=5')
           dpkg -l 'linux-image-*' 'linux-headers-*' 'grub*' 'flash-kernel' 2>/dev/null | awk '/^ii/{print $2}' | xargs -r apt-get purge -y || true
           apt-get update
           apt-get install "${APT_OPTS[@]}" \
@@ -447,7 +479,7 @@ jobs:
             hash -r
             BUILD=/tmp/deepin-build
             mkdir -p "$BUILD"
-            git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"
+            retry_git bash -c 'rm -rf "$BUILD/hexagonrpc" && git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"'
             for p in 0001-hexrpc-0.3.2-warm-attach.patch 0003-hexagonrpcd-add-writable-hexagonfs.patch \
                      0004-hexagonrpcd-support-writable-sensor-registry.patch 0005-hexagonrpcd-support-large-and-extended-callbacks.patch; do
               git -C "$BUILD/hexagonrpc" apply "$PACK/sensors/userspace/hexrpc/patches/$p"
@@ -456,14 +488,14 @@ jobs:
             ninja -C "$BUILD/hexagonrpc/build" -j"$JOBS" install
             install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" /opt/hexrpc-032b/bin/hexagonrpcd.writable-v1
 
-            git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"
+            retry_git bash -c 'rm -rf "$BUILD/libssc" && git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"'
             git -C "$BUILD/libssc" checkout -f 4e4c6c8cc702a754bd700506c01961aaf971a23b
             meson setup "$BUILD/libssc/build" "$BUILD/libssc" --prefix=/usr/local
             ninja -C "$BUILD/libssc/build" -j"$JOBS" install
             ldconfig
             export PKG_CONFIG_PATH="/usr/local/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-            git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"
+            retry_git bash -c 'rm -rf "$BUILD/iio-sensor-proxy" && git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"'
             git -C "$BUILD/iio-sensor-proxy" checkout -f ca0d5b0
             git -C "$BUILD/iio-sensor-proxy" apply "$PACK/sensors/userspace/iio-sensor-proxy/patches/0001-iio-sensor-proxy-hotplug-stayalive.patch"
             meson setup "$BUILD/iio-sensor-proxy/build" "$BUILD/iio-sensor-proxy" --prefix=/usr -Dssc-support=enabled
