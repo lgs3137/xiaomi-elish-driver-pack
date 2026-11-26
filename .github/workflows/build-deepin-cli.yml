@@ -96,9 +96,11 @@ jobs:
           mkdir -p /tmp/dl
           curl -fL --retry 3 -o /tmp/dl/deepin-rootfs.tar.gz "${{ inputs.deepin_rootfs_url }}"
           # 仅拉取 QCA6390 WiFi/BT、Adreno A650 与无线 regdb 所需固件，避免容器底包缺少 /lib/firmware
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git /tmp/linux-fw
-          git -C /tmp/linux-fw sparse-checkout set ath11k/QCA6390 qca qcom/a650_sqe.fw qcom/a650_gmu.bin regulatory.db regulatory.db.p7s
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://gitlab.com/kernel-firmware/linux-firmware.git /tmp/linux-fw
+          git -C /tmp/linux-fw sparse-checkout set --no-cone \
+            /ath11k/QCA6390/ /qca/ /qcom/a650_sqe.fw /qcom/a650_gmu.bin /regulatory.db /regulatory.db.p7s
+          git -C /tmp/linux-fw checkout
 
       - name: Assemble Deepin CLI rootfs, compile CLI drivers & build boot/rootfs images
         run: |
