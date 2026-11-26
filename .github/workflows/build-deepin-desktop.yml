@@ -205,7 +205,7 @@ jobs:
             sudo losetup -d "$LOOPDEV"
             LOOPDEV=""
             rm -f "$IMG_FILE"
-            truncate -s +1536M "$RAW_IMG"
+            sudo truncate -s +1536M "$RAW_IMG"
             sudo e2fsck -fy "$RAW_IMG" || true
             sudo resize2fs "$RAW_IMG"
             sudo mount -o loop "$RAW_IMG" "$STAGE"
@@ -603,15 +603,17 @@ jobs:
             sync
             sudo umount "$STAGE"
             sudo e2fsck -fy "$RAW_IMG" || true
-            img2simg "$RAW_IMG" "$OUT_FW/rootfs.img"
+            sudo img2simg "$RAW_IMG" "$OUT_FW/rootfs.img"
+            sudo chown "$(id -u):$(id -g)" "$OUT_FW/rootfs.img"
             sudo rm -f "$RAW_IMG"
           else
             USED_MB=$(sudo du -sm "$STAGE" | awk '{print $1}')
             IMG_MB=$((USED_MB + 2048))
-            truncate -s "${IMG_MB}M" "$RAW_IMG"
+            sudo truncate -s "${IMG_MB}M" "$RAW_IMG"
             sudo mkfs.ext4 -F -U "$ROOT_UUID" -L deepin_desktop -d "$STAGE" "$RAW_IMG"
             sudo e2fsck -fy "$RAW_IMG" || true
-            img2simg "$RAW_IMG" "$OUT_FW/rootfs.img"
+            sudo img2simg "$RAW_IMG" "$OUT_FW/rootfs.img"
+            sudo chown "$(id -u):$(id -g)" "$OUT_FW/rootfs.img"
             sudo rm -rf "$RAW_IMG" "$STAGE"
           fi
           trap - EXIT INT TERM
