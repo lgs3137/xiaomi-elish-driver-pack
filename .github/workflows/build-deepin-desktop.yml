@@ -252,9 +252,18 @@ jobs:
           sudo install -D -m 0755 "$KEXTR/initramfs-hooks/xiaomi-elish-firmware" "$STAGE/etc/initramfs-tools/hooks/xiaomi-elish-firmware"
           printf 'qcom_q6v5_pas\npinctrl_sm8250_lpass_lpi\nphy_qcom_qusb2\nhid_multitouch\n' | sudo tee "$STAGE/etc/modules-load.d/elish-hid.conf" >/dev/null
 
-          rm -rf "$WORK/linux-fw" "$WORK/elish-fw"
-          retry_cmd bash -c 'rm -rf "'"$WORK"'/linux-fw" && git clone --depth 1 --filter=blob:none --no-checkout https://gitlab.com/kernel-firmware/linux-firmware.git "'"$WORK"'/linux-fw" && git -C "'"$WORK"'/linux-fw" sparse-checkout set --no-cone /ath11k/QCA6390/ /qca/ /qcom/a650_sqe.fw /qcom/a650_gmu.bin /regulatory.db /regulatory.db.p7s && git -C "'"$WORK"'/linux-fw" checkout'
-          retry_cmd bash -c 'rm -rf "'"$WORK"'/elish-fw" && git clone --depth 1 https://github.com/lujianhua/xiaomi-elish-firmware.git "'"$WORK"'/elish-fw"'
+          clone_linux_fw() {
+            rm -rf "$WORK/linux-fw"
+            git clone --depth 1 --filter=blob:none --no-checkout https://gitlab.com/kernel-firmware/linux-firmware.git "$WORK/linux-fw" &&
+            git -C "$WORK/linux-fw" sparse-checkout set --no-cone /ath11k/QCA6390/ /qca/ /qcom/a650_sqe.fw /qcom/a650_gmu.bin /regulatory.db /regulatory.db.p7s &&
+            git -C "$WORK/linux-fw" checkout
+          }
+          clone_elish_fw() {
+            rm -rf "$WORK/elish-fw"
+            git clone --depth 1 https://github.com/lujianhua/xiaomi-elish-firmware.git "$WORK/elish-fw"
+          }
+          retry_cmd clone_linux_fw
+          retry_cmd clone_elish_fw
 
           FW_DST="$STAGE/usr/lib/firmware"
           [ -L "$STAGE/lib" ] || FW_DST="$STAGE/lib/firmware"
@@ -452,9 +461,14 @@ jobs:
           JOBS=$(nproc 2>/dev/null || echo 4)
 
           export DEBIAN_FRONTEND=noninteractive
-          retry_git() {
+          retry_clone() {
+            local dest="$1"; shift
             local n=1 max=5
-            until "$@"; do
+            while true; do
+              rm -rf "$dest"
+              if git clone "$@" "$dest"; then
+                return 0
+              fi
               [ "$n" -ge "$max" ] && return 1
               n=$((n + 1))
               sleep 5
@@ -479,7 +493,7 @@ jobs:
             hash -r
             BUILD=/tmp/deepin-build
             mkdir -p "$BUILD"
-            retry_git bash -c 'rm -rf "$BUILD/hexagonrpc" && git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"'
+            retry_clone "$BUILD/hexagonrpc" --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git
             for p in 0001-hexrpc-0.3.2-warm-attach.patch 0003-hexagonrpcd-add-writable-hexagonfs.patch \
                      0004-hexagonrpcd-support-writable-sensor-registry.patch 0005-hexagonrpcd-support-large-and-extended-callbacks.patch; do
               git -C "$BUILD/hexagonrpc" apply "$PACK/sensors/userspace/hexrpc/patches/$p"
@@ -488,14 +502,14 @@ jobs:
             ninja -C "$BUILD/hexagonrpc/build" -j"$JOBS" install
             install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" /opt/hexrpc-032b/bin/hexagonrpcd.writable-v1
 
-            retry_git bash -c 'rm -rf "$BUILD/libssc" && git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"'
+            retry_clone "$BUILD/libssc" https://codeberg.org/mmcallister/libssc.git
             git -C "$BUILD/libssc" checkout -f 4e4c6c8cc702a754bd700506c01961aaf971a23b
             meson setup "$BUILD/libssc/build" "$BUILD/libssc" --prefix=/usr/local
             ninja -C "$BUILD/libssc/build" -j"$JOBS" install
             ldconfig
             export PKG_CONFIG_PATH="/usr/local/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-            retry_git bash -c 'rm -rf "$BUILD/iio-sensor-proxy" && git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"'
+            retry_clone "$BUILD/iio-sensor-proxy" https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git
             git -C "$BUILD/iio-sensor-proxy" checkout -f ca0d5b0
             git -C "$BUILD/iio-sensor-proxy" apply "$PACK/sensors/userspace/iio-sensor-proxy/patches/0001-iio-sensor-proxy-hotplug-stayalive.patch"
             meson setup "$BUILD/iio-sensor-proxy/build" "$BUILD/iio-sensor-proxy" --prefix=/usr -Dssc-support=enabled
