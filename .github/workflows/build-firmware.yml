@@ -666,6 +666,10 @@ jobs:
             fi
           fi
           sudo cp -a /usr/bin/qemu-aarch64-static "$STAGE/usr/bin/qemu-aarch64-static"
+          if [ -L "$STAGE/etc/resolv.conf" ] || [ -f "$STAGE/etc/resolv.conf" ]; then
+            sudo mv -f "$STAGE/etc/resolv.conf" "$STAGE/etc/resolv.conf.elish-bak"
+          fi
+          sudo cp -L /etc/resolv.conf "$STAGE/etc/resolv.conf"
           sudo mount --bind /proc "$STAGE/proc"
           sudo mount --bind /sys "$STAGE/sys"
           sudo mount --bind /dev "$STAGE/dev"
@@ -765,13 +769,15 @@ jobs:
           ldconfig
 
           export DEBIAN_FRONTEND=noninteractive
-          apt-get update -qq || true
+          apt-get update -qq
           apt-get install -y --no-install-recommends \
-            libprotobuf-c1 libqmi-glib5 libqrtr-glib0 gpsd gpsd-clients fprintd libpam-fprintd || true
+            libprotobuf-c1 libqmi-glib5 libqrtr-glib0 gpsd gpsd-clients fprintd libpam-fprintd
 
           PACK=/opt/xiaomi-elish-driver-pack
           bash "$PACK/sensors/install/install-system-files.sh" || true
           bash "$PACK/fingerprint/install/install-fingerprint-files.sh" || true
+          mkdir -p /etc/systemd/system/qsee-app-loader@.service.d
+          printf '[Unit]\nConditionPathExists=/lib/firmware/%%i.mdt\n' > /etc/systemd/system/qsee-app-loader@.service.d/40-require-ta.conf
           bash "$PACK/gnss/install/install.sh" || true
           bash "$PACK/flash-led/install.sh" || true
           bash "$PACK/pogo/install.sh" --yes || true
@@ -800,6 +806,11 @@ jobs:
           /usr/bin/systemctl enable elish-bt-mac.service || true
           /usr/bin/systemctl set-default graphical.target || true
 
+          # 默认锁定内核、固件与 libfprint 包，防止 apt upgrade 覆盖驱动包改动
+          for pkg in linux-image-current-sm8250 linux-dtb-current-sm8250 linux-headers-current-sm8250                      linux-image-edge-sm8250 linux-dtb-edge-sm8250 armbian-firmware-full libfprint-2-2; do
+            dpkg-query -W "$pkg" >/dev/null 2>&1 && apt-mark hold "$pkg" || true
+          done
+
           rm -f /usr/local/sbin/systemctl
 
           depmod -a "${EXPECTED_KREL}"
@@ -810,6 +821,9 @@ jobs:
           sudo chroot "$STAGE" /bin/bash /tmp/elish-chroot-setup.sh "${EXPECTED_KREL}"
           sudo rm -f "$STAGE/tmp/elish-chroot-setup.sh"
           sudo umount -lf "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"
+          if [ -e "$STAGE/etc/resolv.conf.elish-bak" ] || [ -L "$STAGE/etc/resolv.conf.elish-bak" ]; then
+            sudo mv -f "$STAGE/etc/resolv.conf.elish-bak" "$STAGE/etc/resolv.conf"
+          fi
 
           INITRD="$STAGE/boot/initrd.img-${EXPECTED_KREL}"
           [ -f "$INITRD" ] || { echo "::error::缺少生成的 initrd: $INITRD"; exit 1; }
