@@ -1,0 +1,468 @@
+name: Build Xiaomi Pad 5 Pro (elish) Deepin CLI Fastboot Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      deepin_rootfs_url:
+        description: "Deepin arm64 docker rootfs 下载 URL"
+        required: true
+        default: "https://github.com/deepin-community/deepin-rootfs/releases/download/v1.6.0/deepin-docker-rootfs-arm64.tar.gz"
+        type: string
+      reuse_kernel_run_id:
+        description: "复用历史 build-kernel 产物的 Workflow Run ID（留空则自动查找最近一次成功产物）"
+        required: false
+        default: ""
+        type: string
+      boot_slot:
+        description: "Linux 启动槽位"
+        required: true
+        default: "boot_b"
+        type: choice
+        options:
+          - boot_b
+          - boot_a
+      default_password:
+        description: "默认 root / deepin 用户登录密码"
+        required: true
+        default: "deepin"
+        type: string
+      publish_release:
+        description: "是否自动发布到 GitHub Releases"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_KREL: "6.18.44-current-sm8250"
+  BOOT_SLOT: ${{ inputs.boot_slot || 'boot_b' }}
+
+jobs:
+  build-deepin-cli:
+    name: Build Deepin CLI Fastboot Images (boot-csot.img, boot-boe.img, rootfs.img)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve kernel artifact run ID
+        id: resolve-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RID="${{ inputs.reuse_kernel_run_id }}"
+          if [ -z "$RID" ]; then
+            RID=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '
+              [.artifacts[] | select(.expired == false and .name == "elish-kernel-'"${EXPECTED_KREL}"'-arm64")]
+              | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty
+            ')
+          fi
+          [ -n "$RID" ] || { echo "::error::未找到可复用的内核构建产物，请先运行一次 build-firmware.yml 的 kernel 构建或手动填写 reuse_kernel_run_id"; exit 1; }
+          echo "Reusing kernel artifact from Workflow Run ID: $RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: elish-kernel-${{ env.EXPECTED_KREL }}-arm64
+          path: /tmp/artifacts
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.resolve-run.outputs.run_id }}
+
+      - name: Set up QEMU for arm64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Install host image-building tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            curl xz-utils zstd tar e2fsprogs mkbootimg android-sdk-libsparse-utils \
+            util-linux qemu-user-static binfmt-support uuid-runtime initramfs-tools git python3
+
+      - name: Download Deepin arm64 rootfs & linux-firmware (QCA6390/A650/regdb)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dl
+          curl -fL --retry 3 -o /tmp/dl/deepin-rootfs.tar.gz "${{ inputs.deepin_rootfs_url }}"
+          # 仅拉取 QCA6390 WiFi/BT、Adreno A650 与无线 regdb 所需固件，避免容器底包缺少 /lib/firmware
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git /tmp/linux-fw
+          git -C /tmp/linux-fw sparse-checkout set ath11k/QCA6390 qca qcom/a650_sqe.fw qcom/a650_gmu.bin regulatory.db regulatory.db.p7s
+
+      - name: Assemble Deepin CLI rootfs, compile CLI drivers & build boot/rootfs images
+        run: |
+          set -euo pipefail
+          STAGE="/tmp/deepin-rootfs"
+          sudo rm -rf "$STAGE" && mkdir -p "$STAGE"
+          sudo tar --numeric-owner -xzf /tmp/dl/deepin-rootfs.tar.gz -C "$STAGE"
+
+          # 1) 注入内核、模块、DTB 与 initramfs hook
+          KEXTR="/tmp/k-unpack"
+          mkdir -p "$KEXTR"
+          tar -xzf "/tmp/artifacts/elish-kernel-${EXPECTED_KREL}-arm64.tar.gz" -C "$KEXTR"
+
+          sudo mkdir -p "$STAGE/boot" "$STAGE/usr/lib/modules" "$STAGE/etc/modules-load.d" \
+            "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom" "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom" \
+            "$STAGE/usr/lib/firmware" "$STAGE/opt/xiaomi-elish-driver-pack"
+
+          sudo cp -a "$KEXTR/boot/vmlinuz-${EXPECTED_KREL}" "$STAGE/boot/vmlinuz-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/boot/config-${EXPECTED_KREL}"  "$STAGE/boot/config-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/boot/System.map-${EXPECTED_KREL}" "$STAGE/boot/System.map-${EXPECTED_KREL}"
+          sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/usr/lib/modules/${EXPECTED_KREL}"
+          if [ ! -L "$STAGE/lib" ] && [ ! -L "$STAGE/lib/modules" ]; then
+            sudo mkdir -p "$STAGE/lib/modules"
+            sudo cp -a "$KEXTR/rootfs/lib/modules/${EXPECTED_KREL}" "$STAGE/lib/modules/${EXPECTED_KREL}"
+          fi
+
+          sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" \
+            "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
+          sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-csot.dtb" \
+            "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-csot.dtb"
+          if [ -f "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" ]; then
+            sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" \
+              "$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
+            sudo install -m 0644 "$KEXTR/dtb/sm8250-xiaomi-elish-boe.dtb" \
+              "$STAGE/boot/dtb-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-boe.dtb"
+          fi
+
+          sudo install -D -m 0755 "$KEXTR/initramfs-hooks/xiaomi-elish-firmware" \
+            "$STAGE/etc/initramfs-tools/hooks/xiaomi-elish-firmware"
+          printf 'goodix_fp_spi\n' | sudo tee "$STAGE/etc/modules-load.d/goodix-fp.conf" >/dev/null
+          printf 'airoha_gps\n'    | sudo tee "$STAGE/etc/modules-load.d/airoha-gps.conf" >/dev/null
+
+          # 2) 注入 WiFi/BT/GPU/regdb 固件与 SLPI 固件
+          FW_DST="$STAGE/usr/lib/firmware"
+          [ -L "$STAGE/lib" ] || FW_DST="$STAGE/lib/firmware"
+          sudo mkdir -p "$FW_DST/ath11k" "$FW_DST/qca" "$FW_DST/qcom/sm8250/xiaomi/elish"
+          sudo cp -a /tmp/linux-fw/ath11k/QCA6390 "$FW_DST/ath11k/"
+          sudo cp -a /tmp/linux-fw/qca/* "$FW_DST/qca/"
+          sudo cp -a /tmp/linux-fw/qcom/a650_* "$FW_DST/qcom/"
+          sudo cp -a /tmp/linux-fw/regulatory.db* "$FW_DST/" || true
+          sudo ln -sfn /run/sensor-fw/slpi.mbn "$FW_DST/qcom/sm8250/xiaomi/elish/slpi.mbn"
+
+          SLPI_URL="https://raw.githubusercontent.com/lujianhua/xiaomi-elish-firmware/refs/heads/master/sm8250/slpi.mbn"
+          if [ -n "$SLPI_URL" ]; then
+            sudo mkdir -p "$STAGE/usr/share/qcom-ssc-elish"
+            sudo curl -fL --retry 3 -o "$STAGE/usr/share/qcom-ssc-elish/slpi.mbn" "$SLPI_URL"
+            sudo chmod 0444 "$STAGE/usr/share/qcom-ssc-elish/slpi.mbn"
+          fi
+
+          # 3) 写入系统基础配置（hostname / fstab / armbianEnv.txt / ld.so.conf）
+          ROOT_UUID=$(uuidgen)
+          echo "Generated rootfs UUID: $ROOT_UUID (slot=$BOOT_SLOT)"
+          printf 'xiaomi-elish\n' | sudo tee "$STAGE/etc/hostname" >/dev/null
+          printf '127.0.0.1\tlocalhost\n127.0.1.1\txiaomi-elish\n' | sudo tee "$STAGE/etc/hosts" >/dev/null
+          printf 'UUID=%s\t/\text4\tdefaults,noatime,commit=600,errors=remount-ro\t0\t1\n' "$ROOT_UUID" \
+            | sudo tee "$STAGE/etc/fstab" >/dev/null
+          printf 'abl_boot_partition_label=%s\nextraargs=console=tty0\n' "$BOOT_SLOT" \
+            | sudo tee "$STAGE/boot/armbianEnv.txt" >/dev/null
+          printf '%s\n' "/usr/local/lib/aarch64-linux-gnu" "/usr/local/lib" \
+            | sudo tee "$STAGE/etc/ld.so.conf.d/elish-local.conf" >/dev/null
+
+          sudo cp -a "${GITHUB_WORKSPACE}/." "$STAGE/opt/xiaomi-elish-driver-pack/"
+
+          # 4) 写入辅助脚本（systemctl 垫片、蓝牙/WiFi 固定 MAC、chroot 构建脚本）
+          sudo tee "$STAGE/usr/local/sbin/systemctl" >/dev/null <<'SHIM'
+          #!/bin/bash
+          case "${1:-}" in
+            enable|disable|is-enabled|mask|unmask|set-default) exec /usr/bin/systemctl "$@" ;;
+            daemon-reload|start|stop|restart|reload|try-restart) exit 0 ;;
+            *) /usr/bin/systemctl "$@" 2>/dev/null || exit 0 ;;
+          esac
+          SHIM
+          sudo chmod +x "$STAGE/usr/local/sbin/systemctl"
+
+          sudo tee "$STAGE/usr/local/sbin/elish-bt-mac.sh" >/dev/null <<'BTMAC'
+          #!/bin/bash
+          set -eu
+          for _ in $(seq 1 30); do [ -e /sys/class/bluetooth/hci0 ] && break; sleep 0.5; done
+          [ -e /sys/class/bluetooth/hci0 ] || exit 0
+          CUR=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || true)
+          case "${CUR,,}" in 00:00:00:00:5a:ad|00:00:00:00:00:00|"") ;; *) exit 0 ;; esac
+          MID=$(cat /etc/machine-id 2>/dev/null || echo 112233445566778899aabbccddeeff00)
+          python3 - "$MID" <<'PY' || true
+          import socket, struct, sys
+          m = sys.argv[1].strip()
+          s = socket.socket(31, 3, 1)
+          s.bind((0xffff, 3))
+          s.settimeout(3)
+          mac = bytes([int(m[8:10], 16), int(m[6:8], 16), int(m[4:6], 16), int(m[2:4], 16), int(m[0:2], 16), 0x02])
+          s.sendall(struct.pack("<HHH6s", 0x0039, 0, 6, mac))
+          s.recv(1024)
+          PY
+          hciconfig hci0 up >/dev/null 2>&1 || true
+          BTMAC
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-bt-mac.sh"
+
+          sudo tee "$STAGE/etc/systemd/system/elish-bt-mac.service" >/dev/null <<'BTSVC'
+          [Unit]
+          Description=Set valid QCA6390 Bluetooth MAC from machine-id
+          Before=bluetooth.service
+          After=local-fs.target
+
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=20
+          ExecStart=/usr/local/sbin/elish-bt-mac.sh
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=bluetooth.target multi-user.target
+          BTSVC
+
+          sudo tee "$STAGE/usr/local/sbin/elish-wifi-mac.sh" >/dev/null <<'WIFIMAC'
+          #!/bin/bash
+          set -eu
+          CONF=/etc/elish-wifi-mac
+          if [ ! -s "$CONF" ]; then
+            MID=$(cat /etc/machine-id 2>/dev/null || true)
+            if [ "${#MID}" -ge 20 ]; then
+              MAC="02:${MID:10:2}:${MID:12:2}:${MID:14:2}:${MID:16:2}:${MID:18:2}"
+            else
+              MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
+            fi
+            printf '%s\n' "$MAC" > "$CONF"
+            chmod 0644 "$CONF"
+          fi
+          MAC=$(head -n1 "$CONF" | tr -d '\r\n')
+          for _ in $(seq 1 30); do
+            IFACE=$(ls -d /sys/class/net/*/wireless 2>/dev/null | head -n1 | cut -d/ -f5 || true)
+            [ -n "$IFACE" ] && break
+            sleep 0.5
+          done
+          [ -n "${IFACE:-}" ] || exit 0
+          CUR=$(cat "/sys/class/net/${IFACE}/address" 2>/dev/null || true)
+          if [ "${CUR,,}" != "${MAC,,}" ]; then
+            ip link set dev "$IFACE" down 2>/dev/null || true
+            ip link set dev "$IFACE" address "$MAC" 2>/dev/null || true
+            ip link set dev "$IFACE" up 2>/dev/null || true
+          fi
+          WIFIMAC
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-wifi-mac.sh"
+
+          sudo tee "$STAGE/etc/systemd/system/elish-wifi-mac.service" >/dev/null <<'WIFISVC'
+          [Unit]
+          Description=Persist fixed WiFi MAC address across reboots
+          Before=NetworkManager.service wpa_supplicant.service network-pre.target
+          After=local-fs.target
+
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=20
+          ExecStart=/usr/local/sbin/elish-wifi-mac.sh
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+          WIFISVC
+
+          sudo tee "$STAGE/tmp/deepin-chroot-setup.sh" >/dev/null <<'CHROOT_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          EXPECTED_KREL="$1"
+          DEFAULT_PASS="$2"
+
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          # 安装真机启动与终端基础系统必需包（无任何 GUI/桌面）
+          apt-get install -y \
+            systemd systemd-sysv udev dbus initramfs-tools kmod e2fsprogs \
+            sudo openssh-server network-manager wpasupplicant bluez rfkill \
+            iproute2 iputils-ping curl ca-certificates git nano usbutils pciutils \
+            build-essential gcc make meson ninja-build pkg-config python3 python3-pip \
+            libglib2.0-dev libgudev-1.0-dev libpolkit-gobject-1-dev libqmi-glib-dev \
+            libmbim-glib-dev libqrtr-glib-dev libprotobuf-c-dev protobuf-c-compiler \
+            protobuf-compiler libssl-dev libsystemd-dev systemd-dev gpsd gpsd-clients \
+            libprotobuf-c1 libqmi-glib5 libqrtr-glib0
+
+          pip3 install --break-system-packages --upgrade "meson>=1.4.0" || true
+          hash -r
+
+          # 在 deepin 容器内原生编译 CLI/守护进程用户态组件（ABI 100% 匹配 deepin）
+          BUILD=/tmp/deepin-build
+          mkdir -p "$BUILD"
+          PACK=/opt/xiaomi-elish-driver-pack
+
+          git clone --depth 1 --branch v0.3.2 https://github.com/linux-msm/hexagonrpc.git "$BUILD/hexagonrpc"
+          for p in \
+            0001-hexrpc-0.3.2-warm-attach.patch \
+            0003-hexagonrpcd-add-writable-hexagonfs.patch \
+            0004-hexagonrpcd-support-writable-sensor-registry.patch \
+            0005-hexagonrpcd-support-large-and-extended-callbacks.patch; do
+            git -C "$BUILD/hexagonrpc" apply "$PACK/sensors/userspace/hexrpc/patches/$p"
+          done
+          meson setup "$BUILD/hexagonrpc/build" "$BUILD/hexagonrpc" --prefix=/opt/hexrpc-032b
+          ninja -C "$BUILD/hexagonrpc/build" install
+          install -D -m 0755 "$BUILD/hexagonrpc/build/hexagonrpcd/hexagonrpcd" /opt/hexrpc-032b/bin/hexagonrpcd.writable-v1
+
+          git clone https://codeberg.org/mmcallister/libssc.git "$BUILD/libssc"
+          git -C "$BUILD/libssc" checkout -f 4e4c6c8cc702a754bd700506c01961aaf971a23b
+          meson setup "$BUILD/libssc/build" "$BUILD/libssc" --prefix=/usr/local
+          ninja -C "$BUILD/libssc/build" install
+          ldconfig
+          export PKG_CONFIG_PATH="/usr/local/lib/aarch64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
+          git clone https://gitlab.freedesktop.org/hadess/iio-sensor-proxy.git "$BUILD/iio-sensor-proxy"
+          git -C "$BUILD/iio-sensor-proxy" checkout -f ca0d5b0
+          git -C "$BUILD/iio-sensor-proxy" apply "$PACK/sensors/userspace/iio-sensor-proxy/patches/0001-iio-sensor-proxy-hotplug-stayalive.patch"
+          meson setup "$BUILD/iio-sensor-proxy/build" "$BUILD/iio-sensor-proxy" --prefix=/usr -Dssc-support=enabled
+          ninja -C "$BUILD/iio-sensor-proxy/build" install
+
+          make -C "$PACK/fingerprint/src/qsee-supplicant" install-bin install-systemd install-doc
+          make -C "$PACK/gnss/userspace" install
+
+          # 集成传感器 / GNSS / pogo / qsee 系统服务（CLI 模式）
+          bash "$PACK/sensors/install/install-system-files.sh" || true
+          bash "$PACK/gnss/install/install.sh" || true
+          bash "$PACK/pogo/install.sh" --yes || true
+
+          mkdir -p /etc/NetworkManager/conf.d
+          printf '[device]\nwifi.scan-rand-mac-address=no\n\n[connection]\nwifi.cloned-mac-address=preserve\n' \
+            > /etc/NetworkManager/conf.d/99-elish-wifi-mac.conf
+
+          mkdir -p /etc/ssh/sshd_config.d
+          printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/99-elish.conf
+
+          # 设置 root 与 deepin 默认账户密码，并启用核心终端服务
+          echo "root:${DEFAULT_PASS}" | chpasswd
+          if ! id -u deepin >/dev/null 2>&1; then
+            useradd -m -s /bin/bash -G sudo,video,audio,input,plugdev,netdev,bluetooth deepin
+          fi
+          echo "deepin:${DEFAULT_PASS}" | chpasswd
+
+          /usr/bin/systemctl set-default multi-user.target
+          /usr/bin/systemctl enable NetworkManager.service bluetooth.service ssh.service \
+            elish-bt-mac.service elish-wifi-mac.service getty@tty1.service || true
+
+          # 清理编译缓存与临时构建工具包（保留运行库，瘦身 rootfs）
+          rm -rf "$BUILD" /var/lib/apt/lists/* /tmp/* /usr/local/sbin/systemctl
+          ldconfig
+          depmod -a "${EXPECTED_KREL}"
+          rm -f "/boot/initrd.img-${EXPECTED_KREL}"
+          update-initramfs -c -k "${EXPECTED_KREL}"
+          CHROOT_SCRIPT
+          sudo chmod +x "$STAGE/tmp/deepin-chroot-setup.sh"
+
+          if [ -L "$STAGE/etc/resolv.conf" ] || [ -f "$STAGE/etc/resolv.conf" ]; then
+            sudo mv -f "$STAGE/etc/resolv.conf" "$STAGE/etc/resolv.conf.elish-bak"
+          fi
+          sudo cp -L /etc/resolv.conf "$STAGE/etc/resolv.conf"
+          sudo cp -a /usr/bin/qemu-aarch64-static "$STAGE/usr/bin/qemu-aarch64-static"
+          sudo mount --bind /proc "$STAGE/proc"
+          sudo mount --bind /sys "$STAGE/sys"
+          sudo mount --bind /dev "$STAGE/dev"
+          sudo mount --bind /dev/pts "$STAGE/dev/pts"
+
+          sudo chroot "$STAGE" /bin/bash /tmp/deepin-chroot-setup.sh "${EXPECTED_KREL}" "${{ inputs.default_password }}"
+
+          sudo rm -f "$STAGE/tmp/deepin-chroot-setup.sh" "$STAGE/usr/bin/qemu-aarch64-static"
+          sudo umount -lf "$STAGE/dev/pts" "$STAGE/dev" "$STAGE/proc" "$STAGE/sys"
+          if [ -e "$STAGE/etc/resolv.conf.elish-bak" ] || [ -L "$STAGE/etc/resolv.conf.elish-bak" ]; then
+            sudo mv -f "$STAGE/etc/resolv.conf.elish-bak" "$STAGE/etc/resolv.conf"
+          fi
+
+          INITRD="$STAGE/boot/initrd.img-${EXPECTED_KREL}"
+          [ -f "$INITRD" ] || { echo "::error::缺少 initrd: $INITRD"; exit 1; }
+
+          # 5) 打包 boot-csot.img / boot-boe.img 与 rootfs.img
+          OUT_FW="${GITHUB_WORKSPACE}/dist/deepin-cli-firmware"
+          mkdir -p "$OUT_FW"
+          CMDLINE="root=UUID=${ROOT_UUID} slot_suffix=${BOOT_SLOT#boot} console=tty0 rw"
+
+          GKI_FILE=$(find /usr -name generate_gki_certificate.py 2>/dev/null | head -n1 || true)
+          if [ -n "$GKI_FILE" ]; then
+            export PYTHONPATH="$(dirname "$(dirname "$GKI_FILE")")${PYTHONPATH:+:$PYTHONPATH}"
+          fi
+          if ! mkbootimg --help >/dev/null 2>&1; then
+            git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg /tmp/aosp-mkbootimg
+            mkbootimg() { python3 /tmp/aosp-mkbootimg/mkbootimg.py "$@"; }
+          fi
+
+          gzip -c "$STAGE/boot/vmlinuz-${EXPECTED_KREL}" > /tmp/Image.gz
+          for panel in csot boe; do
+            DTB_PATH="$STAGE/usr/lib/linux-image-${EXPECTED_KREL}/qcom/sm8250-xiaomi-elish-${panel}.dtb"
+            if [ -f "$DTB_PATH" ]; then
+              cat /tmp/Image.gz "$DTB_PATH" > "/tmp/Image.gz-dtb-${panel}"
+              mkbootimg \
+                --kernel "/tmp/Image.gz-dtb-${panel}" \
+                --ramdisk "$INITRD" \
+                --base 0x0 \
+                --second_offset 0x00f00000 \
+                --cmdline "$CMDLINE" \
+                --kernel_offset 0x8000 \
+                --ramdisk_offset 0x1000000 \
+                --tags_offset 0x100 \
+                --pagesize 4096 \
+                -o "$OUT_FW/boot-${panel}.img"
+              rm -f "/tmp/Image.gz-dtb-${panel}"
+            fi
+          done
+          rm -f /tmp/Image.gz
+
+          USED_MB=$(sudo du -sm "$STAGE" | awk '{print $1}')
+          IMG_MB=$((USED_MB + 1024))
+          truncate -s "${IMG_MB}M" "$OUT_FW/rootfs.raw.img"
+          sudo mkfs.ext4 -F -U "$ROOT_UUID" -L deepin_root -d "$STAGE" "$OUT_FW/rootfs.raw.img"
+          sudo e2fsck -fy "$OUT_FW/rootfs.raw.img" || true
+          img2simg "$OUT_FW/rootfs.raw.img" "$OUT_FW/rootfs.img"
+          rm -f "$OUT_FW/rootfs.raw.img"
+          sudo rm -rf "$STAGE"
+
+          cat > "$OUT_FW/FLASH-README.txt" <<EOF
+          Xiaomi Pad 5 Pro (elish) Deepin CLI 终端版 Fastboot 刷机说明
+          ==============================================================
+          默认账户：root / ${{ inputs.default_password }} ，普通用户：deepin / ${{ inputs.default_password }}
+
+          fastboot set_active ${BOOT_SLOT#boot_}
+          fastboot erase dtbo_${BOOT_SLOT#boot_}
+          fastboot flash ${BOOT_SLOT} boot-csot.img
+          fastboot flash linux rootfs.img
+          fastboot reboot
+          EOF
+
+          REL_DIR="${GITHUB_WORKSPACE}/dist/deepin-release"
+          mkdir -p "$REL_DIR"
+          [ -f "$OUT_FW/boot-csot.img" ] && tar -C "$OUT_FW" -czf "$REL_DIR/boot-csot.img.tar.gz" boot-csot.img FLASH-README.txt
+          [ -f "$OUT_FW/boot-boe.img" ]  && tar -C "$OUT_FW" -czf "$REL_DIR/boot-boe.img.tar.gz" boot-boe.img FLASH-README.txt
+          tar -C "$OUT_FW" -czf "$REL_DIR/elish-deepin-cli-${BOOT_SLOT}.tar.gz" rootfs.img FLASH-README.txt
+          (cd "$REL_DIR" && sha256sum * > SHA256SUMS.txt)
+
+      - name: Upload Deepin CLI firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: elish-deepin-cli-${{ env.BOOT_SLOT }}
+          path: dist/deepin-release/*
+          retention-days: 30
+
+  release:
+    name: Publish Deepin CLI Release
+    needs: [build-deepin-cli]
+    if: ${{ !failure() && !cancelled() && inputs.publish_release }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: elish-deepin-cli-${{ env.BOOT_SLOT }}
+          path: release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deepin-cli-${{ env.BOOT_SLOT }}-r${{ github.run_number }}
+          name: "Xiaomi Pad 5 Pro (elish) Deepin 终端版固件 (${{ env.EXPECTED_KREL }} / ${{ env.BOOT_SLOT }})"
+          files: |
+            release-assets/boot-*.img.tar.gz
+            release-assets/elish-deepin-cli-*.tar.gz
+            release-assets/SHA256SUMS.txt
