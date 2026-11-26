@@ -760,6 +760,61 @@ jobs:
           WantedBy=bluetooth.target multi-user.target
           BTSVC
 
+          sudo tee "$STAGE/usr/local/sbin/elish-wifi-mac.sh" >/dev/null <<'WIFIMAC'
+          #!/bin/bash
+          set -eu
+          CONF=/etc/elish-wifi-mac
+          if [ ! -s "$CONF" ]; then
+            MID=$(cat /etc/machine-id 2>/dev/null || true)
+            if [ "${#MID}" -ge 20 ]; then
+              MAC="02:${MID:10:2}:${MID:12:2}:${MID:14:2}:${MID:16:2}:${MID:18:2}"
+            else
+              MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
+            fi
+            printf '%s\n' "$MAC" > "$CONF"
+            chmod 0644 "$CONF"
+          fi
+          MAC=$(head -n1 "$CONF" | tr -d '\r\n')
+          for _ in $(seq 1 30); do
+            IFACE=$(ls -d /sys/class/net/*/wireless 2>/dev/null | head -n1 | cut -d/ -f5 || true)
+            [ -n "$IFACE" ] && break
+            sleep 0.5
+          done
+          [ -n "${IFACE:-}" ] || exit 0
+          CUR=$(cat "/sys/class/net/${IFACE}/address" 2>/dev/null || true)
+          if [ "${CUR,,}" != "${MAC,,}" ]; then
+            ip link set dev "$IFACE" down 2>/dev/null || true
+            ip link set dev "$IFACE" address "$MAC" 2>/dev/null || true
+            ip link set dev "$IFACE" up 2>/dev/null || true
+          fi
+          WIFIMAC
+          sudo chmod +x "$STAGE/usr/local/sbin/elish-wifi-mac.sh"
+
+          sudo mkdir -p "$STAGE/etc/NetworkManager/conf.d"
+          sudo tee "$STAGE/etc/NetworkManager/conf.d/99-elish-wifi-mac.conf" >/dev/null <<'NMCONF'
+          [device]
+          wifi.scan-rand-mac-address=no
+
+          [connection]
+          wifi.cloned-mac-address=preserve
+          NMCONF
+
+          sudo tee "$STAGE/etc/systemd/system/elish-wifi-mac.service" >/dev/null <<'WIFISVC'
+          [Unit]
+          Description=Persist fixed WiFi MAC address across reboots
+          Before=NetworkManager.service wpa_supplicant.service network-pre.target
+          After=local-fs.target
+
+          [Service]
+          Type=oneshot
+          TimeoutStartSec=20
+          ExecStart=/usr/local/sbin/elish-wifi-mac.sh
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+          WIFISVC
+
           sudo tee "$STAGE/tmp/elish-chroot-setup.sh" >/dev/null <<'CHROOT_SCRIPT'
           #!/bin/bash
           set -euo pipefail
@@ -804,6 +859,7 @@ jobs:
           /usr/bin/systemctl enable elish-sensors-resume.service || true
           /usr/bin/systemctl enable bioauthd.service 2>/dev/null || true
           /usr/bin/systemctl enable elish-bt-mac.service || true
+          /usr/bin/systemctl enable elish-wifi-mac.service || true
           /usr/bin/systemctl set-default graphical.target || true
 
           # 默认锁定内核、固件与 libfprint 包，防止 apt upgrade 覆盖驱动包改动
