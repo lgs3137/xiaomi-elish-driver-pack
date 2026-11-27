@@ -93,6 +93,10 @@
   timeout=30`，一次 mismatch 后 worker 仍占着 fprintd；GDM 再起一个
   fingerprint worker 时报 `Device was already claimed`。`gdm-fingerprint` 已改
   为 `max-tries=1 timeout=10`，失败/超时后尽快 Release。
+  - 为什么以前不明显：旧驱动第一次失败常以 TA `-22` 退出，PAM worker 很快
+    Release；现在驱动能继续等下一次按压，worker 会一直占 claim 到
+    `max-tries * timeout`（最长 90 s），GDM stock 的 3×30 s 才暴露出来。
+    08:44（驱动修复前）的 Claim denied 说明这是旧问题，不是新驱动引入的。
 - 恢复（不重启）：`sudo systemctl restart qsee-app-loader@gfenu`；
   已部署 `fp-ta-watchdog` 自动做（依赖 libfprint 日志补丁）。
 - `fp-ta-watchdog` 现在区分：`-22`/QSEE refusal → 重载 loader；只有真正的
