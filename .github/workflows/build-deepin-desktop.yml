@@ -818,6 +818,5 @@ jobs:
         with:
           tag_name: deepin-desktop-${{ env.BOOT_SLOT }}-run-${{ github.run_number }}
           name: "Deepin 25 Desktop (${{ env.BOOT_SLOT }}) #${{ github.run_number }}"
+          body_path: dist/deepin-desktop-release/FLASH-README.txt
           files: dist/deepin-desktop-release/*
-          draft: false
-          prerelease: true
