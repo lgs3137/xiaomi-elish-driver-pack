@@ -1,7 +1,11 @@
 #%PAM-1.0
 auth    requisite       pam_nologin.so
 auth	required	pam_succeed_if.so user != root quiet_success
-auth	required	pam_fprintd.so
+# Release the fprintd claim promptly.  The stock max-tries=3/timeout=30 keeps
+# the PAM worker (and its claim) alive after one mismatch; GDM then starts a
+# second fingerprint worker and gets "Device was already claimed", which looks
+# like fingerprint died after a single failed unlock.
+auth	required	pam_fprintd.so max-tries=1 timeout=10
 auth    optional        pam_gnome_keyring.so
 @include common-account
 # SELinux needs to be the first session rule. This ensures that any 

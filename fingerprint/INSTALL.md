@@ -145,6 +145,17 @@ Ubuntu 24.04 自带 `/etc/pam.d/gdm-fingerprint`；确认设置：
 gsettings get org.gnome.login-screen enable-fingerprint-authentication   # true
 ```
 
+并把 `pam_fprintd` 行改为：
+
+```pam
+auth	required	pam_fprintd.so max-tries=1 timeout=10
+```
+
+默认的 `max-tries=3 timeout=30` 在一次 mismatch 后仍让 PAM worker 占着
+fprintd；GDM 随后再起一个 fingerprint worker 就会收到
+`Device was already claimed`，表现就是“解锁失败一次后指纹就不能用了”。
+`max-tries=1 timeout=10` 让第一次失败/超时后尽快 `Release`。
+
 `Super+L` 锁屏 → 密码框旁出现指纹图标 → 按压解锁。
 
 ## 8. 安装系统集成（udev/systemd/脚本）
