@@ -267,7 +267,14 @@ jobs:
 
           FW_DST="$STAGE/usr/lib/firmware"
           [ -L "$STAGE/lib" ] || FW_DST="$STAGE/lib/firmware"
-          sudo mkdir -p "$FW_DST/ath11k" "$FW_DST/qca" "$FW_DST/qcom/sm8250/xiaomi/elish"
+          clone_pmaports_ucm() {
+            rm -rf "$WORK/pmaports"
+            git clone --depth 1 --filter=blob:none --sparse https://gitlab.postmarketos.org/postmarketOS/pmaports.git "$WORK/pmaports" &&
+            git -C "$WORK/pmaports" sparse-checkout set device/testing/device-xiaomi-elish device/community/device-xiaomi-elish
+          }
+          retry_cmd clone_pmaports_ucm
+
+          sudo mkdir -p "$FW_DST/ath11k" "$FW_DST/qca" "$FW_DST/qcom/sm8250/xiaomi/elish" "$FW_DST/novatek" "$FW_DST/cirrus"
           sudo cp -a "$WORK/linux-fw/ath11k/QCA6390" "$FW_DST/ath11k/"
           sudo cp -a "$WORK/linux-fw/qca/"* "$FW_DST/qca/"
           sudo cp -a "$WORK/linux-fw/qcom/a650_"* "$FW_DST/qcom/"
@@ -275,8 +282,30 @@ jobs:
           for fwpat in adsp cdsp venus a650_zap; do
             sudo cp -a "$WORK/elish-fw/sm8250/${fwpat}"* "$FW_DST/qcom/sm8250/xiaomi/elish/" 2>/dev/null || true
           done
+          sudo cp -a "$WORK/elish-fw/novatek/"* "$FW_DST/novatek/" 2>/dev/null || true
+          sudo cp -a "$WORK/elish-fw/cirrus/cs35l41"* "$FW_DST/cirrus/" 2>/dev/null || true
           sudo ln -sfn /run/sensor-fw/slpi.mbn "$FW_DST/qcom/sm8250/xiaomi/elish/slpi.mbn"
-          rm -rf "$WORK/linux-fw" "$WORK/elish-fw"
+          if [ -d "$WORK/elish-fw/hexagonfs/sensors" ] && [ -f "$WORK/elish-fw/sm8250/slpi.mbn" ]; then
+            sudo rm -rf "$STAGE/usr/share/qcom-ssc-elish"
+            sudo mkdir -p "$STAGE/usr/share/qcom-ssc-elish"
+            sudo cp -a "$WORK/elish-fw/hexagonfs/sensors" "$STAGE/usr/share/qcom-ssc-elish/"
+            [ -d "$WORK/elish-fw/hexagonfs/socinfo" ] && sudo cp -a "$WORK/elish-fw/hexagonfs/socinfo" "$STAGE/usr/share/qcom-ssc-elish/"
+            sudo cp -a "$WORK/elish-fw/sm8250/slpi.mbn" "$STAGE/usr/share/qcom-ssc-elish/slpi.mbn"
+            sudo chown -R root:root "$STAGE/usr/share/qcom-ssc-elish"
+            sudo find "$STAGE/usr/share/qcom-ssc-elish" -type d -exec chmod 0555 {} +
+            sudo find "$STAGE/usr/share/qcom-ssc-elish" -type f -exec chmod 0444 {} +
+          fi
+
+          sudo mkdir -p "$STAGE/usr/share/alsa/ucm2/Xiaomi/elish" "$STAGE/usr/share/alsa/ucm2/conf.d/sm8250"
+          for ucm_dir in "$WORK/pmaports/device/testing/device-xiaomi-elish/alsa-ucm-conf" "$WORK/pmaports/device/community/device-xiaomi-elish/alsa-ucm-conf" "$WORK/pmaports/device/community/device-xiaomi-elish"; do
+            if [ -f "$ucm_dir/HiFi.conf" ] && [ -f "$ucm_dir/elish.conf" ]; then
+              sudo cp -a "$ucm_dir/HiFi.conf" "$ucm_dir/elish.conf" "$STAGE/usr/share/alsa/ucm2/Xiaomi/elish/"
+              sudo sed -i -E "s/(cset \"name='([A-Z]+) )Analog PCM Volume' 18\"/\1Analog PCM Volume' 10\"\n                \1Digital PCM Volume' 780\"/g" "$STAGE/usr/share/alsa/ucm2/Xiaomi/elish/HiFi.conf"
+              sudo ln -sf ../../Xiaomi/elish/elish.conf "$STAGE/usr/share/alsa/ucm2/conf.d/sm8250/Xiaomi Mi Pad 5 Pro.conf"
+              break
+            fi
+          done
+          rm -rf "$WORK/linux-fw" "$WORK/elish-fw" "$WORK/pmaports"
 
           if [ "$DIRECT_EXT4" = 1 ]; then
             ROOT_UUID=$(sudo blkid -s UUID -o value "$RAW_IMG")
@@ -318,16 +347,7 @@ jobs:
           }
           BT_MAC=$(cat "$MAC_FILE")
           rfkill unblock bluetooth || true
-          python3 - "$BT_MAC" <<'PY'
-          import socket, struct, sys
-          mac_bytes = bytes(int(x, 16) for x in reversed(sys.argv[1].split(':')))
-          s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
-          s.bind((0xFFFF, 1))
-          s.settimeout(5)
-          s.sendall(struct.pack('<HHH6s', 0x0039, 0, 6, mac_bytes))
-          s.recv(64)
-          s.close()
-          PY
+          timeout 10 btmgmt --index 0 public-addr "$BT_MAC" || true
           hciconfig hci0 up || true
           BTMAC
           sudo chmod +x "$STAGE/usr/local/sbin/elish-bt-mac.sh"
@@ -360,8 +380,14 @@ jobs:
           PY
           }
           WIFI_MAC=$(cat "$MAC_FILE")
-          IFACE=$(ls /sys/class/net 2>/dev/null | grep -E '^wl' | head -n1 || true)
+          IFACE=""
+          for _ in $(seq 1 30); do
+            IFACE=$(ls /sys/class/net 2>/dev/null | grep -E '^wl' | head -n1 || true)
+            [ -n "$IFACE" ] && break
+            sleep 0.5
+          done
           [ -n "$IFACE" ] || exit 0
+          sleep 0.5
           ip link set "$IFACE" down 2>/dev/null || true
           ip link set "$IFACE" address "$WIFI_MAC" 2>/dev/null || true
           ip link set "$IFACE" up 2>/dev/null || true
@@ -442,6 +468,7 @@ jobs:
           [Unit]
           Description=Reset Xiaomi Pogo Keyboard GPIO on boot
           After=local-fs.target systemd-udev-settle.service
+          Before=display-manager.service lightdm.service
 
           [Service]
           Type=oneshot
@@ -451,6 +478,120 @@ jobs:
           [Install]
           WantedBy=multi-user.target
           POGOBOOT
+
+          sudo tee "$STAGE/usr/local/bin/elish-autorotate.py" >/dev/null <<'AUTOROT'
+          #!/usr/bin/env python3
+          import re, subprocess, threading, time
+
+          # RandR rotation mask via Deepin Display1: 1=Normal(0°), 8=Right(270°)
+          MAP = {"normal": 1, "right-up": 8}
+          last_applied = None
+          pending_timer = None
+          lock = threading.Lock()
+          rot_lock = threading.Lock()
+
+          def get_monitor_path():
+              out = subprocess.check_output([
+                  "gdbus", "call", "--session", "--dest", "org.deepin.dde.Display1",
+                  "--object-path", "/org/deepin/dde/Display1",
+                  "--method", "org.freedesktop.DBus.Properties.Get",
+                  "org.deepin.dde.Display1", "Monitors"
+              ], text=True)
+              m = re.search(r"(/[^'\"]+)", out)
+              return m.group(1) if m else "/org/deepin/dde/Display1/Monitor_65"
+
+          def apply_rot(orient):
+              global last_applied
+              with rot_lock:
+                  if orient not in MAP or orient == last_applied:
+                      return
+                  rot = MAP[orient]
+                  mon = get_monitor_path()
+                  subprocess.run([
+                      "gdbus", "call", "--session", "--dest", "org.deepin.dde.Display1",
+                      "--object-path", mon,
+                      "--method", "org.deepin.dde.Display1.Monitor.SetRotation", str(rot)
+                  ], check=False, stdout=subprocess.DEVNULL)
+                  subprocess.run([
+                      "gdbus", "call", "--session", "--dest", "org.deepin.dde.Display1",
+                      "--object-path", "/org/deepin/dde/Display1",
+                      "--method", "org.deepin.dde.Display1.ApplyChanges"
+                  ], check=False, stdout=subprocess.DEVNULL)
+                  last_applied = orient
+                  time.sleep(1.5)
+
+          def schedule_rot(orient):
+              global pending_timer
+              with lock:
+                  if pending_timer is not None:
+                      pending_timer.cancel()
+                  pending_timer = threading.Timer(0.8, apply_rot, args=(orient,))
+                  pending_timer.daemon = True
+                  pending_timer.start()
+
+          subprocess.run([
+              "gdbus", "call", "--system", "--dest", "net.hadess.SensorProxy",
+              "--object-path", "/net/hadess/SensorProxy",
+              "--method", "net.hadess.SensorProxy.ClaimAccelerometer"
+          ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+          p = subprocess.Popen(["monitor-sensor"], stdout=subprocess.PIPE, text=True, bufsize=1)
+          for line in p.stdout:
+              m = re.search(r"orientation changed:\s*(\S+)", line)
+              if m:
+                  schedule_rot(m.group(1))
+          AUTOROT
+          sudo chmod +x "$STAGE/usr/local/bin/elish-autorotate.py"
+
+          sudo mkdir -p "$STAGE/etc/xdg/autostart" "$STAGE/etc/polkit-1/rules.d"
+          sudo tee "$STAGE/etc/xdg/autostart/elish-autorotate.desktop" >/dev/null <<'AROTDESK'
+          [Desktop Entry]
+          Type=Application
+          Name=Elish Auto Rotate
+          Exec=/usr/local/bin/elish-autorotate.py
+          OnlyShowIn=DDE;GNOME;XFCE;KDE;
+          X-GNOME-Autostart-enabled=true
+          AROTDESK
+
+          sudo tee "$STAGE/etc/polkit-1/rules.d/50-elish-sensor.rules" >/dev/null <<'POLKIT'
+          polkit.addRule(function(action, subject) {
+              if (action.id == "net.hadess.SensorProxy.claim-sensor") {
+                  return polkit.Result.YES;
+              }
+          });
+          POLKIT
+
+          sudo mkdir -p "$STAGE/etc/wireplumber/wireplumber.conf.d"
+          sudo tee "$STAGE/etc/wireplumber/wireplumber.conf.d/51-elish-audio.conf" >/dev/null <<'WPCONF'
+          monitor.alsa.rules = [
+            {
+              matches = [
+                {
+                  node.name = "~alsa_output.platform-sound.*"
+                }
+              ]
+              actions = {
+                update-props = {
+                  audio.format = "S16"
+                  api.alsa.soft-mixer = true
+                }
+              }
+            }
+          ]
+          WPCONF
+
+          sudo tee "$STAGE/etc/systemd/system/elish-resize-rootfs.service" >/dev/null <<'RESIZESVC'
+          [Unit]
+          Description=Expand root ext4 filesystem to full partition on boot
+          After=local-fs.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/sh -c 'SRC=$(findmnt -n -o SOURCE /); [ -b "$SRC" ] && resize2fs "$SRC" || true'
+
+          [Install]
+          WantedBy=multi-user.target
+          RESIZESVC
 
           sudo tee "$STAGE/tmp/deepin-desktop-chroot.sh" >/dev/null <<'CHROOT_SCRIPT'
           #!/bin/bash
@@ -479,7 +620,7 @@ jobs:
           apt-get update
           apt-get install "${APT_OPTS[@]}" \
             initramfs-tools busybox zstd kmod e2fsprogs openssh-server \
-            usbutils pciutils python3 dnsmasq-base rfkill
+            usbutils pciutils python3 dnsmasq-base rfkill xinput
 
           PACK=/opt/xiaomi-elish-driver-pack
           if [ "$WITH_DRIVERS" = 1 ]; then
@@ -519,6 +660,8 @@ jobs:
             make -C "$PACK/gnss/userspace" -j"$JOBS" install || true
             bash "$PACK/sensors/install/install-system-files.sh" || true
             bash "$PACK/gnss/install/install.sh" || true
+            bash "$PACK/flash-led/install.sh" --yes || true
+            bash "$PACK/camera/install.sh" --yes || true
             rm -rf "$BUILD"
           fi
 
@@ -539,9 +682,9 @@ jobs:
             echo "deepin:${DEFAULT_PASS}" | chpasswd
           fi
 
-          /usr/bin/systemctl mask NetworkManager-wait-online.service || true
+          /usr/bin/systemctl mask NetworkManager-wait-online.service efi.mount || true
           /usr/bin/systemctl enable NetworkManager.service bluetooth.service ssh.service \
-            elish-bt-mac.service elish-wifi-mac.service elish-usb-gadget.service elish-pogo-boot.service || true
+            elish-bt-mac.service elish-wifi-mac.service elish-usb-gadget.service elish-pogo-boot.service elish-resize-rootfs.service || true
 
           rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /usr/local/sbin/systemctl
           ldconfig
