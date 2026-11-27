@@ -297,6 +297,38 @@ def test_auth_timeout():
         sc.stop()
 
 
+def test_command_line_displayed():
+    """The secure screen shows what sudo is about to run, so the user can
+    judge a high-risk command before authenticating."""
+    sc = e2e_lib.Scenario(backend="mock-success", mock_delay=2.0)
+    try:
+        sc.start_auth()
+        app = app_of(sc)
+        assert atspi_util.wait_text_in(app, "命令：", timeout=5), dump(app)
+        assert atspi_util.wait_text_in(app, "pam_auth.py", timeout=5), dump(app)
+        rc, out = sc.wait_auth(timeout=40)
+        assert rc == 0, f"rc={rc}\n{out}\n{sc.logs()}"
+    finally:
+        sc.stop()
+
+
+def test_unavailable_retry_clears_error():
+    """After 指纹不可用 -> 使用指纹, the red error must be cleared before the new
+    attempt; otherwise the stale error makes the retry look broken."""
+    sc = e2e_lib.Scenario(backend="mock-device-error-once", fingerprint_timeout=20)
+    try:
+        sc.start_auth()
+        app = app_of(sc)
+        assert atspi_util.wait_text_in(app, "指纹不可用", timeout=10), dump(app)
+        assert atspi_util.wait_for_widget(app, "使用指纹", timeout=5), dump(app)
+        atspi_util.click_named(app, "使用指纹")
+        assert atspi_util.wait_text_out(app, "指纹不可用", timeout=5), dump(app)
+        rc, out = sc.wait_auth(timeout=40)
+        assert rc == 0, f"rc={rc}\n{out}\n{sc.logs()}"
+    finally:
+        sc.stop()
+
+
 SCENARIOS = [
     test_fingerprint_success,
     test_lockout_then_password,
@@ -305,6 +337,8 @@ SCENARIOS = [
     test_helper_without_ready_falls_back,
     test_cancel_button,
     test_unavailable_promotes_password,
+    test_command_line_displayed,
+    test_unavailable_retry_clears_error,
     test_password_tries_exhausted,
     test_idle_scan_timeout_not_counted,
     test_auth_timeout,

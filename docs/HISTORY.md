@@ -4,6 +4,28 @@
 > 当前状态以 [`HARDWARE-STATUS.md`](HARDWARE-STATUS.md) 为准，未完成项见 [`TODO.md`](TODO.md)；
 > 安装/校验/协议细节见各子包文档。文中日期为事件发生时间。
 
+## 2026-11-27 — sudo 指纹“不可用”根因修复 + bioauth 交互优化
+
+- **根因**：`goodixqsee` 在 mismatch/质量错误后只把 `armed` 清掉，既不发
+  `AUTHENTICATE_FINISH` 也不发 `CANCEL`，TA 留在 armed 状态；bioauth 每 ~3 s
+  自动重试，下一次 `AUTHENTICATE`/`IRQ` 撞上坏状态，TZ 返回 `-22`，整个 TA 需
+  重载。实测本次 boot 73 次指纹尝试中 8 次 `unavailable`（11%），其中 5 次
+  发生在 mismatch 后 3–4 s；8 次都对应 `scm call failed -22` + loader 重载。
+- **驱动修复**：mismatch 后显式 `CANCEL`；`QSEE invoke` 错误带命令号
+  （1010/1016/1086）；armed 后上报 `FP_FINGER_STATUS_NEEDED`，fprintd 暴露
+  `finger-needed`，bioauthd 据此给 UI 发 `fingerprint_armed`。另外在
+  AUTHENTICATE 前 `drain_pending_irq()`，丢弃 bring-up 期间早按手指锁存的
+  IRQ 边沿（这是 11:41 首次真实复测仍出现 `cmd 1016` 的直接原因）。
+- **bioauth 交互**：新增“正在准备指纹传感器…”阶段（daemon ready 事件 +
+  2 s 回退），避免 loading 时按指纹被吞；`使用指纹`重试清掉旧的红色
+  “指纹不可用”；sudo 卡片显示被授权的命令行（仅 sudo/sudo-i，2 行截断，
+  不写日志）。
+- **恢复**：bioauthd 对首次 device-error 静默重试一次（等 watchdog 重载
+  loader），仍失败才显示“指纹不可用”。
+- **验证**：libfprint goodix-qsee-proto/fpi-* 测试通过；bioauth 13 个单测、
+  10 个 TTY e2e、关键 GUI e2e（含命令行显示、不可用重试清红字）通过。
+  上机安装脚本：`fingerprint-fix/deploy.sh`（含备份/回滚）。
+
 ## 2026-11-24 — 指纹内核级根治：QSEE staging 预分配 + TEE shm 压缩重试
 
 - **根因**：`qseecom_tee` 的用户缓冲是普通内核内存，每次打开设备用

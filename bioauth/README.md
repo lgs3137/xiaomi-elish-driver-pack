@@ -30,7 +30,12 @@ desktop" needs compositor/greeter cooperation — see
 
 Fingerprint (default, no initial choice):
 
-- window opens with "请把手指放在指纹传感器上…"; the helper emits a
+- window opens with "正在准备认证…"; once the backend has armed the sensor it
+  changes to "请把手指放在指纹传感器上…".  The daemon sends
+  `{"event":"fingerprint_armed"}` when fprintd reports `finger-needed`; an older
+  driver/daemon gets a conservative 2 s fallback.  Touches during the arming
+  window are lost by the sensor, so the UI explicitly asks the user to wait
+  instead of showing a blind spinner.  The helper emits the
   `{"event":"ready"}` handshake once the window is actually mapped (the PAM
   module kills a helper that never becomes ready and falls back — this is what
   turns the old silent "no popup" failure into a logged, recoverable event).
@@ -39,7 +44,14 @@ Fingerprint (default, no initial choice):
   **not** counted as a mismatch and never advances the lockout counter.
 - N mismatches (`max_failures`) → fingerprint disabled → password only; a
   password success resets the counter and re-enables fingerprint.
-- device/backend error → `指纹不可用`, password is offered, retry button stays.
+- device/backend error → the daemon silently retries once after the TA
+  watchdog has reloaded the loader; only a persistent failure shows
+  `指纹不可用`, then password is offered and the retry button stays.  Clicking
+  `使用指纹` clears the stale red error before arming the new attempt.
+- sudo prompts show the command line being authorized (`命令：…`) so a
+  high-risk command can be judged before authenticating.  It is parsed from the
+  PAM process argv for `sudo`/`sudo-i` only, truncated to two lines, and never
+  written to the logs.  Command arguments can themselves contain secrets.
 - `使用密码` immediately cancels an in-flight scan (req-scoped daemon cancel, so
   the cancel cannot hit the next attempt) and switches to the password form.
 - password wrong → red `密码错误` stays visible, form stays usable;

@@ -252,7 +252,9 @@ def test_tty_device_error_allows_fingerprint_retry():
         assert p.read_until("密码: ", timeout=5), p.text()
         p.clear()
         p.send(b"\n")               # empty Enter -> switch back to fingerprint
-        assert p.read_until("请把手指", timeout=8), p.text()
+        # The new attempt first says it is arming the sensor; the prompt only
+        # follows once a touch will actually be seen (or the backend errors).
+        assert p.read_until("正在准备", timeout=8), p.text()
         # It is still unavailable, so the module promotes password again.
         assert p.read_until("指纹不可用", timeout=8), p.text()
         assert p.read_until("密码: ", timeout=5), p.text()

@@ -175,6 +175,14 @@ window.bioauth-overlay {
     color: #9a9aa2;
     font-size: 12px;
 }
+.bioauth-command {
+    color: #c0bfbc;
+    font-family: monospace;
+    font-size: 11px;
+    background-color: rgba(255, 255, 255, 0.045);
+    border-radius: 7px;
+    padding: 6px 9px;
+}
 .bioauth-status {
     color: #deddda;
     font-size: 15px;
@@ -369,6 +377,19 @@ class AuthWindow(Gtk.Window):
         header.append(title_box)
         inner.append(header)
 
+        # The command being authorized (sudo only; populated by pam_bioauth).
+        # It is deliberately not logged: command lines can carry secrets.
+        self.command = Gtk.Label(label="")
+        self.command.add_css_class("bioauth-command")
+        self.command.set_xalign(0)
+        self.command.set_wrap(True)
+        self.command.set_wrap_mode(1)  # Pango.WrapMode.WORD_CHAR
+        self.command.set_max_width_chars(44)
+        self.command.set_lines(2)
+        self.command.set_ellipsize(3)  # Pango.EllipsizeMode.END
+        self.command.set_visible(False)
+        inner.append(self.command)
+
         self.status = Gtk.Label(label="正在准备认证…")
         self.status.add_css_class("bioauth-status")
         self.status.set_xalign(0)
@@ -503,7 +524,19 @@ class AuthWindow(Gtk.Window):
                 self._service = service
                 self.subtitle.set_text("服务：" + service)
                 self.subtitle.set_visible(True)
-            self.show_fingerprint("请按指纹…")
+            cmd = str(msg.get("cmd") or "").strip()
+            if cmd:
+                self.command.set_text("命令：" + cmd)
+                self.command.set_tooltip_text(cmd)
+                self.command.set_visible(True)
+            # Do not invite a touch yet: PAM still has to query the daemon
+            # and start fprintd.  fingerprint_preparing/armed follow.
+            self.show_fingerprint_preparing("正在准备认证…")
+        elif op == "fingerprint_preparing":
+            self.show_fingerprint_preparing(
+                str(msg.get("text") or "正在准备指纹传感器…"))
+        elif op == "fingerprint_armed":
+            self.show_fingerprint(str(msg.get("text") or "请按指纹…"))
         elif op == "fingerprint_wait":
             self.show_fingerprint(str(msg.get("text") or "请按指纹…"))
         elif op == "fingerprint_result":
@@ -587,7 +620,27 @@ class AuthWindow(Gtk.Window):
         self._verifying = False
         self.title.set_text("指纹验证")
         self._set_status(text or "请按指纹…")
-        if previous != "fingerprint" and previous != "switching":
+        if previous != "fingerprint":
+            self._set_detail("", "normal")
+        self.pwrow.set_visible(False)
+        self.entry.set_sensitive(True)
+        self.pwbtn.set_sensitive(True)
+        self._show_switch("使用密码", visible=True, sensitive=True)
+        self.cancel_btn.set_visible(True)
+        self.spinner_row.set_visible(True)
+        self.spinner.start()
+
+    def show_fingerprint_preparing(self, text):
+        """Arm phase: the backend is starting/opening the sensor, a touch now
+        would be lost.  Say so instead of showing a bare spinner."""
+        if self._success:
+            return
+        previous = self._mode
+        self._mode = "fingerprint"
+        self._verifying = True
+        self.title.set_text("指纹验证")
+        self._set_status(text or "正在准备指纹传感器…")
+        if previous != "fingerprint":
             self._set_detail("", "normal")
         self.pwrow.set_visible(False)
         self.entry.set_sensitive(True)

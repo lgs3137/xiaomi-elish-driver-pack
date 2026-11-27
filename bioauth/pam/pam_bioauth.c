@@ -216,6 +216,11 @@ json_escape(const char *src, char *dst, size_t dstsz)
             dst[j++] = (char)c;
         } else if (c == '\n' || c == '\r' || c == '\t') {
             dst[j++] = ' ';
+        } else if (c < 0x20) {
+            if (j + 7 >= dstsz)
+                break;
+            snprintf(dst + j, 7, "\\u%04x", c);
+            j += 6;
         } else {
             dst[j++] = (char)c;
         }
@@ -848,6 +853,208 @@ helper_close_fds(int keep)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* command line shown in the GUI                                       */
+
+static void
+cmd_append_text(char *out, size_t outsz, const char *text)
+{
+    size_t used = strlen(out);
+    size_t room, len;
+
+    if (used + 1 >= outsz)
+        return;
+    if (used) {
+        out[used++] = ' ';
+        out[used] = '\0';
+    }
+    room = outsz - used - 1;
+    len = strlen(text);
+    if (len > room) {
+        if (room > 3) {
+            memcpy(out + used, text, room - 3);
+            used += room - 3;
+            memcpy(out + used, "...", 3);
+            used += 3;
+            out[used] = '\0';
+        }
+        return;
+    }
+    memcpy(out + used, text, len);
+    out[used + len] = '\0';
+}
+
+static void
+cmd_append_arg(char *out, size_t outsz, const char *arg)
+{
+    char quoted[768];
+    size_t j = 0;
+    int need = !*arg || strpbrk(arg, " \t\n\"'\\$`;&|<>()*?[]{}!#~") != NULL;
+
+    if (!need) {
+        cmd_append_text(out, outsz, arg);
+        return;
+    }
+    quoted[j++] = '\'';
+    for (size_t i = 0; arg[i] && j + 6 < sizeof(quoted); i++) {
+        if (arg[i] == '\'') {
+            memcpy(quoted + j, "'\\''", 4);
+            j += 4;
+        } else {
+            quoted[j++] = arg[i];
+        }
+    }
+    quoted[j++] = '\'';
+    quoted[j] = '\0';
+    cmd_append_text(out, outsz, quoted);
+}
+
+static int
+sudo_short_takes_arg(char c)
+{
+    return c && strchr("acCDghpRrtTuU", c) != NULL;
+}
+
+static int
+sudo_long_takes_arg(const char *arg)
+{
+    static const char *opts[] = {
+        "--auth-type", "--chdir", "--chroot", "--close-from",
+        "--command-timeout", "--group", "--host", "--login-class",
+        "--other-user", "--prompt", "--role", "--type", "--user", NULL,
+    };
+    for (int i = 0; opts[i]; i++) {
+        size_t n = strlen(opts[i]);
+        if (strncmp(arg, opts[i], n) == 0 && (arg[n] == '\0' || arg[n] == '='))
+            return 1;
+    }
+    return 0;
+}
+
+/* Describe what sudo is about to run.  Only the sudo/sudo-i services (and the
+ * test service) are parsed: for polkit the PAM process is the agent helper and
+ * its argv is not the command being authorized.  Never log the result. */
+static void
+current_command_summary(const char *service, char *out, size_t outsz)
+{
+    char raw[4096];
+    char *argv[64];
+    int argc = 0;
+    int login = 0, shell = 0, validate = 0, list = 0, edit = 0;
+    int clear = 0, help = 0, version = 0;
+    ssize_t n;
+    int i;
+
+    out[0] = '\0';
+    if (!service ||
+        (strcmp(service, "sudo") != 0 && strcmp(service, "sudo-i") != 0 &&
+         strcmp(service, "bioauth-dev") != 0))
+        return;
+
+    n = 0;
+    {
+        int fd = open("/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            n = read(fd, raw, sizeof(raw) - 1);
+            close(fd);
+        }
+    }
+    if (n <= 0)
+        return;
+    raw[n] = '\0';
+
+    for (char *p = raw; p < raw + n && argc < (int)(sizeof(argv) / sizeof(argv[0]));) {
+        argv[argc++] = p;
+        p += strlen(p) + 1;
+    }
+    if (argc < 2) {
+        snprintf(out, outsz, "sudo（无参数）");
+        return;
+    }
+
+    for (i = 1; i < argc; i++) {
+        char *a = argv[i];
+        if (strcmp(a, "--") == 0) {
+            i++;
+            break;
+        }
+        if (a[0] != '-' || a[1] == '\0')
+            break;
+        if (a[1] == '-') {
+            if (strcmp(a, "--login") == 0)
+                login = 1;
+            else if (strcmp(a, "--shell") == 0)
+                shell = 1;
+            else if (strcmp(a, "--validate") == 0)
+                validate = 1;
+            else if (strcmp(a, "--list") == 0)
+                list = 1;
+            else if (strcmp(a, "--edit") == 0)
+                edit = 1;
+            else if (strcmp(a, "--remove-timestamp") == 0 ||
+                     strcmp(a, "--reset-timestamp") == 0)
+                clear = 1;
+            else if (strcmp(a, "--help") == 0)
+                help = 1;
+            else if (strcmp(a, "--version") == 0)
+                version = 1;
+            else if (sudo_long_takes_arg(a) && !strchr(a, '='))
+                i++;
+            continue;
+        }
+        for (char *q = a + 1; *q; q++) {
+            if (sudo_short_takes_arg(*q)) {
+                if (!q[1])
+                    i++;
+                break;
+            }
+            if (*q == 'i')
+                login = 1;
+            else if (*q == 's')
+                shell = 1;
+            else if (*q == 'v')
+                validate = 1;
+            else if (*q == 'l')
+                list = 1;
+            else if (*q == 'e')
+                edit = 1;
+            else if (*q == 'K' || *q == 'k')
+                clear = 1;
+            else if (*q == 'h')
+                help = 1;
+            else if (*q == 'V')
+                version = 1;
+        }
+    }
+
+    if (i >= argc) {
+        if (validate)
+            snprintf(out, outsz, "刷新 sudo 凭据（无命令）");
+        else if (list)
+            snprintf(out, outsz, "列出 sudo 权限");
+        else if (version)
+            snprintf(out, outsz, "sudo 版本");
+        else if (help)
+            snprintf(out, outsz, "sudo 帮助");
+        else if (login)
+            snprintf(out, outsz, "登录 shell（sudo -i）");
+        else if (shell)
+            snprintf(out, outsz, "交互式 shell（sudo -s）");
+        else if (edit)
+            snprintf(out, outsz, "编辑文件（sudo -e）");
+        else if (clear)
+            snprintf(out, outsz, "清除 sudo 时间戳");
+        else
+            snprintf(out, outsz, "交互式 shell（sudo）");
+        return;
+    }
+
+    for (; i < argc; i++)
+        cmd_append_arg(out, outsz, argv[i]);
+    if (!out[0])
+        snprintf(out, outsz, "sudo（无命令）");
+}
+
 static int
 helper_start(pam_handle_t *pamh, const char *user)
 {
@@ -960,7 +1167,15 @@ helper_start(pam_handle_t *pamh, const char *user)
     helper_fd = fds[0];
     helper_pid = pid;
     plog("helper started pid=%d fd=%d helper=%s", (int)pid, helper_fd, g_helper);
-    helper_send("{\"op\":\"start\",\"service\":\"%s\"}", service);
+    {
+        char cmd[600];
+        char esc_service[256], esc_cmd[2048];
+        current_command_summary(service, cmd, sizeof(cmd));
+        json_escape(service, esc_service, sizeof(esc_service));
+        json_escape(cmd, esc_cmd, sizeof(esc_cmd));
+        helper_send("{\"op\":\"start\",\"service\":\"%s\",\"cmd\":\"%s\"}",
+                    esc_service, esc_cmd);
+    }
     return 0;
 }
 
@@ -1047,7 +1262,23 @@ ui_close(void)
 /* UI state updates                                                    */
 
 static void
-ui_fingerprint_wait(const char *text)
+ui_fingerprint_preparing(const char *text)
+{
+    char esc[1024];
+
+    if (ui_kind == UI_TTY) {
+        tty_msg("%s\n", text);
+        return;
+    }
+    if (ui_kind != UI_GUI)
+        return;
+    json_escape(text, esc, sizeof(esc));
+    plog("ui: fingerprint_preparing");
+    helper_send("{\"op\":\"fingerprint_preparing\",\"text\":\"%s\"}", esc);
+}
+
+static void
+ui_fingerprint_armed(const char *text)
 {
     char esc[1024];
 
@@ -1059,7 +1290,8 @@ ui_fingerprint_wait(const char *text)
     if (ui_kind != UI_GUI)
         return;
     json_escape(text, esc, sizeof(esc));
-    helper_send("{\"op\":\"fingerprint_wait\",\"text\":\"%s\"}", esc);
+    plog("ui: fingerprint_armed");
+    helper_send("{\"op\":\"fingerprint_armed\",\"text\":\"%s\"}", esc);
 }
 
 static void
@@ -1382,7 +1614,10 @@ do_fingerprint(pam_handle_t *pamh, const char *user, int *locked_out, int *fail_
 
     (void)pamh;
     snprintf(req_id, sizeof(req_id), "%s:%u", g_session, seq);
-    ui_fingerprint_wait("请把手指放在指纹传感器上…");
+    /* Opening the sensor and arming the TA takes ~1 s.  Do not invite a touch
+     * during that window: a press before AUTHENTICATE/IRQ is simply lost and
+     * looks like the UI is ignoring the finger. */
+    ui_fingerprint_preparing("正在准备指纹传感器，请稍候再按…");
     if (ui_kind == UI_TTY)
         tty_raw_on();
     json_escape(user, esc, sizeof(esc));
@@ -1399,6 +1634,10 @@ do_fingerprint(pam_handle_t *pamh, const char *user, int *locked_out, int *fail_
         return PAM_IGNORE;
     }
     plog("fingerprint req=%s", req_id);
+    /* The daemon sends {"event":"fingerprint_armed"} when fprintd reports
+     * finger-needed; this is only the fallback for an older daemon/driver. */
+    long long armed_at = now_ms() + 2000;
+    int armed_shown = 0;
 
     for (;;) {
         int left = remaining_ms();
@@ -1413,6 +1652,10 @@ do_fingerprint(pam_handle_t *pamh, const char *user, int *locked_out, int *fail_
             tty_raw_off();
             ui_fingerprint_result(0, "验证超时");
             return PAM_AUTH_ERR;
+        }
+        if (!armed_shown && now_ms() >= armed_at) {
+            ui_fingerprint_armed("请把手指放在指纹传感器上…");
+            armed_shown = 1;
         }
         pfds[0].fd = fd;
         pfds[0].events = POLLIN;
@@ -1492,8 +1735,16 @@ do_fingerprint(pam_handle_t *pamh, const char *user, int *locked_out, int *fail_
             }
         }
         if (pfds[0].revents & POLLIN) {
-            if (read_line(fd, resp, sizeof(resp)) > 0)
+            if (read_line(fd, resp, sizeof(resp)) > 0) {
+                char ev[64];
+                if (helper_value(resp, "event", ev, sizeof(ev)) == 0 &&
+                    strcmp(ev, "fingerprint_armed") == 0) {
+                    ui_fingerprint_armed("请把手指放在指纹传感器上…");
+                    armed_shown = 1;
+                    continue;
+                }
                 break;
+            }
             close(fd);
             tty_raw_off();
             return PAM_IGNORE;

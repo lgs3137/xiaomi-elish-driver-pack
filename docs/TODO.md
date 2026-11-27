@@ -59,6 +59,25 @@ PPS 不触发异常硬复位；高电量能正常涓流到 100%。
 
 ---
 
+## 5. 加速度计 mount matrix 全 0 → 方向回退单位矩阵（中，2026-11-26 发现）
+
+- 现象：`sensors/scripts/sensor-status.sh` 报
+  `iio-sensor-prox: Mount matrix provided by firmware is all 0, falling back to identity matrix!`；
+  `AccelerometerOrientation` 仍能给出 `right-up`，但方向映射实际依赖"单位矩阵"回退，
+  **旋转/合盖方向可能与物理方向不符**。
+- 与"唤醒后方向乱跳"的关系：方向乱跳还可能来自平板模式 SW_TABLET_MODE 被误脉冲翻转（独立线索，
+  见 `tablet-mode/elish-keyboard-detect.py` 的 resume 抑制逻辑）；本条只解决"映射矩阵"这一半。
+- 下一步：
+  1. 从 Android 侧读该加速度计的 `mount_matrix`（或 device tree 里加速度计节点的 `mount-matrix`）；
+  2. 在 SLPI/hexrpc 传感器配置或 DTS 中补上真实三轴映射；
+  3. 核对 libssc/udev 是否覆盖了矩阵（`/sys/bus/iio/devices/*/mount_matrix`）。
+- 验收：`mount_matrix` 非全 0；屏幕四个方向与物理方向一致；合盖/开盖方向正确。
+- 附注（2026-11-26）：SLPI **早期固件加载必然失败**——`/lib/firmware/qcom/sm8250/xiaomi/elish/slpi.mbn`
+  是指向 `/run/sensor-fw/slpi.mbn` 的软链，开机早期该文件还不存在，由 sensors 服务在 ~13.6s 补载。
+  **这是设计如此，不修**（`sensor-status.sh` 里的 `AUTO_BOOT=no` 属预期）。
+
+---
+
 ## 明确不做（评估过，不作为 TODO）
 
 - **GNSS 按需启动/懒连接**：不做。`airoha-gnssd` 常开成本约 50–70 mW（≈电池 3–5%/天，实际休眠更低），
