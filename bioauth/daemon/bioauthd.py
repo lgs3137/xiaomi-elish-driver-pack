@@ -160,6 +160,7 @@ class MockBackend:
         self.cancel_event = threading.Event()
         self.current_req: str | None = None
         self.pending_cancels: dict[str, None] = {}
+        self.once_error_done = False
 
     def _mark_request_locked(self, req: str | None) -> bool:
         self.current_req = req
@@ -183,7 +184,7 @@ class MockBackend:
             return True
 
     def verify(self, user: str, timeout: int,
-               req: str | None = None) -> tuple[bool, str]:
+               req: str | None = None, on_ready=None) -> tuple[bool, str]:
         with self.lock:
             with self.book:
                 if self._mark_request_locked(req):
@@ -204,6 +205,11 @@ class MockBackend:
                 return True, ""
             if self.mode == "device-error":
                 return False, "device-error"
+            if self.mode == "device-error-once":
+                if not self.once_error_done:
+                    self.once_error_done = True
+                    return False, "device-error"
+                return True, ""
             return False, "no-match"
 
 
@@ -271,8 +277,51 @@ class FprintdBackend:
             pass
         return True
 
+    def _watch_armed(self, on_ready, stop_event, still_running) -> None:
+        """Tell the UI when fprintd says the sensor is armed (finger-needed).
+
+        The goodixqsee driver reports FP_FINGER_STATUS_NEEDED after
+        AUTHENTICATE + IRQ enable.  If the installed driver is older, the
+        property never changes; the PAM client then falls back to its own
+        conservative timer.  This watcher must never break the verify path.
+        """
+        try:
+            from gi.repository import Gio, GLib
+        except Exception:
+            return
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            mgr = bus.call_sync(
+                "net.reactivated.Fprint", "/net/reactivated/Fprint/Manager",
+                "net.reactivated.Fprint.Manager", "GetDevices", None,
+                GLib.VariantType.new("(ao)"), Gio.DBusCallFlags.NONE, 300, None)
+            paths = mgr.unpack()[0]
+            if not paths:
+                return
+            path = paths[0]
+            while not stop_event.is_set():
+                if not still_running():
+                    return
+                try:
+                    res = bus.call_sync(
+                        "net.reactivated.Fprint", path,
+                        "org.freedesktop.DBus.Properties", "Get",
+                        GLib.Variant("(ss)", (
+                            "net.reactivated.Fprint.Device", "finger-needed")),
+                        GLib.VariantType.new("(v)"), Gio.DBusCallFlags.NONE,
+                        200, None)
+                    if res.unpack()[0]:
+                        log("ready watcher: fprintd finger-needed=true")
+                        on_ready()
+                        return
+                except Exception:
+                    pass
+                stop_event.wait(0.05)
+        except Exception:
+            return
+
     def verify(self, user: str, timeout: int,
-               req: str | None = None) -> tuple[bool, str]:
+               req: str | None = None, on_ready=None) -> tuple[bool, str]:
         with self.lock:  # fprintd is a serialized device; one at a time
             if self._mark_request(req):
                 log(f"fingerprint {req} cancelled before it started")
@@ -289,6 +338,14 @@ class FprintdBackend:
                 raise BackendError(f"cannot start fprintd-verify: {exc}") from exc
             with self.active_lock:
                 self.proc = proc
+            ready_stop = threading.Event()
+            ready_thread = None
+            if on_ready is not None:
+                ready_thread = threading.Thread(
+                    target=self._watch_armed,
+                    args=(on_ready, ready_stop, lambda: proc.poll() is None),
+                    name="bioauth-ready", daemon=True)
+                ready_thread.start()
             deadline = time.monotonic() + timeout
             timed_out = False
             canceled = False
@@ -331,6 +388,9 @@ class FprintdBackend:
                         pass
                     out, _ = proc.communicate(timeout=1)
             finally:
+                ready_stop.set()
+                if ready_thread is not None:
+                    ready_thread.join(timeout=0.3)
                 with self.active_lock:
                     self.proc = None
             if canceled or self.cancel_event.is_set():
@@ -427,7 +487,7 @@ class BioAuthD:
         except OSError:
             return -1
 
-    def _dispatch(self, req: dict, peer_uid: int) -> dict:
+    def _dispatch(self, req: dict, peer_uid: int, notify=None) -> dict:
         op = req.get("op")
         user = req.get("user")
         if not isinstance(user, str) or not user:
@@ -456,8 +516,23 @@ class BioAuthD:
                 session = req.get("session")
                 seq = req.get("seq")
                 req_id = f"{session}:{seq}" if session is not None and seq is not None else None
+            ready_cb = None
+            if notify is not None:
+                ready_cb = lambda: notify({"event": "fingerprint_armed"})
             try:
-                ok, reason = self.backend.verify(user, self.fingerprint_timeout, req_id)
+                ok, reason = self.backend.verify(
+                    user, self.fingerprint_timeout, req_id, on_ready=ready_cb)
+                if reason == "device-error" and isinstance(self.backend, FprintdBackend):
+                    # The first attempt after a long idle / new fprintd session can
+                    # race a finger that was placed before the TA armed; the TA
+                    # refuses IRQ 1016 and the watchdog reloads the loader.  Give
+                    # it one quiet retry before showing 指纹不可用 to the user.
+                    log(f"fingerprint user={user} req={req_id} device-error; "
+                        f"retrying once after TA recovery")
+                    time.sleep(2.0)
+                    ready_cb = None
+                    ok, reason = self.backend.verify(
+                        user, self.fingerprint_timeout, req_id)
             except BackendError as exc:
                 st["ok"] = False
                 st["unavailable"] = True
@@ -535,6 +610,16 @@ class BioAuthD:
 
     def _handle(self, conn: socket.socket) -> None:
         peer_uid = self._peer_uid(conn)
+        send_lock = threading.Lock()
+
+        def notify(obj: dict) -> None:
+            data = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+            with send_lock:
+                try:
+                    conn.sendall(data)
+                except OSError:
+                    pass
+
         try:
             conn.settimeout(30)
             buf = b""
@@ -552,9 +637,10 @@ class BioAuthD:
                 if not isinstance(req, dict):
                     resp = {"ok": False, "error": "bad request"}
                 else:
-                    resp = self._dispatch(req, peer_uid)
+                    resp = self._dispatch(req, peer_uid, notify)
             data = (json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8")
-            conn.sendall(data)
+            with send_lock:
+                conn.sendall(data)
         except BrokenPipeError:
             # Expected: the PAM client switches to password and drops the
             # fingerprint request after cancel; the response has nowhere to go.
@@ -617,7 +703,8 @@ def main(argv=None) -> int:
     p.add_argument("--socket", default=None)
     p.add_argument("--state", default=None)
     p.add_argument("--backend", default=None,
-                   choices=["fprintd", "mock-success", "mock-fail", "mock-device-error"])
+                   choices=["fprintd", "mock-success", "mock-fail",
+                            "mock-device-error", "mock-device-error-once"])
     p.add_argument("--max-failures", type=int, default=None)
     p.add_argument("--fingerprint-timeout", type=int, default=None)
     p.add_argument("--password-tries", type=int, default=None)
@@ -647,6 +734,8 @@ def main(argv=None) -> int:
         backend = MockBackend("fail", mock_delay)
     elif backend_name == "mock-device-error":
         backend = MockBackend("device-error", mock_delay)
+    elif backend_name == "mock-device-error-once":
+        backend = MockBackend("device-error-once", mock_delay)
     else:
         backend = FprintdBackend()
 

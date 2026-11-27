@@ -82,7 +82,10 @@ invoke (FpiDeviceGoodixQsee *self, guint32 command, guint8 *payload,
 
   if (goodix_qsee_qsee_invoke (&self->qsee, command, payload, size, &result))
     {
-      g_propagate_error (error, io_error ("QSEE invoke"));
+      g_propagate_error (error, g_error_new (G_IO_ERROR,
+                                             g_io_error_from_errno (errno),
+                                             "QSEE invoke cmd %u: %s", command,
+                                             g_strerror (errno)));
       return FALSE;
     }
   if (status) *status = result;
@@ -228,6 +231,24 @@ cancel_armed (FpiDeviceGoodixQsee *self)
   goodix_qsee_qsee_invoke (&self->qsee, CMD_CANCEL, payload, sizeof (payload), &ignored);
 }
 
+/* Consume an IRQ edge that was latched while the sensor was being opened or
+ * the TA was being brought up.  A touch during that window makes the first
+ * IRQ 1016 arrive before the TA is ready; the TA then refuses it with -22 and
+ * the whole application has to be reloaded.  Draining the sensor-side event
+ * makes the early touch harmless: the scan simply waits for the next press. */
+static void
+drain_pending_irq (FpiDeviceGoodixQsee *self)
+{
+  int i;
+
+  if (goodix_qsee_sensor_enable_irq (&self->sensor))
+    return;
+  for (i = 0; i < 4; i++)
+    if (goodix_qsee_sensor_wait_irq (&self->sensor, 10) <= 0)
+      break;
+  goodix_qsee_sensor_disable_irq (&self->sensor);
+}
+
 static gboolean
 finish_authentication (FpiDeviceGoodixQsee *self, const guint8 *context,
                        GError **error)
@@ -252,6 +273,7 @@ capture_operation (FpiDeviceGoodixQsee *self, gboolean enrolling,
   guint32 status = 0;
 
   if (!set_group (self, GOODIX_QSEE_GROUP_DEFAULT, error)) return NULL;
+  drain_pending_irq (self);
   if (enrolling)
     {
       guint8 pre[112] = {0}, enroll[180], hat[GOODIX_QSEE_HAT_SIZE];
@@ -271,6 +293,10 @@ capture_operation (FpiDeviceGoodixQsee *self, gboolean enrolling,
   armed = TRUE;
   if (goodix_qsee_sensor_enable_irq (&self->sensor))
     { g_propagate_error (error, io_error ("enabling Goodix IRQ")); goto out; }
+  /* The sensor is now armed and waits for a finger; let fprintd expose
+   * finger-needed so a UI can show "ready" instead of a blind spinner. */
+  queue_progress (self, FP_FINGER_STATUS_NONE | FP_FINGER_STATUS_NEEDED,
+                  -1, NULL);
   goodix_qsee_prepare_irq (irq);
   while (g_get_monotonic_time () < deadline)
     {
@@ -330,6 +356,14 @@ capture_operation (FpiDeviceGoodixQsee *self, gboolean enrolling,
               result->group_id = event.group_id; result->finger_id = event.finger_id;
               if (!event.status && !finish_authentication (self, irq, error))
                 { g_clear_pointer (&result, g_free); goto out; }
+              if (event.status)
+                {
+                  /* AUTHENTICATE is one-shot: a mismatch/quality verdict
+                   * still has to be ended with CANCEL.  Clearing `armed`
+                   * without it leaves the TA armed, and the next verify is
+                   * refused with QSEE EINVAL. */
+                  cancel_armed (self);
+                }
               armed = FALSE;
               goto out;
             }

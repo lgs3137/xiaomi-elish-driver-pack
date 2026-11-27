@@ -14,6 +14,7 @@
 #define GF_IOC_MAGIC 'g'
 #define GF_IOC_RESET _IO (GF_IOC_MAGIC, 2)
 #define GF_IOC_ENABLE_IRQ _IO (GF_IOC_MAGIC, 3)
+#define GF_IOC_DISABLE_IRQ _IO (GF_IOC_MAGIC, 4)
 #define GF_IOC_ENABLE_SPI_CLK _IOW (GF_IOC_MAGIC, 5, uint32_t)
 #define GF_IOC_ENABLE_POWER _IO (GF_IOC_MAGIC, 7)
 #define GF_NETLINK_PROTOCOL 25
@@ -73,6 +74,14 @@ goodix_qsee_sensor_enable_irq (struct goodix_qsee_sensor *sensor)
   if (!sensor || sensor->device_fd < 0)
     { errno = EINVAL; return -1; }
   return ioctl (sensor->device_fd, GF_IOC_ENABLE_IRQ);
+}
+
+int
+goodix_qsee_sensor_disable_irq (struct goodix_qsee_sensor *sensor)
+{
+  if (!sensor || sensor->device_fd < 0)
+    { errno = EINVAL; return -1; }
+  return ioctl (sensor->device_fd, GF_IOC_DISABLE_IRQ);
 }
 
 int

@@ -74,7 +74,21 @@
 
 ## 3. TA "拒服务"（1062 / `scm call failed -22`）
 
-- 触发：短时间内并发/连续多个 verify（脚本连测）会把 TA 留在 armed 状态。
+- **2026-11-27 根因确认**：`AUTHENTICATE` 是一次性命令，mismatch 也必须用
+  `CANCEL` 收尾；旧驱动在 mismatch 分支直接 `armed = FALSE`，既不发
+  `AUTHENTICATE_FINISH` 也不发 `CANCEL`，TA 留在 armed 状态。bioauth 每 ~3 s
+  自动重试，下一次 verify 撞上未清状态，TZ 对整个 app 返回 `-22`，只能重载
+  loader。驱动已改为 mismatch/质量错误后显式 `cancel_armed()`，并上报
+  `FP_FINGER_STATUS_NEEDED` 供 fprintd 暴露 `finger-needed`。
+- 错误日志现在带命令号：`QSEE invoke cmd 1016: ...`、`cmd 1086`、`cmd 1010`，
+  可直接区分 IRQ / FINISH / AUTHENTICATE 哪一步失败。
+- **首批失败的另一半根因（2026-11-27 实测）**：用户在传感器 bring-up 期间就按下
+  手指时，IRQ 边沿会被 GPIO 锁存；AUTHENTICATE 后一开中断就对这个“旧边沿”发
+  `IRQ 1016`，TA 认为它不属于本次 capture，返回 `-22`。驱动现在在 AUTHENTICATE
+  之前 `drain_pending_irq()`（短暂开中断、丢弃 netlink 事件、再关中断），把早按
+  的边沿吃掉；本次扫描会等下一次按压，而不是把 TA 打坏。bioauthd 对首次
+  device-error 还会在 watchdog 重载后静默重试一次，避免直接弹“指纹不可用”。
+- 旧现象：短时间内并发/连续多个 verify（脚本连测）会把 TA 留在 armed 状态。
 - 恢复（不重启）：`sudo systemctl restart qsee-app-loader@gfenu`；
   已部署 `fp-ta-watchdog` 自动做（依赖 libfprint 日志补丁）。
 - `fp-ta-watchdog` 现在区分：`-22`/QSEE refusal → 重载 loader；只有真正的

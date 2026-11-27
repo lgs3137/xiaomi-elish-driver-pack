@@ -30,7 +30,7 @@
 | 供电 | PM8150A LDO10（L10A）@ 3.008 V |
 | TA | `gfenu`（9 个文件，约 4.8MB，ELF32，从**你自己的设备**提取，见 `extract/`） |
 | qsee-supplicant | 0.1.1（含 qsee-app-loader） |
-| libfprint | 1.94.100，`wrobelda/libfprint` 分支 `goodix-qsee` commit `430e24e5` + 日志补丁 |
+| libfprint | 1.94.100，`wrobelda/libfprint` 分支 `goodix-qsee` commit `430e24e5` + 日志/`CANCEL`/`finger-needed` 补丁 |
 | fprintd / libpam-fprintd | 1.94.3（Ubuntu noble） |
 | 内核 | 6.18.44-current-sm8250 + QSEECOM/mdt_loader/qcom_scm/goodix 驱动（本包 `../kernel/`） |
 
