@@ -817,6 +817,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: deepin-desktop-${{ env.BOOT_SLOT }}-run-${{ github.run_number }}
-          name: "Deepin 25 Desktop (${{ env.BOOT_SLOT }}) #${{ github.run_number }}"
+          name: "Xiaomi Pad 5 Pro (elish) Deepin 25 Fastboot 固件 (${{ env.BOOT_SLOT }})"
           body_path: dist/deepin-desktop-release/FLASH-README.txt
           files: dist/deepin-desktop-release/*
