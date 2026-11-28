@@ -550,7 +550,7 @@ jobs:
           Name=Elish Auto Rotate
           Exec=/usr/local/bin/elish-autorotate.py
           OnlyShowIn=DDE;GNOME;XFCE;KDE;
-          X-GNOME-Autostart-enabled=true
+          X-GNOME-Autostart-enabled=false
           AROTDESK
 
           sudo tee "$STAGE/etc/polkit-1/rules.d/50-elish-sensor.rules" >/dev/null <<'POLKIT'
