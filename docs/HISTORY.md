@@ -22,6 +22,9 @@
   不写日志）。
 - **恢复**：bioauthd 对首次 device-error 静默重试一次（等 watchdog 重载
   loader），仍失败才显示“指纹不可用”。
+- **GDM 锁屏**：`pam_fprintd` 默认 `max-tries=3 timeout=30`，一次 mismatch 后
+  worker 继续占 fprintd，GDM 新 worker 收到 `Device was already claimed`；
+  `gdm-fingerprint` 改为 `max-tries=1 timeout=10`，失败/超时后尽快 Release。
 - **验证**：libfprint goodix-qsee-proto/fpi-* 测试通过；bioauth 13 个单测、
   10 个 TTY e2e、关键 GUI e2e（含命令行显示、不可用重试清红字）通过。
   上机安装脚本：`fingerprint-fix/deploy.sh`（含备份/回滚）。

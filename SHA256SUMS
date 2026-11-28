@@ -83,13 +83,13 @@ caf884d8e0aac3ec2ee8da8f3ee2f0be198335d3161bfb30361d6232777ee4f0  ./camera/syste
 fd1f71388f90f31b939a711c5ab3f0e6400ad4f1667cf69f1b6d9249e6e86492  ./docs/DEVICE-DATA-EXTRACTION.md
 2946749bd6bba02f4f0cc93fa6eb8f03ca32c07b0e83548b956b578af9f70590  ./docs/HARDENING.md
 287fed5c22392b539fd5f0a34ad1c3be687ddeeb96e31897a51c251ae84f0a15  ./docs/HARDWARE-STATUS.md
-646393e56f7dd24878994ca04a5fe1e76f24b1d2b09c8d24e84a1785e4e09317  ./docs/HISTORY.md
+61729b79c36d56399a407b55599a28d2b71ce78bee54a8f3ad3bb2ecb850e371  ./docs/HISTORY.md
 94957b7fc63ed1fb80a8163ed1e3f76874147290fbeb387f389f0d4eda7dc1fc  ./docs/KERNEL-UPGRADE-RISK.md
 741bf92d6883ec8bcf37347346ebc91290e84eae1ac49019fe2f12c51ac98c31  ./docs/TODO.md
 5577d984c72bb3084704d2e771457a0a407322b22f1e2dd2f4e1a3f8af3e67e4  ./docs/UPGRADE-IMPACT-ALL.md
-69befc3cea08cd08de85b248f236ce24ad6b849a0f5b4fc2ac98616f66220b5b  ./fingerprint/INSTALL.md
+184e3fb3ddb2019d50c3952abe1c5a9c1e8acc4f598a5d69acd338fbad3fc99d  ./fingerprint/INSTALL.md
 184d026eb0e302778de7447ea6936ee8106449b8f9a2df779bc967c52528fe6b  ./fingerprint/MANIFEST.md
-54bac1d2191ba098198f86b21614f62cbf64ce80c41a7ccf4ec8f303e38f2a23  ./fingerprint/NOTES.md
+9124be5241442c797f9fc030b06d7216dbd367f027a38f88563a4bb23d0ceb45  ./fingerprint/NOTES.md
 7946f8d996117e03a82656082b742ee12aab7b81adef8d05ddcc3eae80f24a64  ./fingerprint/README.md
 2c0fb6a1322065e576f8184825c5dd7b4d9b71e0fe9b1f8ba5ad673f753d0a11  ./fingerprint/extract/README.md
 919c16126f6cd2ac4e8eb8c3611c300040049b67afdf17df3e649ba808c05c0b  ./fingerprint/extract/extract-gfenu-ta.sh
@@ -150,7 +150,7 @@ d3ba7cf3754a2013f0ae122ae1ea1135bb5c3d7183e099d775599737aa145657  ./fingerprint/
 a53b63506938d4629d1e5d3f599a41e0629dde4cd7c3a3c8ec6916a80a61f5a7  ./fingerprint/system/bin/fp-sudo-prompt-done
 4801507a4896715af4d94263ffbb7777a81e2c6b32a4b6e2c1b6b8f2e313b6a6  ./fingerprint/system/bin/fp-ta-watchdog
 e2a9f65ec2fa119cbb0484a0ebfdf648079ec581b9cf22ed0c69d9368ce09df8  ./fingerprint/system/bin/qsee-app-loader-retry
-2b5843515b1663872c9f2bc129f85ad7bedf82dab8bc73c3f2ffb04f569e7207  ./fingerprint/system/pam.d/gdm-fingerprint
+5adf980e87d06508731fbbd3c5c7f29a2aebcbbb35da5853c9a82ce41a96fb75  ./fingerprint/system/pam.d/gdm-fingerprint
 2cc139ccb69f725b23b812b88e221b57079967c0a2cca1f686ee3703e2fc0aa7  ./fingerprint/system/pam.d/sudo
 d2961b73827546d27a1bcef28e3bbcf76c48956cb75e0a4bdbe06b3f67836673  ./fingerprint/system/sysctl.d/99-elish-fp.conf
 3400d8846273290f52cff793dc62f6faf800a33255bbaf9099e3c734569a3503  ./fingerprint/system/systemd-sleep/70-goodix-fp-resume.sh
